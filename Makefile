@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks
+.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets
 
 GO      ?= go
 BIN     := blittermib
@@ -10,6 +10,10 @@ LIBSMI_MIN := 0.5.0
 
 all: build
 
+prepare-assets:
+	@mkdir -p internal/server/assets
+	@cp -f prototype/styles.css internal/server/assets/styles.css
+
 check-tools:
 	@command -v smidump >/dev/null 2>&1 || { echo "smidump not found. Install libsmi >= $(LIBSMI_MIN) (brew install libsmi)"; exit 1; }
 	@command -v smilint >/dev/null 2>&1 || { echo "smilint not found. Install libsmi >= $(LIBSMI_MIN) (brew install libsmi)"; exit 1; }
@@ -19,10 +23,10 @@ hooks:
 	@command -v pre-commit >/dev/null 2>&1 || { echo "pre-commit not found. Install with: pipx install pre-commit (or pip install --user pre-commit)"; exit 1; }
 	pre-commit install
 
-build:
+build: prepare-assets
 	$(GO) build -ldflags='$(LDFLAGS)' -o $(BIN) ./cmd/blittermib
 
-test:
+test: prepare-assets
 	$(GO) test -race -count=1 $(PKG)
 
 verify: fmt-check vet test

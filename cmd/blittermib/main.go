@@ -4,18 +4,25 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+
+	"github.com/no42-org/blittermib/internal/server"
+	"github.com/no42-org/blittermib/internal/store"
 )
 
 // version is set by the linker at release time via -ldflags.
 var version = "dev"
 
-// errPrintVersion is a sentinel signalling that --version was passed and
-// the program should print the version and exit cleanly.
+// errPrintVersion signals that --version was passed and the program
+// should print the version and exit cleanly.
 var errPrintVersion = fmt.Errorf("print version")
 
 type config struct {
@@ -32,7 +39,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, version)
 		return
 	case err != nil:
-		// flag.Parse with ContinueOnError already prints the message.
 		os.Exit(2)
 	}
 
@@ -44,9 +50,6 @@ func main() {
 	}
 }
 
-// parseFlags parses argv into a config. errPrintVersion signals --version
-// was passed; any other non-nil error is a flag parse failure (the
-// FlagSet has already written the diagnostic to errOut).
 func parseFlags(args []string, errOut io.Writer) (config, error) {
 	fs := flag.NewFlagSet("blittermib", flag.ContinueOnError)
 	fs.SetOutput(errOut)
@@ -82,12 +85,31 @@ func newLogger(verbose bool) *slog.Logger {
 }
 
 func run(cfg config) error {
+	if err := os.MkdirAll(cfg.dataDir, 0o755); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
+	}
+	dbPath := filepath.Join(cfg.dataDir, "blittermib.db")
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer st.Close()
+
 	slog.Info("blittermib starting",
 		"version", version,
 		"mibs", cfg.mibsDir,
 		"data", cfg.dataDir,
 		"listen", cfg.listen,
 	)
-	slog.Warn("server not yet implemented; this is a foundation stub")
+
+	srv := server.New(st, cfg.listen, version)
+	if err := srv.Start(ctx); err != nil {
+		return fmt.Errorf("server: %w", err)
+	}
+	slog.Info("blittermib stopped")
 	return nil
 }
