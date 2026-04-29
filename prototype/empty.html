@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>blittermib</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      var saved = localStorage.getItem('blittermib-theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+      window.toggleTheme = function () {
+        var cur = document.documentElement.getAttribute('data-theme');
+        var next = cur === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('blittermib-theme', next);
+      };
+    })();
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="index.html" class="brand"><span class="brand-mark"><span class="bar bar-1"></span><span class="bar bar-2"></span><span class="bar bar-3"></span></span><span class="brand-text">blittermib<span class="brand-dot">.</span></span></a>
+    <span class="brand-tagline">Pixelperfect MIB browser</span>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-end">
+      <span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+        <span class="moon">☾</span>
+        <span class="sun">☀</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <div class="empty">
+      <div class="brand-large"><span class="brand-mark"><span class="bar bar-1"></span><span class="bar bar-2"></span><span class="bar bar-3"></span></span><span class="brand-text">blittermib<span class="brand-dot">.</span></span></div>
+      <p class="tagline">Browse SNMP MIBs, beautifully.</p>
+
+      <h1 class="heading">Drop your MIB files here:</h1>
+
+      <div class="path">
+        <span>/var/lib/blittermib/mibs</span>
+        <span class="copy">copy</span>
+      </div>
+
+      <p class="helper">
+        We'll watch the directory and parse new MIBs as they appear.
+        54 standard IETF and IANA MIBs are already loaded — you can
+        start exploring immediately.
+      </p>
+
+      <div class="divider">— or —</div>
+
+      <div class="actions">
+        <a href="symbol.html">Try a sample symbol page →</a>
+        <a href="table.html">Try the table-of-tables view →</a>
+        <a href="error.html">See how parse failures are handled →</a>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span>
+      <a href="https://github.com/no42-org/blittermib" target="_blank" rel="noopener noreferrer">blittermib</a> · runs entirely on your server
+    </span>
+    <span>
+      Made with AI and ❤️ for Open Source in Europe ·
+      <a href="https://blog.no42.org/page/about/" target="_blank" rel="noopener noreferrer">About Me</a>
+    </span>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ifTable · IF-MIB · blittermib</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      var saved = localStorage.getItem('blittermib-theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+      window.toggleTheme = function () {
+        var cur = document.documentElement.getAttribute('data-theme');
+        var next = cur === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('blittermib-theme', next);
+      };
+    })();
+  </script>
+</head>
+<body>
+  <div class="app">
+
+    <header class="topbar">
+      <a href="index.html" class="brand"><span class="brand-mark"><span class="bar bar-1"></span><span class="bar bar-2"></span><span class="bar bar-3"></span></span><span class="brand-text">blittermib<span class="brand-dot">.</span></span></a>
+      <span class="brand-tagline">Pixelperfect MIB browser</span>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-end">
+        <span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
+        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+          <span class="moon">☾</span>
+          <span class="sun">☀</span>
+        </button>
+      </div>
+    </header>
+
+    <aside class="rail">
+      <div class="rail-section">
+        <div class="rail-label">IF-MIB</div>
+      </div>
+      <nav class="rail-tree">
+        <a class="rail-tree-item" href="#"><span class="num">.1</span>ifNumber</a>
+        <a class="rail-tree-item active" href="#"><span class="num">.2</span>ifTable</a>
+        <a class="rail-tree-item depth-1" href="#"><span class="num">.1</span>ifEntry</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.1</span>ifIndex</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.2</span>ifDescr</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.3</span>ifType</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.4</span>ifMtu</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.5</span>ifSpeed</a>
+        <a class="rail-tree-item depth-2" href="symbol.html"><span class="num">.10</span>ifInOctets</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.11</span>ifInUcastPkts</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.16</span>ifOutOctets</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <div class="content-inner wide">
+
+        <nav class="breadcrumb">
+          <a href="#">IF-MIB</a><span class="sep">›</span><a href="#">ifMIBObjects</a><span class="sep">›</span>ifTable
+        </nav>
+
+        <h1 class="symbol-name">ifTable</h1>
+
+        <p class="summary">
+          A table with one row per network interface on the device.
+          Each row reports counters, configuration, and operational state
+          for that interface.
+        </p>
+
+        <div class="oid-row">
+          <span class="oid">1<span class="dot">.</span>3<span class="dot">.</span>6<span class="dot">.</span>1<span class="dot">.</span>2<span class="dot">.</span>1<span class="dot">.</span>2<span class="dot">.</span>2</span>
+          <span class="copy">copy</span>
+        </div>
+
+        <div class="type-line">
+          <span class="syntax">SEQUENCE OF IfEntry</span><span class="sep">·</span>not-accessible<span class="sep">·</span>current
+        </div>
+
+        <section class="section">
+          <h2 class="section-label">Conceptual row: ifEntry</h2>
+          <p class="toc-meta">
+            <strong>OID</strong> 1.3.6.1.2.1.2.2.1
+            &nbsp;·&nbsp;
+            <strong>Indexed by</strong> <a href="#">ifIndex</a>
+          </p>
+          <table class="toc-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Column</th>
+                <th>Syntax</th>
+                <th>Access</th>
+                <th>Status</th>
+                <th class="col-oid">OID</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="col-num">1</td>
+                <td class="col-name"><a href="#">ifIndex</a><span class="key">index</span></td>
+                <td class="col-syntax"><a href="#">InterfaceIndex</a></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.1</td>
+              </tr>
+              <tr>
+                <td class="col-num">2</td>
+                <td class="col-name"><a href="#">ifDescr</a></td>
+                <td class="col-syntax"><a href="#">DisplayString</a><span class="units">(0..255)</span></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.2</td>
+              </tr>
+              <tr>
+                <td class="col-num">3</td>
+                <td class="col-name"><a href="#">ifType</a></td>
+                <td class="col-syntax"><a href="#">IANAifType</a></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.3</td>
+              </tr>
+              <tr>
+                <td class="col-num">4</td>
+                <td class="col-name"><a href="#">ifMtu</a></td>
+                <td class="col-syntax"><a href="#">Integer32</a></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.4</td>
+              </tr>
+              <tr>
+                <td class="col-num">5</td>
+                <td class="col-name"><a href="#">ifSpeed</a></td>
+                <td class="col-syntax"><a href="#">Gauge32</a><span class="units">bits/sec</span></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.5</td>
+              </tr>
+              <tr>
+                <td class="col-num">6</td>
+                <td class="col-name"><a href="#">ifPhysAddress</a></td>
+                <td class="col-syntax"><a href="#">PhysAddress</a></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.6</td>
+              </tr>
+              <tr>
+                <td class="col-num">7</td>
+                <td class="col-name"><a href="#">ifAdminStatus</a></td>
+                <td class="col-syntax"><a href="#">INTEGER</a></td>
+                <td class="col-access">read-write</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.7</td>
+              </tr>
+              <tr>
+                <td class="col-num">8</td>
+                <td class="col-name"><a href="#">ifOperStatus</a></td>
+                <td class="col-syntax"><a href="#">INTEGER</a></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.8</td>
+              </tr>
+              <tr>
+                <td class="col-num">10</td>
+                <td class="col-name"><a href="symbol.html">ifInOctets</a></td>
+                <td class="col-syntax"><a href="#">Counter32</a><span class="units">octets</span></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.10</td>
+              </tr>
+              <tr>
+                <td class="col-num">11</td>
+                <td class="col-name"><a href="#">ifInUcastPkts</a></td>
+                <td class="col-syntax"><a href="#">Counter32</a></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.11</td>
+              </tr>
+              <tr>
+                <td class="col-num">16</td>
+                <td class="col-name"><a href="#">ifOutOctets</a></td>
+                <td class="col-syntax"><a href="#">Counter32</a><span class="units">octets</span></td>
+                <td class="col-access">read-only</td>
+                <td class="col-status">current</td>
+                <td class="col-oid">.16</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section">
+          <h2 class="section-label">Description</h2>
+          <div class="prose">
+            <p>
+              A list of interface entries. The number of entries is given
+              by the value of <a href="#"><code>ifNumber</code></a>.
+            </p>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-label">Augmented by</h2>
+          <table class="refs">
+            <tbody>
+              <tr>
+                <td><a href="#">ifXTable</a></td>
+                <td class="kind">High-capacity counters, multicast, IPv6</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+              <tr>
+                <td><a href="#">ipv4InterfaceTable</a></td>
+                <td class="kind">IPv4-specific interface state</td>
+                <td class="module">IP-MIB</td>
+              </tr>
+              <tr>
+                <td><a href="#">cieIfInterfaceTable</a></td>
+                <td class="kind">Cisco vendor extensions</td>
+                <td class="module">CISCO-IF-EXTENSION-MIB</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section">
+          <h2 class="section-label">Referenced by</h2>
+          <table class="refs">
+            <tbody>
+              <tr>
+                <td><a href="#">linkUp</a></td>
+                <td class="kind">NOTIFICATION-TYPE</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+              <tr>
+                <td><a href="#">linkDown</a></td>
+                <td class="kind">NOTIFICATION-TYPE</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+              <tr>
+                <td><a href="#">ifCompliance3</a></td>
+                <td class="kind">MODULE-COMPLIANCE</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+      </div>
+    </main>
+
+  </div>
+
+  <footer class="footer">
+    <span>
+      <a href="https://github.com/no42-org/blittermib" target="_blank" rel="noopener noreferrer">blittermib</a> · runs entirely on your server
+    </span>
+    <span>
+      Made with AI and ❤️ for Open Source in Europe ·
+      <a href="https://blog.no42.org/page/about/" target="_blank" rel="noopener noreferrer">About Me</a>
+    </span>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CISCO-WEIRD-MIB · diagnostics · blittermib</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      var saved = localStorage.getItem('blittermib-theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+      window.toggleTheme = function () {
+        var cur = document.documentElement.getAttribute('data-theme');
+        var next = cur === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('blittermib-theme', next);
+      };
+    })();
+  </script>
+</head>
+<body>
+  <div class="app">
+
+    <header class="topbar">
+      <a href="index.html" class="brand"><span class="brand-mark"><span class="bar bar-1"></span><span class="bar bar-2"></span><span class="bar bar-3"></span></span><span class="brand-text">blittermib<span class="brand-dot">.</span></span></a>
+      <span class="brand-tagline">Pixelperfect MIB browser</span>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-end">
+        <span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
+        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+          <span class="moon">☾</span>
+          <span class="sun">☀</span>
+        </button>
+      </div>
+    </header>
+
+    <aside class="rail">
+      <div class="rail-section">
+        <div class="rail-label">Diagnostics</div>
+      </div>
+      <nav class="rail-tree">
+        <a class="rail-tree-item" href="#"><span class="num">38</span>clean</a>
+        <a class="rail-tree-item" href="#"><span class="num">3</span>warnings</a>
+        <a class="rail-tree-item active" href="#"><span class="num">1</span>failed</a>
+      </nav>
+      <div class="rail-section" style="margin-top: 24px">
+        <div class="rail-label">Failed modules</div>
+      </div>
+      <nav class="rail-tree">
+        <a class="rail-tree-item active" href="#">CISCO-WEIRD-MIB</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <div class="content-inner">
+
+        <nav class="breadcrumb">
+          <a href="#">Diagnostics</a><span class="sep">›</span>CISCO-WEIRD-MIB
+        </nav>
+
+        <h1 class="symbol-name">CISCO-WEIRD-MIB.txt<span class="pill pill-failed">failed</span></h1>
+
+        <p class="summary">
+          This MIB couldn't be parsed completely. The errors below are
+          the strict checks that <code>smilint</code> rejected — most
+          are caused by missing imports or unresolved identifiers.
+        </p>
+
+        <section class="section">
+          <h2 class="section-label">Errors</h2>
+          <div class="error-list">
+            <div class="error-list-item">
+              <span class="loc">line 142</span>
+              <span class="msg">
+                identifier <span class="lit">FooBar</span> not found in scope of module
+              </span>
+            </div>
+            <div class="error-list-item">
+              <span class="loc">line 198</span>
+              <span class="msg">
+                missing IMPORT for <span class="lit">BarBaz</span> from module <span class="lit">OTHER-MIB</span>
+              </span>
+            </div>
+            <div class="error-list-item">
+              <span class="loc">line 214</span>
+              <span class="msg">
+                SYNTAX clause references unknown TEXTUAL-CONVENTION <span class="lit">QuuxValue</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="error-actions">
+            <a class="action" href="#">Try lenient mode for this file</a>
+            <a class="action" href="#">View raw source at line 142</a>
+            <a class="action" href="#">Common causes for missing imports</a>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-label">What this means</h2>
+          <div class="prose">
+            <p>
+              When <code>smilint</code> reports a missing identifier, it usually
+              means one of three things: the referenced module wasn't supplied,
+              the IMPORTS clause is incomplete, or the symbol name is misspelled.
+              Vendor MIBs sometimes ship with implicit dependencies that <a href="#">net-snmp</a>
+              accepts and stricter parsers reject.
+            </p>
+            <p>
+              Lenient mode downgrades these errors to warnings and parses what
+              it can. The resulting module pages will be marked as partial —
+              symbols that depend on unresolved references will be stubbed.
+            </p>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-label">Other modules unaffected</h2>
+          <div class="prose">
+            <p>
+              All 38 successfully-parsed modules remain searchable. Failures
+              in one MIB never block others.
+            </p>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+  </div>
+
+  <footer class="footer">
+    <span>
+      <a href="https://github.com/no42-org/blittermib" target="_blank" rel="noopener noreferrer">blittermib</a> · runs entirely on your server
+    </span>
+    <span>
+      Made with AI and ❤️ for Open Source in Europe ·
+      <a href="https://blog.no42.org/page/about/" target="_blank" rel="noopener noreferrer">About Me</a>
+    </span>
+  </footer>
+</body>
+</html>

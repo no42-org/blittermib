@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>blittermib · Pixelperfect MIB browser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      var saved = localStorage.getItem('blittermib-theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+      window.toggleTheme = function () {
+        var cur = document.documentElement.getAttribute('data-theme');
+        var next = cur === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('blittermib-theme', next);
+      };
+    })();
+  </script>
+</head>
+<body>
+
+  <header class="topbar">
+    <a href="index.html" class="brand"><span class="brand-mark"><span class="bar bar-1"></span><span class="bar bar-2"></span><span class="bar bar-3"></span></span><span class="brand-text">blittermib<span class="brand-dot">.</span></span></a>
+    <span class="brand-tagline">Pixelperfect MIB browser</span>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-end">
+      <span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+        <span class="moon">☾</span>
+        <span class="sun">☀</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="landing">
+
+    <div class="hero">
+      <h1 class="hero-brand"><span class="brand-mark"><span class="bar bar-1"></span><span class="bar bar-2"></span><span class="bar bar-3"></span></span><span class="brand-text">blittermib<span class="brand-dot">.</span></span></h1>
+      <p class="hero-tagline">Browse SNMP MIBs, beautifully.</p>
+
+      <div class="hero-search">
+        <span class="placeholder">Search symbols, OIDs, modules, descriptions&hellip;</span>
+        <span class="kbd">⌘K</span>
+      </div>
+
+      <div class="hero-stats">
+        <strong>287</strong> modules
+        <span class="sep">·</span>
+        <strong>85,432</strong> symbols
+        <span class="sep">·</span>
+        <span class="status-warning">5 warnings</span>
+      </div>
+    </div>
+
+    <div class="hero-demos">
+      <div class="demo-label">Prototype pages</div>
+      <table class="refs">
+        <tbody>
+          <tr>
+            <td><a href="symbol.html">symbol.html</a></td>
+            <td class="kind">canonical reference page</td>
+            <td class="module">ifInOctets</td>
+          </tr>
+          <tr>
+            <td><a href="table.html">table.html</a></td>
+            <td class="kind">table-of-tables rendering</td>
+            <td class="module">ifTable</td>
+          </tr>
+          <tr>
+            <td><a href="empty.html">empty.html</a></td>
+            <td class="kind">first-run state</td>
+            <td class="module">no MIBs loaded</td>
+          </tr>
+          <tr>
+            <td><a href="error.html">error.html</a></td>
+            <td class="kind">parse failure</td>
+            <td class="module">CISCO-WEIRD-MIB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <footer class="footer">
+    <span>
+      <a href="https://github.com/no42-org/blittermib" target="_blank" rel="noopener noreferrer">blittermib</a> · runs entirely on your server
+    </span>
+    <span>
+      Made with AI and ❤️ for Open Source in Europe ·
+      <a href="https://blog.no42.org/page/about/" target="_blank" rel="noopener noreferrer">About Me</a>
+    </span>
+  </footer>
+
+</body>
+</html>

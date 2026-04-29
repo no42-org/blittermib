@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ifInOctets · IF-MIB · blittermib</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      var saved = localStorage.getItem('blittermib-theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+      window.toggleTheme = function () {
+        var cur = document.documentElement.getAttribute('data-theme');
+        var next = cur === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('blittermib-theme', next);
+      };
+    })();
+  </script>
+</head>
+<body>
+  <div class="app">
+
+    <header class="topbar">
+      <a href="index.html" class="brand"><span class="brand-mark"><span class="bar bar-1"></span><span class="bar bar-2"></span><span class="bar bar-3"></span></span><span class="brand-text">blittermib<span class="brand-dot">.</span></span></a>
+      <span class="brand-tagline">Pixelperfect MIB browser</span>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-end">
+        <span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
+        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+          <span class="moon">☾</span>
+          <span class="sun">☀</span>
+        </button>
+      </div>
+    </header>
+
+    <aside class="rail">
+      <div class="rail-section">
+        <div class="rail-label">IF-MIB</div>
+      </div>
+      <nav class="rail-tree">
+        <a class="rail-tree-item" href="#"><span class="num">.1</span>ifNumber</a>
+        <a class="rail-tree-item" href="table.html"><span class="num">.2</span>ifTable</a>
+        <a class="rail-tree-item depth-1" href="#"><span class="num">.1</span>ifEntry</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.1</span>ifIndex</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.2</span>ifDescr</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.3</span>ifType</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.4</span>ifMtu</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.5</span>ifSpeed</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.6</span>ifPhysAddress</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.7</span>ifAdminStatus</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.8</span>ifOperStatus</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.9</span>ifLastChange</a>
+        <a class="rail-tree-item depth-2 active" href="#"><span class="num">.10</span>ifInOctets</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.11</span>ifInUcastPkts</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.12</span>ifInNUcastPkts</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.13</span>ifInDiscards</a>
+        <a class="rail-tree-item depth-2" href="#"><span class="num">.14</span>ifInErrors</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <div class="content-inner">
+
+        <nav class="breadcrumb">
+          <a href="#">IF-MIB</a><span class="sep">›</span><a href="#">ifMIBObjects</a><span class="sep">›</span><a href="table.html">ifTable</a><span class="sep">›</span><a href="#">ifEntry</a>
+        </nav>
+
+        <h1 class="symbol-name">ifInOctets</h1>
+
+        <p class="summary">
+          Counts the bytes received on this interface — a running total
+          that only resets when the device reboots or the management
+          system is re-initialized.
+        </p>
+
+        <div class="oid-row">
+          <span class="oid">1<span class="dot">.</span>3<span class="dot">.</span>6<span class="dot">.</span>1<span class="dot">.</span>2<span class="dot">.</span>1<span class="dot">.</span>2<span class="dot">.</span>2<span class="dot">.</span>1<span class="dot">.</span>10</span>
+          <span class="copy">copy</span>
+        </div>
+
+        <div class="type-line">
+          <span class="syntax">Counter32</span><span class="sep">·</span>read-only<span class="sep">·</span>current<span class="sep">·</span>units: octets
+        </div>
+
+        <section class="section">
+          <h2 class="section-label">In context</h2>
+          <dl class="kv-grid">
+            <dt>Column</dt>
+            <dd>10 of <a href="table.html">IF-MIB::ifTable</a></dd>
+            <dt>Indexed by</dt>
+            <dd><a href="#">ifIndex</a></dd>
+          </dl>
+          <a href="table.html" class="see-more">see entire row layout →</a>
+        </section>
+
+        <section class="section">
+          <h2 class="section-label">Description</h2>
+          <div class="prose">
+            <p>
+              The total number of octets received on the interface, including
+              framing characters. <a href="#" class="glossary">Discontinuities</a> in the
+              value of this counter can occur at re-initialization of the
+              management system, and at other times as indicated by the value
+              of <a href="#"><code>ifCounterDiscontinuityTime</code></a>.
+            </p>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-label">Used by</h2>
+          <table class="refs">
+            <tbody>
+              <tr>
+                <td><a href="#">ifPacketGroup</a></td>
+                <td class="kind">OBJECT-GROUP</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+              <tr>
+                <td><a href="#">ifCompliance3</a></td>
+                <td class="kind">MODULE-COMPLIANCE</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+              <tr>
+                <td><a href="#">linkUp</a></td>
+                <td class="kind">NOTIFICATION-TYPE</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+              <tr>
+                <td><a href="#">linkDown</a></td>
+                <td class="kind">NOTIFICATION-TYPE</td>
+                <td class="module">IF-MIB</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <details class="disclosure">
+          <summary>Show full SMI source</summary>
+          <pre class="disclosure-body">ifInOctets OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    UNITS       "octets"
+    DESCRIPTION
+            "The total number of octets received on the interface,
+             including framing characters.  Discontinuities in the
+             value of this counter can occur at re-initialization
+             of the management system, and at other times as
+             indicated by the value of
+             ifCounterDiscontinuityTime."
+    ::= { ifEntry 10 }</pre>
+        </details>
+
+      </div>
+    </main>
+
+  </div>
+
+  <footer class="footer">
+    <span>
+      <a href="https://github.com/no42-org/blittermib" target="_blank" rel="noopener noreferrer">blittermib</a> · runs entirely on your server
+    </span>
+    <span>
+      Made with AI and ❤️ for Open Source in Europe ·
+      <a href="https://blog.no42.org/page/about/" target="_blank" rel="noopener noreferrer">About Me</a>
+    </span>
+  </footer>
+</body>
+</html>
