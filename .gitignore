@@ -1,0 +1,39 @@
+# AI tools
+_bmad-output/
+_bmad/
+openspec/
+.claude/
+.codex/
+.gemini/
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Go build output
+/blittermib
+/dist/
+*.exe
+*.test
+*.out
+*.prof
+
+# Go workspace
+go.work
+go.work.sum
+
+# Local data
+/data/
+/var/
+
+# Coverage
+coverage.out
+coverage.html
