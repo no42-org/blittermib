@@ -1,0 +1,170 @@
+package model
+
+// ParseStatus indicates how cleanly a module parsed.
+type ParseStatus string
+
+const (
+	ParseStatusClean    ParseStatus = "clean"
+	ParseStatusWarnings ParseStatus = "warnings"
+	ParseStatusErrors   ParseStatus = "errors"
+)
+
+// SymbolKind enumerates the SMI definitions blittermib recognizes.
+type SymbolKind string
+
+const (
+	KindObjectType        SymbolKind = "object-type"
+	KindTextualConvention SymbolKind = "textual-convention"
+	KindObjectIdentity    SymbolKind = "object-identity"
+	KindNotificationType  SymbolKind = "notification-type"
+	KindTrapType          SymbolKind = "trap-type"
+	KindModuleIdentity    SymbolKind = "module-identity"
+	KindObjectGroup       SymbolKind = "object-group"
+	KindNotificationGroup SymbolKind = "notification-group"
+	KindModuleCompliance  SymbolKind = "module-compliance"
+)
+
+// Status maps to the SMI STATUS clause.
+type Status string
+
+const (
+	StatusCurrent    Status = "current"
+	StatusDeprecated Status = "deprecated"
+	StatusObsolete   Status = "obsolete"
+	StatusMandatory  Status = "mandatory" // SMIv1
+	StatusOptional   Status = "optional"  // SMIv1
+)
+
+// Access maps to MAX-ACCESS.
+type Access string
+
+const (
+	AccessNotAccessible    Access = "not-accessible"
+	AccessAccessibleNotify Access = "accessible-for-notify"
+	AccessReadOnly         Access = "read-only"
+	AccessReadWrite        Access = "read-write"
+	AccessReadCreate       Access = "read-create"
+)
+
+// ReferenceKind classifies a relationship between two symbols.
+type ReferenceKind string
+
+const (
+	RefIndex              ReferenceKind = "index"
+	RefAugments           ReferenceKind = "augments"
+	RefSyntax             ReferenceKind = "syntax"
+	RefSequenceMember     ReferenceKind = "sequence-member"
+	RefGroupMember        ReferenceKind = "group-member"
+	RefComplianceObject   ReferenceKind = "compliance-object"
+	RefNotificationObject ReferenceKind = "notification-object"
+)
+
+// DiagnosticSeverity ranks parse issues.
+type DiagnosticSeverity string
+
+const (
+	SeverityError   DiagnosticSeverity = "error"
+	SeverityWarning DiagnosticSeverity = "warning"
+	SeverityNote    DiagnosticSeverity = "note"
+)
+
+// Module is a parsed MIB module.
+type Module struct {
+	Name         string
+	OIDRoot      string
+	Organization string
+	ContactInfo  string
+	Description  string
+	LastUpdated  string
+	SourcePath   string
+	ParseStatus  ParseStatus
+	Imports      []Import
+	Revisions    []Revision
+}
+
+// Import names a symbol pulled in from another module.
+type Import struct {
+	FromModule string
+	Symbol     string
+}
+
+// Revision records one MODULE-IDENTITY REVISION entry.
+type Revision struct {
+	When        string
+	Description string
+}
+
+// Symbol is any named SMI definition.
+type Symbol struct {
+	ID           int64
+	ModuleName   string
+	Name         string
+	OID          string
+	ParentOID    string
+	Kind         SymbolKind
+	Syntax       string
+	Access       Access
+	Status       Status
+	Units        string
+	Reference    string
+	Description  string
+	DefaultValue string
+	IsTable      bool
+	IsTableEntry bool
+	Augments     string
+	IndexColumns []string
+	SourceLine   int
+}
+
+// QualifiedName returns the canonical `Module::Symbol` identifier.
+//
+// SMI module and symbol names follow the grammar `letter (letter|digit|'-')*`
+// (RFC 1212 §4.1.6, RFC 2578 §3.1), which excludes ':' — so `::` is
+// unambiguous as a separator and round-trips to a unique (module, name) pair.
+func (s Symbol) QualifiedName() string {
+	return s.ModuleName + "::" + s.Name
+}
+
+// OIDNode is a node in the OID tree.
+type OIDNode struct {
+	OID        string
+	ParentOID  string
+	SymbolID   int64
+	ChildCount int
+}
+
+// Reference relates one symbol to another by qualified name.
+//
+// Qualified-name keys (rather than database IDs) make hot-reload simpler:
+// reloading a module invalidates only its own outgoing references; the
+// references pointing INTO the reloaded module remain valid because
+// they were always keyed by name, not row id.
+type Reference struct {
+	SourceModule string
+	SourceName   string
+	TargetModule string
+	TargetName   string
+	Kind         ReferenceKind
+}
+
+// SourceQualifiedName returns the canonical Module::Symbol identifier
+// of the reference's source.
+func (r Reference) SourceQualifiedName() string {
+	return r.SourceModule + "::" + r.SourceName
+}
+
+// TargetQualifiedName returns the canonical Module::Symbol identifier
+// of the reference's target.
+func (r Reference) TargetQualifiedName() string {
+	return r.TargetModule + "::" + r.TargetName
+}
+
+// Diagnostic is a single parse warning or error from smilint.
+type Diagnostic struct {
+	File     string
+	Line     int
+	Severity DiagnosticSeverity
+	Code     string
+	Message  string
+	Module   string
+}
