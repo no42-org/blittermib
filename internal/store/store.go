@@ -301,13 +301,20 @@ func encodeEnumValues(vs []model.EnumValue) string {
 }
 
 func decodeEnumValues(s string) []model.EnumValue {
-	if s == "" {
-		return nil
+	// Always return a non-nil slice for empty-but-valid inputs so
+	// `[]EnumValue{}` survives the encode → DB → decode round-trip
+	// instead of degrading to `nil`. Callers that just want
+	// "is this empty" still pass via `len() == 0`.
+	if s == "" || s == "[]" {
+		return []model.EnumValue{}
 	}
 	var out []model.EnumValue
 	if err := json.Unmarshal([]byte(s), &out); err != nil {
 		slog.Warn("invalid enum_values JSON in symbol row", "value", s, "err", err)
-		return nil
+		return []model.EnumValue{}
+	}
+	if out == nil {
+		return []model.EnumValue{}
 	}
 	return out
 }

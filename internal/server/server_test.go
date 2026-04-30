@@ -671,17 +671,28 @@ func TestSymbolDisambiguationRedirectsSingleMatch(t *testing.T) {
 }
 
 func TestSymbolDisambiguationChooser(t *testing.T) {
-	// Seed two modules that both export "common" — multiple matches.
+	// Seed four modules that each export "common" — multiple matches,
+	// one per narrower OBJECT-TYPE kind. Catches accidental kind-
+	// specific code paths in disambiguation rendering.
 	st, err := store.OpenInMemory(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	for _, m := range []string{"A-MIB", "B-MIB"} {
+	seeds := []struct {
+		mod  string
+		kind model.SymbolKind
+	}{
+		{"A-MIB", model.KindScalar},
+		{"B-MIB", model.KindTable},
+		{"C-MIB", model.KindTableEntry},
+		{"D-MIB", model.KindColumn},
+	}
+	for _, s := range seeds {
 		if err := st.ReplaceModule(context.Background(),
-			&model.Module{Name: m, ParseStatus: model.ParseStatusClean},
-			[]model.Symbol{{ModuleName: m, Name: "common", OID: "1." + m,
-				Kind: model.KindScalar, Status: model.StatusCurrent}},
+			&model.Module{Name: s.mod, ParseStatus: model.ParseStatusClean},
+			[]model.Symbol{{ModuleName: s.mod, Name: "common", OID: "1." + s.mod,
+				Kind: s.kind, Status: model.StatusCurrent}},
 			nil, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -698,7 +709,11 @@ func TestSymbolDisambiguationChooser(t *testing.T) {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 	html := body(t, resp)
-	for _, want := range []string{"Multiple modules", "A-MIB::common", "B-MIB::common"} {
+	for _, want := range []string{
+		"Multiple modules",
+		"A-MIB::common", "B-MIB::common", "C-MIB::common", "D-MIB::common",
+		"scalar", "table", "table-entry", "column",
+	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("disambiguation page missing %q", want)
 		}
@@ -915,7 +930,17 @@ func TestNoGoogleFontsCDN(t *testing.T) {
 
 func TestFontAssetServed(t *testing.T) {
 	ts := newTestServer(t)
-	for _, name := range []string{"Inter-400.woff2", "JetBrainsMono-400.woff2"} {
+	// Probe every weight `make fetch-fonts` is supposed to fetch — a
+	// partial fetch (e.g. only -400 succeeds, -600 404s) would
+	// otherwise ship a binary with the bold weight missing and the
+	// stack would silently fall through to the system fallback.
+	for _, name := range []string{
+		"Inter-400.woff2",
+		"Inter-500.woff2",
+		"Inter-600.woff2",
+		"JetBrainsMono-400.woff2",
+		"JetBrainsMono-500.woff2",
+	} {
 		resp, err := http.Get(ts.URL + "/static/fonts/" + name)
 		if err != nil {
 			t.Fatal(err)

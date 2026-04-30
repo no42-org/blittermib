@@ -1,9 +1,19 @@
 // MIB Browser — helpers
+//
+// Kind strings here mirror Go's model.SymbolKind constants exactly so
+// this prototype can consume the real backend's JSON without
+// translation: "scalar" / "table" / "table-entry" / "column" /
+// "object-identity" / "module-identity" / "notification-type" /
+// "object-group" / "notification-group" / "module-compliance" /
+// "textual-convention".
 window.MIB_HELPERS = (() => {
   // Map an SNMP type string to a color family class
   function typeFamily(type, kind, isIndex) {
-    if (kind === "notification") return "t-notif";
-    if (kind === "table" || kind === "entry" || kind === "object") return "t-struct";
+    if (kind === "notification-type") return "t-notif";
+    if (
+      kind === "table" || kind === "table-entry" ||
+      kind === "object-identity" || kind === "module-identity"
+    ) return "t-struct";
     if (isIndex) return "t-index";
     if (!type) return "t-struct";
     const t = type.toLowerCase();
@@ -20,12 +30,13 @@ window.MIB_HELPERS = (() => {
 
   function kindGlyph(kind) {
     switch (kind) {
-      case "object":       return { glyph: "·", label: "OBJ" };
-      case "scalar":       return { glyph: "s",  label: "SCALAR" };
-      case "table":        return { glyph: "▤", label: "TBL" };
-      case "entry":        return { glyph: "▦", label: "ROW" };
-      case "column":       return { glyph: "▥", label: "COL" };
-      case "notification": return { glyph: "!", label: "NOTIF" };
+      case "object-identity":    return { glyph: "·", label: "OBJ" };
+      case "module-identity":    return { glyph: "·", label: "MOD" };
+      case "scalar":             return { glyph: "s",  label: "SCALAR" };
+      case "table":              return { glyph: "▤", label: "TBL" };
+      case "table-entry":        return { glyph: "▦", label: "ROW" };
+      case "column":             return { glyph: "▥", label: "COL" };
+      case "notification-type":  return { glyph: "!", label: "NOTIF" };
       default: return { glyph: "·", label: "" };
     }
   }
@@ -94,7 +105,7 @@ window.MIB_HELPERS = (() => {
     acc.total++;
     if (node.kind === "table") acc.table++;
     if (node.kind === "scalar" || node.kind === "column") acc.scalar++;
-    if (node.kind === "notification") acc.notif++;
+    if (node.kind === "notification-type") acc.notif++;
     const fam = typeFamily(node.type, node.kind);
     if (fam === "t-counter") acc.counter++;
     if (fam === "t-gauge") acc.gauge++;
