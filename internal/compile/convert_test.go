@@ -149,13 +149,13 @@ func TestParentOID(t *testing.T) {
 
 func TestNormalizeAccess(t *testing.T) {
 	cases := map[string]model.Access{
-		"readonly":     model.AccessReadOnly,
-		"readwrite":    model.AccessReadWrite,
-		"readcreate":   model.AccessReadCreate,
-		"noaccess":     model.AccessNotAccessible,
-		"notifyonly":   model.AccessAccessibleNotify,
-		"":             model.Access(""),
-		"weird-thing":  model.Access("weird-thing"),
+		"readonly":    model.AccessReadOnly,
+		"readwrite":   model.AccessReadWrite,
+		"readcreate":  model.AccessReadCreate,
+		"noaccess":    model.AccessNotAccessible,
+		"notifyonly":  model.AccessAccessibleNotify,
+		"":            model.Access(""),
+		"weird-thing": model.Access("weird-thing"),
 	}
 	for in, want := range cases {
 		if got := normalizeAccess(in); got != want {
