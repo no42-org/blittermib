@@ -3,12 +3,24 @@ package compile
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/no42-org/blittermib/internal/model"
 )
+
+// loadFixtureXML reads the captured smidump XML once for tests that
+// need it as a string (e.g. seeding fakeDumper).
+func loadFixtureXML(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	return string(b)
+}
 
 type fakeDumper struct {
 	calls atomic.Int64
@@ -34,7 +46,7 @@ func (f *fakeLinter) Lint(_ context.Context, _ string) ([]model.Diagnostic, erro
 }
 
 func TestCompiler_OK(t *testing.T) {
-	d := &fakeDumper{xml: fixtureXML}
+	d := &fakeDumper{xml: loadFixtureXML(t)}
 	l := &fakeLinter{}
 	c := &Compiler{Smidump: d, Smilint: l, Concurrency: 4}
 	ctx := context.Background()
