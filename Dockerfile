@@ -21,7 +21,9 @@ FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
 WORKDIR /src
 
 # System tooling needed by the Makefile during the build.
-RUN apk add --no-cache make git
+# templ generation and go build don't need git — dist.sh's
+# `git describe` runs in CI, not inside the image.
+RUN apk add --no-cache make
 
 # Cache go modules.
 COPY go.mod go.sum ./
