@@ -16,7 +16,14 @@ ARG ALPINE_VERSION=3.21
 
 # --- build stage ----------------------------------------------------
 
-FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
+# `golang:<ver>-alpine` resolves to whichever alpine variant the Go
+# release was actually built for. Don't pin the alpine version here
+# — the official Go image doesn't publish an alpine tag for every
+# (Go-patch, alpine-version) pair, so a hard pin breaks unpredictably
+# (we got bitten by `1.26.2-alpine3.21` not existing on Docker Hub).
+# The runtime stage still pins ALPINE_VERSION because `alpine:3.21`
+# is a real tag that always exists.
+FROM golang:${GO_VERSION}-alpine AS build
 
 WORKDIR /src
 
