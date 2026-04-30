@@ -2,51 +2,98 @@ package web
 
 import "github.com/no42-org/blittermib/internal/model"
 
+// SymbolView aggregates everything the symbol detail page needs:
+// the symbol itself, its in-context placement (where it sits in the
+// SMI tree), the columns of a table when applicable, and inbound
+// references for the Used-by panel.
+type SymbolView struct {
+	Symbol  *model.Symbol
+	Context *SymbolContext
+	Columns []TableColumn
+	UsedBy  []model.Reference
+}
+
 // SymbolDetail renders the canonical reference page for a symbol,
 // following the page rhythm defined in design.md (breadcrumb → name
-// → OID → type-line → description → used-by).
-templ SymbolDetail(sym *model.Symbol, usedBy []model.Reference) {
-	@Base(sym.QualifiedName() + " · blittermib") {
+// → OID → type-line → in-context → description → table-of-tables
+// (when applicable) → used-by).
+templ SymbolDetail(view *SymbolView) {
+	@Base(view.Symbol.QualifiedName() + " · blittermib") {
 		<nav class="breadcrumb">
-			<a href={ moduleURL(sym.ModuleName) }>{ sym.ModuleName }</a>
+			<a href={ moduleURL(view.Symbol.ModuleName) }>{ view.Symbol.ModuleName }</a>
 			<span class="sep">›</span>
-			{ sym.Name }
+			{ view.Symbol.Name }
 		</nav>
-		<h1 class="symbol-name">{ sym.Name }</h1>
+		<h1 class="symbol-name">{ view.Symbol.Name }</h1>
 		<div class="oid-row">
-			<span class="oid">{ sym.OID }</span>
+			<span class="oid">{ view.Symbol.OID }</span>
 		</div>
 		<div class="type-line">
-			if sym.Syntax != "" {
-				<span class="syntax">{ sym.Syntax }</span>
+			if view.Symbol.Syntax != "" {
+				<span class="syntax">{ view.Symbol.Syntax }</span>
 			}
-			if sym.Access != "" {
+			if view.Symbol.Access != "" {
 				<span class="sep">·</span>
-				{ string(sym.Access) }
+				{ string(view.Symbol.Access) }
 			}
-			if sym.Status != "" {
+			if view.Symbol.Status != "" {
 				<span class="sep">·</span>
-				{ string(sym.Status) }
+				{ string(view.Symbol.Status) }
 			}
-			if sym.Units != "" {
+			if view.Symbol.Units != "" {
 				<span class="sep">·</span>
-				units: { sym.Units }
+				units: { view.Symbol.Units }
 			}
 		</div>
-		if sym.Description != "" {
+		if view.Context != nil {
+			@inContext(view.Context)
+		}
+		if view.Symbol.Description != "" {
 			<section class="section">
 				<h2 class="section-label">Description</h2>
 				<div class="prose">
-					<p>{ sym.Description }</p>
+					<p>{ view.Symbol.Description }</p>
 				</div>
 			</section>
 		}
-		if len(usedBy) > 0 {
+		if len(view.Columns) > 0 {
+			<section class="section">
+				<h2 class="section-label">Columns</h2>
+				<table class="toc-table">
+					<thead>
+						<tr>
+							<th>#</th>
+							<th>Column</th>
+							<th>Syntax</th>
+							<th>Access</th>
+							<th>Status</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, c := range view.Columns {
+							<tr>
+								<td class="col-num">{ c.Position }</td>
+								<td class="col-name">
+									<a href={ symbolURL(c.Module, c.Name) }>{ c.Name }</a>
+									if c.IsIndex {
+										<span class="key">index</span>
+									}
+								</td>
+								<td class="col-syntax">{ c.Syntax }</td>
+								<td class="col-access">{ c.Access }</td>
+								<td class="col-status">{ c.Status }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</section>
+		}
+		if len(view.UsedBy) > 0 {
 			<section class="section">
 				<h2 class="section-label">Used by</h2>
 				<table class="refs">
 					<tbody>
-						for _, ref := range usedBy {
+						for _, ref := range view.UsedBy {
 							<tr>
 								<td><a href={ symbolURL(ref.SourceModule, ref.SourceName) }><code>{ ref.SourceName }</code></a></td>
 								<td class="kind">{ string(ref.Kind) }</td>
@@ -58,4 +105,35 @@ templ SymbolDetail(sym *model.Symbol, usedBy []model.Reference) {
 			</section>
 		}
 	}
+}
+
+// inContext is a small fragment so the SymbolDetail body stays readable.
+templ inContext(info *SymbolContext) {
+	<section class="section">
+		<h2 class="section-label">In context</h2>
+		<dl class="kv-grid">
+			if info.ColumnNumber != "" && info.ParentTable != nil {
+				<dt>Column</dt>
+				<dd>{ info.ColumnNumber } of <a href={ symbolURL(info.ParentTable.Module, info.ParentTable.Name) }>{ info.ParentTable.Module }::{ info.ParentTable.Name }</a></dd>
+			} else if info.ParentTable != nil {
+				<dt>Part of</dt>
+				<dd><a href={ symbolURL(info.ParentTable.Module, info.ParentTable.Name) }>{ info.ParentTable.Module }::{ info.ParentTable.Name }</a></dd>
+			}
+			if len(info.IndexedBy) > 0 {
+				<dt>Indexed by</dt>
+				<dd>
+					for i, idx := range info.IndexedBy {
+						if i > 0 {
+							{ ", " }
+						}
+						<a href={ symbolURL(idx.Module, idx.Name) }><code>{ idx.Name }</code></a>
+					}
+				</dd>
+			}
+			if info.Augments != nil {
+				<dt>Augments</dt>
+				<dd><a href={ symbolURL(info.Augments.Module, info.Augments.Name) }>{ info.Augments.Module }::{ info.Augments.Name }</a></dd>
+			}
+		</dl>
+	</section>
 }

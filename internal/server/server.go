@@ -14,17 +14,21 @@ import (
 type Server struct {
 	store   *store.Store
 	version string
+	mibsDir string
 	mux     *http.ServeMux
 	http    *http.Server
 }
 
 // New constructs a Server bound to addr backed by the given store.
-// version is surfaced at /version and in the /healthz body.
-func New(st *store.Store, addr, version string) *Server {
+// mibsDir is shown to the user on the empty-state landing page so
+// they know where to drop MIB files. version is surfaced at /version
+// and in the /healthz body.
+func New(st *store.Store, addr, version, mibsDir string) *Server {
 	mux := http.NewServeMux()
 	s := &Server{
 		store:   st,
 		version: version,
+		mibsDir: mibsDir,
 		mux:     mux,
 		http: &http.Server{
 			Addr:              addr,

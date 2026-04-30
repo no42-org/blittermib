@@ -20,3 +20,23 @@ templ Landing(modules, symbols int) {
 		</div>
 	}
 }
+
+// LandingEmpty renders the first-run state when the MIB directory is
+// empty (no user modules loaded). Mirrors prototype/empty.html.
+templ LandingEmpty(mibsDir string) {
+	@Base("blittermib") {
+		<div class="empty">
+			<div class="brand-large">blittermib<span class="brand-dot">.</span></div>
+			<p class="tagline">Browse SNMP MIBs, beautifully.</p>
+			<h1 class="heading">Drop your MIB files here:</h1>
+			<div class="path">
+				<span>{ mibsDir }</span>
+			</div>
+			<p class="helper">
+				blittermib watches the directory and parses new MIBs as
+				they appear. Standard IETF and IANA MIBs are loaded by
+				default.
+			</p>
+		</div>
+	}
+}

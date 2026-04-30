@@ -26,6 +26,26 @@ func newTestServer(t *testing.T) *httptest.Server {
 			Description: "Interfaces MIB."},
 		[]model.Symbol{
 			{
+				ModuleName: "IF-MIB", Name: "ifTable",
+				OID: "1.3.6.1.2.1.2.2", ParentOID: "1.3.6.1.2.1.2",
+				Kind: model.KindObjectType, Syntax: "SEQUENCE OF IfEntry",
+				Access: model.AccessNotAccessible, Status: model.StatusCurrent,
+				IsTable: true, Description: "A list of interface entries.",
+			},
+			{
+				ModuleName: "IF-MIB", Name: "ifEntry",
+				OID: "1.3.6.1.2.1.2.2.1", ParentOID: "1.3.6.1.2.1.2.2",
+				Kind: model.KindObjectType, Syntax: "IfEntry",
+				Access: model.AccessNotAccessible, Status: model.StatusCurrent,
+				IsTableEntry: true, IndexColumns: []string{"ifIndex"},
+			},
+			{
+				ModuleName: "IF-MIB", Name: "ifIndex",
+				OID: "1.3.6.1.2.1.2.2.1.1", ParentOID: "1.3.6.1.2.1.2.2.1",
+				Kind: model.KindObjectType, Syntax: "InterfaceIndex",
+				Access: model.AccessReadOnly, Status: model.StatusCurrent,
+			},
+			{
 				ModuleName: "IF-MIB", Name: "ifInOctets",
 				OID: "1.3.6.1.2.1.2.2.1.10", ParentOID: "1.3.6.1.2.1.2.2.1",
 				Kind: model.KindObjectType, Syntax: "Counter32",
@@ -45,7 +65,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatalf("seed store: %v", err)
 	}
 
-	s := New(st, "", "test")
+	s := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts
@@ -97,7 +117,7 @@ func TestIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := body(t, resp)
-	for _, want := range []string{"blittermib", "<strong>1</strong> modules", "<strong>1</strong> symbols"} {
+	for _, want := range []string{"blittermib", "<strong>1</strong> modules", "<strong>4</strong> symbols"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("landing missing %q", want)
 		}
@@ -256,6 +276,113 @@ func TestHTMXAssetServed(t *testing.T) {
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "text/javascript") && !strings.HasPrefix(ct, "application/javascript") {
 		t.Errorf("content-type = %q", ct)
+	}
+}
+
+func TestLandingEmptyState(t *testing.T) {
+	// Construct a server with an empty store — no modules at all.
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	s := New(st, "", "test", "/srv/mibs")
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	for _, want := range []string{`Drop your MIB files here`, `/srv/mibs`, `class="empty"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("empty landing missing %q", want)
+		}
+	}
+	for _, badButLooksLikeHero := range []string{"Browse SNMP MIBs, beautifully.</p><a class=\"search-large\""} {
+		if strings.Contains(html, badButLooksLikeHero) {
+			t.Errorf("empty landing should not show the search hero")
+		}
+	}
+}
+
+func TestSymbolColumnInContext(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/s/IF-MIB::ifInOctets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	for _, want := range []string{
+		`In context`,
+		`>10 of `,
+		`/s/IF-MIB::ifTable`,
+		`Indexed by`,
+		`>ifIndex<`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("in-context missing %q", want)
+		}
+	}
+}
+
+func TestSymbolTableColumnsRendered(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/s/IF-MIB::ifTable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	for _, want := range []string{
+		`>Columns<`,
+		`class="toc-table"`,
+		`>ifIndex<`,
+		`>ifInOctets<`,
+		`>1<`,                // ifIndex column position
+		`>10<`,               // ifInOctets column position
+		`class="key">index<`, // ifIndex marked as INDEX column
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("table page missing %q", want)
+		}
+	}
+}
+
+func TestSearchExactMatchPrepended(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/api/v1/search?q=IF-MIB::ifInOctets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Hits []struct {
+			Name string
+		}
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Hits) == 0 {
+		t.Fatal("expected at least one hit")
+	}
+	if got.Hits[0].Name != "ifInOctets" {
+		t.Errorf("first hit = %q, want exact match ifInOctets", got.Hits[0].Name)
+	}
+}
+
+func TestPrivacyNoticeInTopbar(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	if !strings.Contains(html, `class="privacy-notice"`) {
+		t.Error("privacy notice missing from topbar")
+	}
+	if !strings.Contains(html, `Self-hosted`) {
+		t.Error("privacy notice text missing")
 	}
 }
 

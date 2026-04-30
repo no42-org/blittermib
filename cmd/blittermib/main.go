@@ -106,7 +106,7 @@ func run(cfg config) error {
 		"listen", cfg.listen,
 	)
 
-	srv := server.New(st, cfg.listen, version)
+	srv := server.New(st, cfg.listen, version, cfg.mibsDir)
 	if err := srv.Start(ctx); err != nil {
 		return fmt.Errorf("server: %w", err)
 	}

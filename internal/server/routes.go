@@ -22,19 +22,19 @@ import (
 //	/healthz                       liveness check
 //	/version                       build info
 func (s *Server) routes() {
-	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler()), withRecover, withLogging))
+	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler()), withLogging, withRecover))
 
-	s.mux.Handle("/healthz", chain(http.HandlerFunc(s.handleHealth), withRecover, withLogging))
-	s.mux.Handle("/version", chain(http.HandlerFunc(s.handleVersion), withRecover, withLogging))
+	s.mux.Handle("/healthz", chain(http.HandlerFunc(s.handleHealth), withLogging, withRecover))
+	s.mux.Handle("/version", chain(http.HandlerFunc(s.handleVersion), withLogging, withRecover))
 
-	s.mux.Handle("/m/", chain(http.HandlerFunc(s.handleModule), withRecover, withLogging))
-	s.mux.Handle("/s/", chain(http.HandlerFunc(s.handleSymbol), withRecover, withLogging))
-	s.mux.Handle("/o/", chain(http.HandlerFunc(s.handleOID), withRecover, withLogging))
-	s.mux.Handle("/search", chain(http.HandlerFunc(s.handleSearch), withRecover, withLogging))
-	s.mux.Handle("/diagnostics", chain(http.HandlerFunc(s.handleDiagnostics), withRecover, withLogging))
+	s.mux.Handle("/m/", chain(http.HandlerFunc(s.handleModule), withLogging, withRecover))
+	s.mux.Handle("/s/", chain(http.HandlerFunc(s.handleSymbol), withLogging, withRecover))
+	s.mux.Handle("/o/", chain(http.HandlerFunc(s.handleOID), withLogging, withRecover))
+	s.mux.Handle("/search", chain(http.HandlerFunc(s.handleSearch), withLogging, withRecover))
+	s.mux.Handle("/diagnostics", chain(http.HandlerFunc(s.handleDiagnostics), withLogging, withRecover))
 
-	s.mux.Handle("/api/v1/search", chain(http.HandlerFunc(s.handleAPISearch), withRecover, withLogging))
-	s.mux.Handle("/api/v1/symbol/", chain(http.HandlerFunc(s.handleAPISymbol), withRecover, withLogging))
+	s.mux.Handle("/api/v1/search", chain(http.HandlerFunc(s.handleAPISearch), withLogging, withRecover))
+	s.mux.Handle("/api/v1/symbol/", chain(http.HandlerFunc(s.handleAPISymbol), withLogging, withRecover))
 
-	s.mux.Handle("/", chain(http.HandlerFunc(s.handleIndex), withRecover, withLogging))
+	s.mux.Handle("/", chain(http.HandlerFunc(s.handleIndex), withLogging, withRecover))
 }
