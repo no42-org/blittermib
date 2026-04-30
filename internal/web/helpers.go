@@ -156,6 +156,21 @@ func utf8Count(s string) int {
 	return len([]rune(s))
 }
 
+// FormatOIDHTML wraps each `.` separator in `<span class="dot">.</span>`
+// so the design system's accent CSS rule (`.oid .dot { color: var(--accent) }`)
+// applies. The input is HTML-escaped first; OIDs are restricted to
+// digits and dots in practice, but defending against contamination
+// is cheap.
+//
+// Returned string is safe to render via templ.Raw.
+func FormatOIDHTML(oid string) string {
+	if oid == "" {
+		return ""
+	}
+	safe := html.EscapeString(oid)
+	return strings.ReplaceAll(safe, ".", `<span class="dot">.</span>`)
+}
+
 // SanitizeSnippet HTML-escapes the FTS5 snippet body while preserving
 // the inserted <mark>...</mark> highlight tags. SQLite's snippet()
 // emits the raw column contents (which may contain `<` or `>` from a

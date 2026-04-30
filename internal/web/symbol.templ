@@ -30,7 +30,9 @@ templ SymbolDetail(view *SymbolView) {
 		<h1 class="symbol-name">{ view.Symbol.Name }</h1>
 		<p class="summary">{ SummarizeSymbol(view.Symbol) }</p>
 		<div class="oid-row">
-			<span class="oid">{ view.Symbol.OID }</span>
+			<span class="oid">
+				@templ.Raw(FormatOIDHTML(view.Symbol.OID))
+			</span>
 		</div>
 		<div class="type-line">
 			if view.Symbol.Syntax != "" {
