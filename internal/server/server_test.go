@@ -264,6 +264,75 @@ func TestHTMXLoadedOnEveryPage(t *testing.T) {
 	}
 }
 
+func TestIslandsLoadedOnEveryPage(t *testing.T) {
+	ts := newTestServer(t)
+	for _, path := range []string{"/", "/m/IF-MIB", "/s/IF-MIB::ifInOctets", "/diagnostics"} {
+		t.Run(path, func(t *testing.T) {
+			resp, err := http.Get(ts.URL + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			html := body(t, resp)
+			for _, want := range []string{
+				`/static/palette.js`,
+				`/static/glossary.js`,
+			} {
+				if !strings.Contains(html, want) {
+					t.Errorf("page %q missing %q", path, want)
+				}
+			}
+		})
+	}
+}
+
+func TestPaletteAssetServed(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/palette.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	js := body(t, resp)
+	for _, marker := range []string{"palette-overlay", "/api/v1/search"} {
+		if !strings.Contains(js, marker) {
+			t.Errorf("palette.js missing %q — wrong file served?", marker)
+		}
+	}
+}
+
+func TestGlossaryAssetServed(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/glossary.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	js := body(t, resp)
+	for _, marker := range []string{"glossary-popover", "OBJECT-TYPE", "Counter32"} {
+		if !strings.Contains(js, marker) {
+			t.Errorf("glossary.js missing %q", marker)
+		}
+	}
+}
+
+func TestPaletteCSSLoaded(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := body(t, resp)
+	for _, sel := range []string{".palette-overlay", ".palette-input", ".palette-results", ".glossary-popover"} {
+		if !strings.Contains(css, sel) {
+			t.Errorf("styles.css missing palette selector %q — did prepare-assets run?", sel)
+		}
+	}
+}
+
 func TestHTMXAssetServed(t *testing.T) {
 	ts := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/static/htmx.min.js")
