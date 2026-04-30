@@ -17,13 +17,36 @@
 window.workspace = function () {
 	return {
 		filter: '',
+		kindFilter: 'all',
 
-		// matchesRow is invoked from `x-show="!filter || matchesRow($el)"`
-		// on every list-row tr. We read from data-* attributes set
-		// server-side rather than threading row data through Alpine,
-		// so the filter is independent of how many rows render —
-		// the cost is one DOM lookup per visible row per keystroke.
+		// matchesKind reads `data-kind` from the row and answers
+		// "is this row visible under the current kind chip?" Family
+		// groupings mirror the handoff `helpers.js#typeFamily`
+		// structural buckets: scalar+column under "scalar",
+		// table+table-entry under "table", notification-type under
+		// "notif". Other kinds (TC, group, compliance) appear only
+		// under "all".
+		matchesKind(el) {
+			const k = el.dataset.kind || '';
+			switch (this.kindFilter) {
+				case 'all':
+					return true;
+				case 'scalar':
+					return k === 'scalar' || k === 'column';
+				case 'table':
+					return k === 'table' || k === 'table-entry';
+				case 'notif':
+					return k === 'notification-type';
+			}
+			return true;
+		},
+
+		// matchesRow is the AND of the kind-chip filter and the
+		// text-input filter. Server-side scope filtering already
+		// narrowed the row set when the URL has a selection; this
+		// is the additional client-side narrowing.
 		matchesRow(el) {
+			if (!this.matchesKind(el)) return false;
 			const q = (this.filter || '').toLowerCase();
 			if (!q) return true;
 			const name = (el.dataset.name || '').toLowerCase();

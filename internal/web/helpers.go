@@ -101,6 +101,38 @@ func IsTabular(k model.SymbolKind) bool {
 	return false
 }
 
+// OIDUnderPrefix reports whether oid is at or under prefix, treated
+// as a `.`-delimited OID path. Empty prefix matches everything; an
+// exact match counts as "under". Used by handleWorkspace to scope
+// the center-pane symbol list to the selected OID.
+func OIDUnderPrefix(oid, prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	if oid == prefix {
+		return true
+	}
+	return len(oid) > len(prefix) &&
+		oid[:len(prefix)] == prefix &&
+		oid[len(prefix)] == '.'
+}
+
+// isEmptyCounts reports whether every family count is zero, so the
+// status bar can render a single "empty module" pill instead of
+// disappearing the count region. Indexes is intentionally counted
+// even though Phase 3's CountByFamily classifier doesn't populate
+// it (kept here for symmetry once a future commit threads the
+// IndexColumns join).
+func isEmptyCounts(c *model.FamilyCounts) bool {
+	if c == nil {
+		return true
+	}
+	return c.Counters == 0 && c.Gauges == 0 && c.Ints == 0 &&
+		c.Texts == 0 && c.Indexes == 0 && c.Times == 0 &&
+		c.Addrs == 0 && c.Bools == 0 && c.Notifs == 0 &&
+		c.Structs == 0
+}
+
 // FamilyClass returns the type-family CSS class for a symbol —
 // `t-counter`, `t-gauge`, `t-int`, `t-text`, `t-index`, `t-time`,
 // `t-addr`, `t-bool`, `t-notif`, or `t-struct`. Templates emit
@@ -187,6 +219,10 @@ type WorkspaceView struct {
 	// doesn't cover; the workspace renders without selection and a
 	// soft hint in the right pane.
 	MissingOID string
+	// ScopeOID is the URL-driven scope: when non-empty the list
+	// pane shows only symbols at or under this OID, and the
+	// list-pane chrome renders a "View all in module" link.
+	ScopeOID string
 }
 
 // SummarizeSymbol produces the one-sentence plain-language lede that

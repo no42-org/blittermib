@@ -19,7 +19,7 @@ templ Workspace(view *WorkspaceView) {
 				@workspaceTree(view.TreeRows)
 			</aside>
 			<section class="workspace-list">
-				@workspaceList(view.ListRows)
+				@workspaceList(view.ListRows, view.Module.Name, view.ScopeOID)
 			</section>
 			<section class="workspace-detail">
 				@workspaceDetail(view)
@@ -51,36 +51,42 @@ templ workspaceStatusBar(view *WorkspaceView) {
 }
 
 // statusBarCounts renders the visible family-count chips. Zero
-// counts are omitted to keep the bar tight.
+// counts are omitted to keep the bar tight; when every family is
+// zero, a single muted "empty module" pill renders so the surface
+// signals "loaded, just empty" instead of disappearing chips.
 templ statusBarCounts(c *model.FamilyCounts) {
 	if c != nil {
 		<div class="status-bar-counts">
-			if c.Structs > 0 {
-				<span class="status-count t-struct">{ fmt.Sprintf("%d objects", c.Structs) }</span>
-			}
-			if c.Counters > 0 {
-				<span class="status-count t-counter">{ fmt.Sprintf("%d counters", c.Counters) }</span>
-			}
-			if c.Gauges > 0 {
-				<span class="status-count t-gauge">{ fmt.Sprintf("%d gauges", c.Gauges) }</span>
-			}
-			if c.Ints > 0 {
-				<span class="status-count t-int">{ fmt.Sprintf("%d integers", c.Ints) }</span>
-			}
-			if c.Texts > 0 {
-				<span class="status-count t-text">{ fmt.Sprintf("%d strings", c.Texts) }</span>
-			}
-			if c.Times > 0 {
-				<span class="status-count t-time">{ fmt.Sprintf("%d times", c.Times) }</span>
-			}
-			if c.Addrs > 0 {
-				<span class="status-count t-addr">{ fmt.Sprintf("%d addrs", c.Addrs) }</span>
-			}
-			if c.Bools > 0 {
-				<span class="status-count t-bool">{ fmt.Sprintf("%d bools", c.Bools) }</span>
-			}
-			if c.Notifs > 0 {
-				<span class="status-count t-notif">{ fmt.Sprintf("%d notifs", c.Notifs) }</span>
+			if isEmptyCounts(c) {
+				<span class="status-count empty">empty module</span>
+			} else {
+				if c.Structs > 0 {
+					<span class="status-count t-struct">{ fmt.Sprintf("%d objects", c.Structs) }</span>
+				}
+				if c.Counters > 0 {
+					<span class="status-count t-counter">{ fmt.Sprintf("%d counters", c.Counters) }</span>
+				}
+				if c.Gauges > 0 {
+					<span class="status-count t-gauge">{ fmt.Sprintf("%d gauges", c.Gauges) }</span>
+				}
+				if c.Ints > 0 {
+					<span class="status-count t-int">{ fmt.Sprintf("%d integers", c.Ints) }</span>
+				}
+				if c.Texts > 0 {
+					<span class="status-count t-text">{ fmt.Sprintf("%d strings", c.Texts) }</span>
+				}
+				if c.Times > 0 {
+					<span class="status-count t-time">{ fmt.Sprintf("%d times", c.Times) }</span>
+				}
+				if c.Addrs > 0 {
+					<span class="status-count t-addr">{ fmt.Sprintf("%d addrs", c.Addrs) }</span>
+				}
+				if c.Bools > 0 {
+					<span class="status-count t-bool">{ fmt.Sprintf("%d bools", c.Bools) }</span>
+				}
+				if c.Notifs > 0 {
+					<span class="status-count t-notif">{ fmt.Sprintf("%d notifs", c.Notifs) }</span>
+				}
 			}
 		</div>
 	}
@@ -97,47 +103,90 @@ templ workspaceTree(rows []TreeRow) {
 	</ul>
 }
 
-// WorkspaceTreeFragment renders the children of an OID as a nested
-// `<ul>` of tree rows. The HTMX chevron in `treeRow` swaps this
-// into the parent row via `hx-swap="beforeend"` so expansion
-// progressively fills the existing tree.
+// WorkspaceTreeFragment renders the children of an OID as a flat
+// run of `<li>` rows. The HTMX chevron in `treeRow` swaps these
+// into the row's pre-rendered
+// `<ul class="tree-children-container">` via `swap: 'beforeend'`
+// so each call appends children to the existing list. No
+// surrounding `<ul>` here — the container element already exists
+// in the DOM.
 templ WorkspaceTreeFragment(rows []TreeRow) {
-	<ul class="tree-children" role="group">
-		for _, r := range rows {
-			@treeRow(r)
-		}
-	</ul>
+	for _, r := range rows {
+		@treeRow(r)
+	}
 }
 
+// treeRow renders one node in the workspace tree.
+//
+// Rows with descendants carry an Alpine `{ expanded, loaded }`
+// scope. Clicking the chevron toggles `expanded` (which drives
+// `aria-expanded` and a CSS rotation via the `.expanded` class on
+// the chevron) and, on the first expand only, fires an HTMX GET
+// for the children fragment into the empty
+// `<ul class="tree-children-container">` already rendered inside
+// the row. Subsequent toggles just show/hide the loaded children
+// — no re-fetch.
 templ treeRow(r TreeRow) {
-	<li class={ "tree-row " + FamilyClass(&r.Symbol) } role="treeitem">
-		if r.HasChildren {
-			<button type="button" class="tree-chevron"
-				hx-get={ string(treeFragmentURL(r.Symbol.OID)) }
-				hx-target="closest .tree-row"
-				hx-swap="beforeend"
-				hx-trigger="click once"
+	if r.HasChildren {
+		<li class={ "tree-row " + FamilyClass(&r.Symbol) } role="treeitem"
+			x-data="{ expanded: false, loaded: false }">
+			<button type="button"
+				x-bind:class="expanded ? 'tree-chevron expanded' : 'tree-chevron'"
+				x-bind:aria-expanded="expanded"
+				data-fragment-url={ string(treeFragmentURL(r.Symbol.OID)) }
+				x-on:click="expanded = !expanded; if (!loaded) { loaded = true; htmx.ajax('GET', $el.dataset.fragmentUrl, { target: $el.closest('.tree-row').querySelector('.tree-children-container'), swap: 'beforeend' }); }"
 				aria-label="Expand">›</button>
-		} else {
+			<a class="tree-row-link" href={ workspaceURL(r.Symbol.ModuleName, r.Symbol.OID) }>
+				<code class="tree-row-name">{ r.Symbol.Name }</code>
+				<span class="tree-row-oid">{ r.Symbol.OID }</span>
+			</a>
+			<ul class="tree-children-container" role="group" x-show="expanded"></ul>
+		</li>
+	} else {
+		<li class={ "tree-row " + FamilyClass(&r.Symbol) } role="treeitem">
 			<span class="tree-chevron-spacer" aria-hidden="true"></span>
-		}
-		<a class="tree-row-link" href={ workspaceURL(r.Symbol.ModuleName, r.Symbol.OID) }>
-			<code class="tree-row-name">{ r.Symbol.Name }</code>
-			<span class="tree-row-oid">{ r.Symbol.OID }</span>
-		</a>
-	</li>
+			<a class="tree-row-link" href={ workspaceURL(r.Symbol.ModuleName, r.Symbol.OID) }>
+				<code class="tree-row-name">{ r.Symbol.Name }</code>
+				<span class="tree-row-oid">{ r.Symbol.OID }</span>
+			</a>
+		</li>
+	}
 }
 
 // workspaceList renders the flat symbol list. The filter input is
-// pure Alpine; rows that don't match the filter get hidden via
-// x-show. Kind-filter chips are also Alpine state.
-templ workspaceList(rows []model.Symbol) {
+// pure Alpine; rows that don't match the active filter combination
+// (kind chip + text query) get hidden via x-show. When the URL has
+// a scope, the list is server-narrowed to symbols at or under the
+// selected OID and a "View all in module" link surfaces in the
+// chrome.
+templ workspaceList(rows []model.Symbol, module, scopeOID string) {
 	<div class="list-controls">
+		<div class="kind-chips" role="tablist" aria-label="Filter by kind">
+			<button type="button" class="kind-chip" role="tab"
+				x-on:click="kindFilter = 'all'"
+				x-bind:aria-selected="kindFilter === 'all'"
+				x-bind:data-kind-active="kindFilter === 'all'">All</button>
+			<button type="button" class="kind-chip" role="tab"
+				x-on:click="kindFilter = 'scalar'"
+				x-bind:aria-selected="kindFilter === 'scalar'"
+				x-bind:data-kind-active="kindFilter === 'scalar'">Scalars</button>
+			<button type="button" class="kind-chip" role="tab"
+				x-on:click="kindFilter = 'table'"
+				x-bind:aria-selected="kindFilter === 'table'"
+				x-bind:data-kind-active="kindFilter === 'table'">Tables</button>
+			<button type="button" class="kind-chip" role="tab"
+				x-on:click="kindFilter = 'notif'"
+				x-bind:aria-selected="kindFilter === 'notif'"
+				x-bind:data-kind-active="kindFilter === 'notif'">Notifs</button>
+		</div>
 		<input type="search"
 			class="list-filter"
 			placeholder="Filter symbols…"
 			x-model="filter"
 			autocomplete="off"/>
+		if scopeOID != "" {
+			<a class="list-scope-clear" href={ moduleURL(module) }>View all in module</a>
+		}
 	</div>
 	<table class="list-table">
 		<tbody>
@@ -145,9 +194,10 @@ templ workspaceList(rows []model.Symbol) {
 				<tr class={ "list-row " + FamilyClass(&s) }
 					data-name={ s.Name }
 					data-oid={ s.OID }
-					x-show="!filter || matchesRow($el)">
+					data-kind={ string(s.Kind) }
+					x-show="matchesRow($el)">
 					<td class="list-cell-name">
-						<a href={ workspaceURL(s.ModuleName, s.OID) }><code>{ s.Name }</code></a>
+						<a href={ workspaceSymbolURL(s.ModuleName, s.Name, s.OID) }><code>{ s.Name }</code></a>
 					</td>
 					<td class="list-cell-kind">{ string(s.Kind) }</td>
 					<td class="list-cell-syntax">{ s.Syntax }</td>

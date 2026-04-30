@@ -244,8 +244,12 @@ func TestAPITreeFragment(t *testing.T) {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 	html := body(t, resp)
+	// Phase 4: the fragment endpoint emits `<li>` rows directly
+	// (no surrounding `<ul>`); the chevron's HTMX swap appends
+	// them into the pre-rendered .tree-children-container in the
+	// parent row.
 	for _, want := range []string{
-		`class="tree-children"`,
+		`class="tree-row `,
 		`>ifIndex<`,
 		`>ifInOctets<`,
 	} {
@@ -263,6 +267,137 @@ func TestAPITreeFragmentMissingParent(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 (no parent param)", resp.StatusCode)
+	}
+}
+
+func TestSourceURLGuard(t *testing.T) {
+	// Phase 4: the source endpoint is exactly `/m/{name}/source`.
+	// An embedded OID before `/source` (e.g. /m/IF-MIB/1.2.3/source)
+	// must NOT mis-route through handleModuleSource — that path is
+	// just a workspace selection at the literal OID `1.2.3/source`,
+	// which doesn't match a symbol, so the workspace renders the
+	// missing-OID hint.
+	ts := newTestServer(t)
+
+	// /m/IF-MIB/source dispatches to handleModuleSource. The test
+	// fixture has no SourcePath set, so the handler returns 404.
+	// (Verified the dispatch happened by the 404 status — the
+	// workspace handler would have returned 200.)
+	resp, err := http.Get(ts.URL + "/m/IF-MIB/source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("/m/IF-MIB/source: status = %d, want 404 (no source path; dispatched correctly)", resp.StatusCode)
+	}
+
+	// /m/IF-MIB/1.2.3/source dispatches to handleWorkspace with
+	// oid="1.2.3/source". That OID doesn't match any symbol, so the
+	// workspace renders with the missing-OID hint — proves the
+	// path was NOT caught by the suffix-first source-endpoint
+	// check that the Phase-4 guard removed.
+	resp, err = http.Get(ts.URL + "/m/IF-MIB/1.2.3/source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("/m/IF-MIB/1.2.3/source: status = %d, want 200 (workspace path)", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", got)
+	}
+	html := body(t, resp)
+	if !strings.Contains(html, "No symbol at") {
+		t.Errorf("workspace missing-OID hint missing — embedded /source mis-routed to source endpoint?")
+	}
+}
+
+func TestWorkspaceEmptyModulePill(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: "EMPTY-MIB", ParseStatus: model.ParseStatusClean},
+		nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/m/EMPTY-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	if !strings.Contains(html, `class="status-count empty"`) {
+		t.Errorf("status bar missing the empty-module pill")
+	}
+	if !strings.Contains(html, "empty module") {
+		t.Errorf("status bar missing the 'empty module' text")
+	}
+}
+
+func TestWorkspaceScopeFilter(t *testing.T) {
+	ts := newTestServer(t)
+
+	// /m/IF-MIB lists every symbol in the module.
+	resp, err := http.Get(ts.URL + "/m/IF-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := body(t, resp)
+	for _, want := range []string{">ifTable<", ">ifEntry<", ">ifIndex<", ">ifInOctets<"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("unscoped /m/IF-MIB missing %q", want)
+		}
+	}
+
+	// /m/IF-MIB/1.3.6.1.2.1.2.2.1 (ifEntry) narrows to the entry +
+	// its columns; ifTable (the parent) is excluded.
+	resp, err = http.Get(ts.URL + "/m/IF-MIB/1.3.6.1.2.1.2.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped := body(t, resp)
+	for _, want := range []string{">ifEntry<", ">ifIndex<", ">ifInOctets<"} {
+		if !strings.Contains(scoped, want) {
+			t.Errorf("scoped to ifEntry missing %q", want)
+		}
+	}
+	// The list pane scope-link is rendered when scope is active.
+	if !strings.Contains(scoped, "View all in module") {
+		t.Errorf("scoped list missing the View-all-in-module link")
+	}
+	// Server-narrowing means ifTable should NOT appear as a list-row
+	// (it can still appear as the scope-link href, etc., so check the
+	// list-cell context).
+	if strings.Contains(scoped, `class="list-row t-struct" data-name="ifTable"`) {
+		t.Errorf("scoped list still includes the ifTable row above the scope")
+	}
+}
+
+func TestWorkspaceKindChips(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/IF-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	for _, want := range []string{
+		`class="kind-chips"`,
+		`>All</button>`,
+		`>Scalars</button>`,
+		`>Tables</button>`,
+		`>Notifs</button>`,
+		`data-kind="table"`,
+		`data-kind="column"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("workspace missing %q", want)
+		}
 	}
 }
 

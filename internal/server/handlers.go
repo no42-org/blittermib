@@ -58,18 +58,27 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 		s.handleModuleIndex(w, r)
 		return
 	}
-	if strings.HasSuffix(rest, "/source") {
-		s.handleModuleSource(w, r, strings.TrimSuffix(rest, "/source"))
+	// Slash-first dispatch — three branches:
+	//   /m/{name}                → workspace empty
+	//   /m/{name}/source         → raw MIB source
+	//   /m/{name}/{oid…}         → workspace with selection
+	//
+	// The earlier suffix-first check (`HasSuffix("/source")`) caught
+	// /m/{name}/{oid}/source as a source request with the OID
+	// embedded in the module name, which then 404'd. The slash-first
+	// split makes the source endpoint exactly `/m/{name}/source`
+	// and the workspace path everything else.
+	i := strings.IndexByte(rest, '/')
+	if i < 0 {
+		s.handleWorkspace(w, r, rest, "")
 		return
 	}
-	// /m/{name} or /m/{name}/{oid}. The first slash splits name from
-	// the optional OID tail; OIDs are dot-separated digits so they
-	// never themselves contain a slash.
-	name, oid := rest, ""
-	if i := strings.IndexByte(rest, '/'); i >= 0 {
-		name, oid = rest[:i], rest[i+1:]
+	name, tail := rest[:i], rest[i+1:]
+	if tail == "source" {
+		s.handleModuleSource(w, r, name)
+		return
 	}
-	s.handleWorkspace(w, r, name, oid)
+	s.handleWorkspace(w, r, name, tail)
 }
 
 // handleModuleSource serves the raw MIB source file for a module as
@@ -187,12 +196,26 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		return
 	}
 
+	// When the URL specifies an OID, narrow the center-pane list to
+	// symbols at or under that OID. The "View all in module" link
+	// in the list-pane chrome navigates back to the unscoped URL.
+	listRows := syms
+	if oid != "" {
+		listRows = listRows[:0:0]
+		for i := range syms {
+			if web.OIDUnderPrefix(syms[i].OID, oid) {
+				listRows = append(listRows, syms[i])
+			}
+		}
+	}
+
 	view := &web.WorkspaceView{
 		Module:   mod,
 		Counts:   counts,
 		TreeRows: treeRows,
-		ListRows: syms,
+		ListRows: listRows,
 		Modules:  allModules,
+		ScopeOID: oid,
 	}
 
 	if oid != "" {

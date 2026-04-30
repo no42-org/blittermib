@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -176,6 +177,59 @@ func TestParentOID(t *testing.T) {
 		if got := parentOID(c.in); got != c.want {
 			t.Errorf("parentOID(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestRenderTypedefSyntax(t *testing.T) {
+	cases := []struct {
+		name string
+		in   XMLTypedef
+		want string
+	}{
+		{
+			name: "non-enumeration falls through to base type",
+			in:   XMLTypedef{BaseType: "OCTET STRING"},
+			want: "OCTET STRING",
+		},
+		{
+			name: "enumeration with no named numbers reads as bare type",
+			in:   XMLTypedef{BaseType: "Enumeration"},
+			want: "Enumeration",
+		},
+		{
+			name: "small enumeration renders inline",
+			in: XMLTypedef{
+				BaseType: "Enumeration",
+				NamedNumbers: []XMLNamedNumber{
+					{Name: "up", Number: "1"},
+					{Name: "down", Number: "2"},
+					{Name: "testing", Number: "3"},
+				},
+			},
+			want: "Enumeration { up(1), down(2), testing(3) }",
+		},
+		{
+			name: "large enumeration is capped at typedefEnumInlineCap with trailing ellipsis",
+			in: func() XMLTypedef {
+				nums := make([]XMLNamedNumber, 12)
+				for i := range nums {
+					nums[i] = XMLNamedNumber{
+						Name:   fmt.Sprintf("v%d", i),
+						Number: fmt.Sprintf("%d", i),
+					}
+				}
+				return XMLTypedef{BaseType: "Enumeration", NamedNumbers: nums}
+			}(),
+			want: "Enumeration { v0(0), v1(1), v2(2), v3(3), v4(4), v5(5), v6(6), v7(7), v8(8), v9(9), … }",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := renderTypedefSyntax(c.in)
+			if got != c.want {
+				t.Errorf("got %q\nwant %q", got, c.want)
+			}
+		})
 	}
 }
 

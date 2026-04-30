@@ -60,6 +60,11 @@
   --fg-2:          oklch(0.78 0.018 75);
   --fg-3:          oklch(0.58 0.018 75);
   --fg-4:          oklch(0.42 0.014 75);
+  /* Hover-border accent — debuts at parity with --fg-3 so the
+   * Phase-4 split is visually identical on day one. The token
+   * exists so future contrast tweaks of "tertiary text" and
+   * "hover border" don't drag each other. */
+  --line-strong:   oklch(0.58 0.018 75);
 
   --accent:        oklch(0.78 0.14 55);
   --accent-fg:     oklch(0.16 0.012 60);
@@ -124,6 +129,7 @@
   --fg-2:          oklch(0.36 0.014 60);
   --fg-3:          oklch(0.52 0.014 60);
   --fg-4:          oklch(0.68 0.012 60);
+  --line-strong:   oklch(0.52 0.014 60);
 
   --accent:        oklch(0.5 0.18 50);
   --accent-fg:     oklch(0.985 0.006 75);
@@ -167,6 +173,47 @@ html { scroll-behavior: smooth; }
  * evaluates `x-show="open"`, and stays visible permanently if
  * Alpine fails to load (CDN block, CSP failure). */
 [x-cloak] { display: none !important; }
+
+/* Status-bar "empty module" pill — rendered when a module has zero
+ * symbols of every family, so the workspace signals "loaded, just
+ * empty" instead of dropping the count region. */
+.status-count.empty {
+  color: var(--fg-4);
+  border-color: var(--line-soft);
+}
+
+/* Workspace list-pane chrome: kind-filter chip row + scope-clear
+ * link, sit above the text-filter input. */
+.kind-chips { display: flex; gap: 6px; }
+.kind-chip {
+  background: transparent;
+  color: var(--fg-3);
+  border: 1px solid var(--line);
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  cursor: pointer;
+}
+.kind-chip:hover { color: var(--fg); border-color: var(--line-strong); }
+.kind-chip[data-kind-active="true"] {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.list-scope-clear {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.list-scope-clear:hover { color: var(--accent); }
+
+/* Tree chevron toggle: glyph rotates 90° when expanded. */
+.tree-chevron {
+  transition: transform 120ms ease;
+  display: inline-block;
+}
+.tree-chevron.expanded { transform: rotate(90deg); }
+.tree-children-container { list-style: none; padding-left: 18px; margin: 0; }
 body {
   margin: 0;
   background: var(--bg);
@@ -295,7 +342,7 @@ button { font-family: inherit; }
   font-size: 14px;
   transition: all 100ms ease;
 }
-.theme-toggle:hover { color: var(--fg); border-color: var(--fg-3); }
+.theme-toggle:hover { color: var(--fg); border-color: var(--line-strong); }
 .theme-toggle .sun { display: none; }
 .theme-toggle .moon { display: inline; }
 [data-theme="light"] .theme-toggle .sun { display: inline; }
@@ -391,7 +438,7 @@ button { font-family: inherit; }
   gap: 8px;
   transition: border-color 100ms ease;
 }
-.btn-ghost:hover { border-color: var(--fg-3); }
+.btn-ghost:hover { border-color: var(--line-strong); }
 .btn-ghost .glyph { color: var(--fg-3); }
 
 .btn-icon {
@@ -408,7 +455,7 @@ button { font-family: inherit; }
   font-size: 13px;
   transition: all 100ms ease;
 }
-.btn-icon:hover { color: var(--fg); border-color: var(--fg-3); }
+.btn-icon:hover { color: var(--fg); border-color: var(--line-strong); }
 
 .btn-primary {
   background: var(--accent);
@@ -593,7 +640,7 @@ button { font-family: inherit; }
   cursor: pointer;
   transition: border-color 100ms ease;
 }
-.search-large:hover { border-color: var(--fg-3); }
+.search-large:hover { border-color: var(--line-strong); }
 .search-large .placeholder { flex: 1; }
 .search-large .kbd {
   margin-left: auto;
@@ -627,7 +674,7 @@ button { font-family: inherit; }
   cursor: pointer;
   transition: all 100ms ease;
 }
-.chip:hover { color: var(--fg); border-color: var(--fg-3); }
+.chip:hover { color: var(--fg); border-color: var(--line-strong); }
 .chip.active { background: var(--bg-elev-2); }
 .chip-red    { color: var(--severity-red);    border-color: var(--severity-red); }
 .chip-orange { color: var(--severity-orange); border-color: var(--severity-orange); }
@@ -1271,7 +1318,7 @@ button { font-family: inherit; }
   appearance: none;
   -webkit-appearance: none;
 }
-.hero-search:hover { border-color: var(--fg-3); }
+.hero-search:hover { border-color: var(--line-strong); }
 .hero-search .placeholder { flex: 1; }
 .hero-search .kbd {
   margin-left: auto;

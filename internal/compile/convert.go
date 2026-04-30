@@ -304,7 +304,44 @@ func renderSyntax(s *XMLSyntax) string {
 	return ""
 }
 
+// renderTypedefSyntax renders a TEXTUAL-CONVENTION's syntax for the
+// type-line. For Enumeration TCs we inline the named numbers
+// (`Enumeration { up(1), down(2), … }`) so the type's role is
+// obvious without scrolling to the Values section. The full list
+// always remains in the canonical Values block; this is just the
+// at-a-glance summary.
+//
+// Inline rendering is capped at typedefEnumInlineCap entries with a
+// trailing `, …` so very long enums (IANAifType ~300 entries) don't
+// dominate the line width.
+const typedefEnumInlineCap = 10
+
 func renderTypedefSyntax(t XMLTypedef) string {
+	if t.BaseType == "Enumeration" && len(t.NamedNumbers) > 0 {
+		var b strings.Builder
+		b.Grow(len(t.NamedNumbers) * 12)
+		b.WriteString("Enumeration { ")
+		limit := len(t.NamedNumbers)
+		more := false
+		if limit > typedefEnumInlineCap {
+			limit = typedefEnumInlineCap
+			more = true
+		}
+		for i := 0; i < limit; i++ {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(t.NamedNumbers[i].Name)
+			b.WriteString("(")
+			b.WriteString(t.NamedNumbers[i].Number)
+			b.WriteString(")")
+		}
+		if more {
+			b.WriteString(", …")
+		}
+		b.WriteString(" }")
+		return b.String()
+	}
 	return t.BaseType
 }
 
