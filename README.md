@@ -147,4 +147,4 @@ are intentionally consistent.
 
 ## License
 
-To be decided — placeholder.
+[MIT](LICENSE)
