@@ -545,7 +545,7 @@ func treeRow(r TreeRow) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\" role=\"treeitem\" x-data=\"{ expanded: false, loaded: false }\"><button type=\"button\" x-bind:class=\"expanded ? 'tree-chevron expanded' : 'tree-chevron'\" x-bind:aria-expanded=\"expanded\" data-fragment-url=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\" role=\"treeitem\" x-data=\"{ expanded: false, loaded: false, fetching: false }\"><button type=\"button\" x-bind:class=\"expanded ? 'tree-chevron expanded' : 'tree-chevron'\" x-bind:aria-expanded=\"expanded\" data-fragment-url=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -558,7 +558,7 @@ func treeRow(r TreeRow) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\" x-on:click=\"expanded = !expanded; if (!loaded) { loaded = true; htmx.ajax('GET', $el.dataset.fragmentUrl, { target: $el.closest('.tree-row').querySelector('.tree-children-container'), swap: 'beforeend' }); }\" aria-label=\"Expand\">›</button> <a class=\"tree-row-link\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\" x-on:click=\"if (loaded) { expanded = !expanded; } else if (!fetching) { fetching = true; expanded = true; htmx.ajax('GET', $el.dataset.fragmentUrl, { target: $el.closest('.tree-row').querySelector('.tree-children-container'), swap: 'beforeend' }).then(() => { loaded = true; fetching = false; }, () => { fetching = false; expanded = false; }); }\" aria-label=\"Expand\">›</button> <a class=\"tree-row-link\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
