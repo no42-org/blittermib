@@ -489,6 +489,114 @@ func TestPrivacyNoticeInTopbar(t *testing.T) {
 	}
 }
 
+func TestTreePage(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	html := body(t, resp)
+	if !strings.Contains(html, `data-tree`) {
+		t.Error("/tree page missing data-tree attachment point")
+	}
+}
+
+func TestTreePageFocused(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/tree/1.3.6.1.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	if !strings.Contains(html, `data-tree-focus="1.3.6.1.2.1"`) {
+		t.Error("focused tree page missing data-tree-focus")
+	}
+}
+
+func TestAPITree(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/api/v1/tree?parent=1.3.6.1.2.1.2.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	var got struct {
+		Parent   string
+		Children []struct {
+			OID         string
+			Name        string
+			Module      string
+			Kind        string
+			HasChildren bool
+			Position    string
+		}
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Parent != "1.3.6.1.2.1.2.2" {
+		t.Errorf("parent = %q", got.Parent)
+	}
+	// ifEntry is at 1.3.6.1.2.1.2.2.1 in our fixture and has children.
+	var entry *struct {
+		OID         string
+		Name        string
+		Module      string
+		Kind        string
+		HasChildren bool
+		Position    string
+	}
+	for i := range got.Children {
+		if got.Children[i].Name == "ifEntry" {
+			entry = &got.Children[i]
+			break
+		}
+	}
+	if entry == nil {
+		t.Fatal("ifEntry not in children")
+	}
+	if !entry.HasChildren {
+		t.Error("ifEntry should report HasChildren=true")
+	}
+	if entry.Position != "1" {
+		t.Errorf("ifEntry position = %q, want 1", entry.Position)
+	}
+}
+
+func TestTreeIslandLoaded(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	if !strings.Contains(html, `/static/tree.js`) {
+		t.Error("base layout missing tree.js")
+	}
+}
+
+func TestTreeAssetServed(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/tree.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	js := body(t, resp)
+	for _, marker := range []string{"data-tree", "/api/v1/tree"} {
+		if !strings.Contains(js, marker) {
+			t.Errorf("tree.js missing marker %q", marker)
+		}
+	}
+}
+
 func TestSplitQualified(t *testing.T) {
 	cases := []struct {
 		in   string

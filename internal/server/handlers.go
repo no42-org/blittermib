@@ -281,6 +281,14 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	render(w, r, http.StatusOK, web.Diagnostics(groups))
 }
 
+// --- tree page -------------------------------------------------------
+
+func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/tree")
+	rest = strings.TrimPrefix(rest, "/")
+	render(w, r, http.StatusOK, web.TreePage(rest))
+}
+
 // --- JSON API --------------------------------------------------------
 
 func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +299,51 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 	}
 	hits := s.searchWithExactMatch(r.Context(), q, 25)
 	writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
+}
+
+// handleAPITree returns the immediate children of an OID as JSON,
+// suitable for lazy-load expansion in the tree.js island.
+//
+// The default parent is "1" (the root of the OID space). For each
+// child we report whether it has further descendants so the client
+// can decide whether to render an expand chevron.
+func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
+	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
+	if parent == "" {
+		parent = "1"
+	}
+	ctx := r.Context()
+
+	children, err := s.store.ListChildren(ctx, parent)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	type item struct {
+		OID         string `json:"oid"`
+		Name        string `json:"name"`
+		Module      string `json:"module"`
+		Kind        string `json:"kind"`
+		HasChildren bool   `json:"hasChildren"`
+		Position    string `json:"position"`
+	}
+	out := make([]item, 0, len(children))
+	for _, c := range children {
+		hc, _ := s.store.HasChildren(ctx, c.OID)
+		out = append(out, item{
+			OID:         c.OID,
+			Name:        c.Name,
+			Module:      c.ModuleName,
+			Kind:        string(c.Kind),
+			HasChildren: hc,
+			Position:    lastOIDSegment(c.OID),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"parent":   parent,
+		"children": out,
+	})
 }
 
 func (s *Server) handleAPISymbol(w http.ResponseWriter, r *http.Request) {

@@ -32,9 +32,12 @@ func (s *Server) routes() {
 	s.mux.Handle("/o/", chain(http.HandlerFunc(s.handleOID), withLogging, withRecover))
 	s.mux.Handle("/search", chain(http.HandlerFunc(s.handleSearch), withLogging, withRecover))
 	s.mux.Handle("/diagnostics", chain(http.HandlerFunc(s.handleDiagnostics), withLogging, withRecover))
+	s.mux.Handle("/tree", chain(http.HandlerFunc(s.handleTree), withLogging, withRecover))
+	s.mux.Handle("/tree/", chain(http.HandlerFunc(s.handleTree), withLogging, withRecover))
 
 	s.mux.Handle("/api/v1/search", chain(http.HandlerFunc(s.handleAPISearch), withLogging, withRecover))
 	s.mux.Handle("/api/v1/symbol/", chain(http.HandlerFunc(s.handleAPISymbol), withLogging, withRecover))
+	s.mux.Handle("/api/v1/tree", chain(http.HandlerFunc(s.handleAPITree), withLogging, withRecover))
 
 	s.mux.Handle("/", chain(http.HandlerFunc(s.handleIndex), withLogging, withRecover))
 }
