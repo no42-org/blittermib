@@ -1,0 +1,24 @@
+package web
+
+// TreePage renders the OID tree explorer. The page is intentionally
+// thin: a focus marker, a script attachment point, and a graceful
+// "loading…" placeholder for users without JS.
+//
+// The tree.js island reads data-tree-focus to decide which subtree to
+// render initially, then lazy-loads each level via /api/v1/tree.
+templ TreePage(focusOID string) {
+	@Base("OID tree · blittermib") {
+		<h1 class="symbol-name">OID tree</h1>
+		if focusOID != "" {
+			<p class="summary">
+				Focused at <code>{ focusOID }</code> ·
+				<a href="/tree">view from root</a>
+			</p>
+		} else {
+			<p class="summary">Browse the SNMP OID hierarchy from the root down.</p>
+		}
+		<div class="tree-root" data-tree data-tree-focus={ focusOID }>
+			<div class="tree-loading">Loading tree&hellip;</div>
+		</div>
+	}
+}

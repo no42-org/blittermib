@@ -139,6 +139,20 @@ func (s *Store) ListDiagnosticsByModule(ctx context.Context, module string) ([]m
 	return out, rows.Err()
 }
 
+// HasChildren reports whether the given OID has at least one direct child
+// in the symbol table. Used by the tree API to decide whether to surface
+// an expand chevron without paying for a full children list.
+func (s *Store) HasChildren(ctx context.Context, parentOID string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM symbol WHERE parent_oid = ? LIMIT 1`,
+		parentOID).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // CountSymbols returns the total number of symbols across all modules.
 func (s *Store) CountSymbols(ctx context.Context) (int, error) {
 	var n int
