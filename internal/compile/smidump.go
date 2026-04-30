@@ -42,7 +42,14 @@ func (s *Smidump) run(ctx context.Context, target string) (*SMI, error) {
 	if bin == "" {
 		bin = "smidump"
 	}
-	args := []string{"-f", "xml", "-q"}
+	// -k: keep going past non-fatal errors. Without it, smidump
+	// bails silently (exit 0, empty stdout) on common production
+	// MIB issues like missing REVISION clauses or unconstrained
+	// table indexes — failures we want to surface as diagnostics
+	// from smilint, not silently drop the whole module.
+	// -q: keep stderr free of non-error chatter so cmd.Output()'s
+	// captured stderr is meaningful when the exit code IS non-zero.
+	args := []string{"-f", "xml", "-k", "-q"}
 	for _, p := range s.Paths {
 		args = append(args, "-p", p)
 	}
