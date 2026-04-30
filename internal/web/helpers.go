@@ -50,6 +50,15 @@ func fmtLine(n int) string {
 	return strconv.Itoa(n)
 }
 
+// fmtInt64 renders an int64 in base 10 for templ expressions. Used
+// for enum-value numbers (`name(value)`) — a separate helper from
+// fmtLine so changes to diagnostic line formatting don't silently
+// reshape enum rendering, and so model.EnumValue.Number's full
+// int64 range survives without truncation on 32-bit builds.
+func fmtInt64(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
 // SymbolRef is a lightweight cross-reference shape for in-template
 // linking — keeps templates independent of the bigger model.Symbol.
 type SymbolRef struct {

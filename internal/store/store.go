@@ -76,14 +76,14 @@ func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("inspect symbol columns: %w", err)
 	}
-	defer rows.Close()
 	hasOldFlags := false
 	for rows.Next() {
 		var (
-			cid, notnull, pk int
+			cid, notnull, pk  int
 			name, ctype, dflt sql.NullString
 		)
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			_ = rows.Close()
 			return fmt.Errorf("scan column row: %w", err)
 		}
 		if name.Valid && (name.String == "is_table" || name.String == "is_table_entry") {
@@ -91,7 +91,16 @@ func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return err
+	}
+	// Close explicitly before issuing DDL: the pool is pinned to one
+	// connection (MaxOpenConns=1), so an open Rows iterator could
+	// stall the subsequent Exec. mattn/go-sqlite3 releases on Next()
+	// returning false, but the explicit close removes the dependency
+	// on driver internals.
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close table_info rows: %w", err)
 	}
 	if !hasOldFlags {
 		return nil
@@ -277,11 +286,16 @@ func decodeIndex(s string) []string {
 
 func encodeEnumValues(vs []model.EnumValue) string {
 	if len(vs) == 0 {
-		return ""
+		return "[]"
 	}
 	b, err := json.Marshal(vs)
 	if err != nil {
-		return ""
+		// json.Marshal of []EnumValue cannot fail in practice; if it
+		// ever does, log noisily rather than silently writing "[]"
+		// and losing data.
+		slog.Warn("failed to marshal enum_values; persisting as empty array",
+			"count", len(vs), "err", err)
+		return "[]"
 	}
 	return string(b)
 }

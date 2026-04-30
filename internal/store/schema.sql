@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS symbol (
     default_value  TEXT    NOT NULL DEFAULT '',
     augments       TEXT    NOT NULL DEFAULT '',
     index_columns  TEXT    NOT NULL DEFAULT '',  -- JSON array
-    enum_values    TEXT    NOT NULL DEFAULT '',  -- JSON array of {Name,Number}
+    enum_values    TEXT    NOT NULL DEFAULT '[]', -- JSON array of {name,number}
     source_line    INTEGER NOT NULL DEFAULT 0,
     UNIQUE (module_name, name)
 );

@@ -105,8 +105,8 @@ type Revision struct {
 // enumeration. Number is a 64-bit int because SMI permits values
 // outside the int32 range (rare but legal).
 type EnumValue struct {
-	Name   string
-	Number int64
+	Name   string `json:"name"`
+	Number int64  `json:"number"`
 }
 
 // Symbol is any named SMI definition.

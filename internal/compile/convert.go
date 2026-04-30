@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -64,6 +65,7 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 			Reference:    strings.TrimSpace(t.Reference),
 			DefaultValue: t.Default,
 			SourceLine:   t.Line,
+			EnumValues:   namedNumbersToEnum(t.NamedNumbers),
 		})
 	}
 
@@ -204,29 +206,38 @@ func nodeToSymbol(moduleName string, n XMLNode, kind model.SymbolKind) model.Sym
 }
 
 // extractEnumValues lifts smidump's <namednumber> entries into the
-// structured form the model + UI consume. They live in two places in
-// the XML — directly under <syntax> for the rare inline form, or
-// (the common case) inside an inline <typedef basetype="Enumeration">
-// wrapper for INTEGER { up(1), down(2) } column declarations. Both
-// shapes are accepted. Numbers that fail to parse are skipped rather
-// than failing the whole symbol.
+// structured form the model + UI consume. For OBJECT-TYPE-derived
+// symbols they live in two places in the XML — directly under
+// <syntax> for the rare inline form, or (the common case) inside an
+// inline <typedef basetype="Enumeration"> wrapper for INTEGER {
+// up(1), down(2) } column declarations.
 func extractEnumValues(s *XMLSyntax) []model.EnumValue {
 	if s == nil {
 		return nil
 	}
-	var nums []XMLNamedNumber
 	switch {
 	case len(s.NamedNumbers) > 0:
-		nums = s.NamedNumbers
+		return namedNumbersToEnum(s.NamedNumbers)
 	case s.Typedef != nil && len(s.Typedef.NamedNumbers) > 0:
-		nums = s.Typedef.NamedNumbers
-	default:
+		return namedNumbersToEnum(s.Typedef.NamedNumbers)
+	}
+	return nil
+}
+
+// namedNumbersToEnum converts smidump's parsed `<namednumber>` slice
+// into model.EnumValue. Numbers that fail to parse are logged and
+// skipped rather than failing the whole symbol — real smidump output
+// is well-formed, so a failure here would point at corrupt XML.
+func namedNumbersToEnum(nums []XMLNamedNumber) []model.EnumValue {
+	if len(nums) == 0 {
 		return nil
 	}
 	out := make([]model.EnumValue, 0, len(nums))
 	for _, nn := range nums {
 		num, err := strconv.ParseInt(strings.TrimSpace(nn.Number), 10, 64)
 		if err != nil {
+			slog.Warn("skipping unparseable enum value",
+				"name", nn.Name, "number", nn.Number, "err", err)
 			continue
 		}
 		out = append(out, model.EnumValue{Name: nn.Name, Number: num})

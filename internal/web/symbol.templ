@@ -56,7 +56,7 @@ templ SymbolDetail(view *SymbolView) {
 				<h2 class="section-label">Values</h2>
 				<ul class="enum-list">
 					for _, ev := range view.Symbol.EnumValues {
-						<li><code>{ ev.Name }({ fmtLine(int(ev.Number)) })</code></li>
+						<li><code>{ ev.Name }({ fmtInt64(ev.Number) })</code></li>
 					}
 				</ul>
 			</section>
