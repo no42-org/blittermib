@@ -815,6 +815,23 @@ button { font-family: inherit; }
 }
 .glossary:hover { text-decoration-color: var(--accent); color: var(--accent); }
 
+/* Once a user has dismissed (clicked through) a glossary term, drop
+   the dotted underline so it stops nagging — the .glossary-seen class
+   is added by glossary.js from a localStorage record. Hover still
+   surfaces the affordance for users who want to revisit. */
+.glossary.glossary-seen {
+  text-decoration: none;
+  color: inherit;
+}
+.glossary.glossary-seen:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--accent);
+}
+
 .kv-grid {
   display: grid;
   grid-template-columns: 140px 1fr;
@@ -1279,18 +1296,20 @@ button { font-family: inherit; }
 
 /* --- glossary popover ----------------------------------------------- */
 
+/* design.md: "no layered shadows; 1px borders only". A heavier
+   border + raised surface gives the popover visual lift without
+   resorting to box-shadow. */
 .glossary-popover {
   position: absolute;
   z-index: 100;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border: 1px solid var(--muted-2);
   border-radius: var(--radius-md);
   padding: 12px 14px;
   font-size: 13px;
   line-height: 1.5;
   color: var(--ink);
   max-width: 320px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 .glossary-popover .glossary-term {
   font-family: var(--font-mono);

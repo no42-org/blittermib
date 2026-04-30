@@ -86,7 +86,6 @@
 			const t = termFromElement(el);
 			if (s.has(t)) {
 				el.classList.add('glossary-seen');
-				el.style.textDecoration = 'none';
 			}
 		});
 	}
@@ -144,6 +143,15 @@
 		document.addEventListener('click', onClick);
 		document.addEventListener('keydown', onKey);
 		window.addEventListener('scroll', closeAllPopovers, { passive: true });
+		// hx-boost replaces body, so .glossary elements in the new page
+		// haven't been styled yet — re-run applySeenStyling on every swap.
+		// Stray popovers from before the swap would already be detached
+		// with the old body, but call closeAllPopovers defensively.
+		document.body.addEventListener('htmx:afterSwap', () => {
+			closeAllPopovers();
+			applySeenStyling();
+		});
+		document.documentElement.addEventListener('htmx:afterSwap', applySeenStyling);
 	}
 
 	if (document.readyState === 'loading') {

@@ -4,7 +4,12 @@
 // search overlay backed by /api/v1/search?q=…, supports keyboard
 // navigation, and routes to the matching /s/{Module}::{Name} on Enter.
 //
-// No external dependencies.
+// HTMX integration: base.templ uses hx-boost on <body> with
+// hx-swap="outerHTML", which means body (and its children) is
+// replaced on every internal navigation. Without re-attaching, the
+// palette overlay would be torn down by the first nav. We split
+// init into attachOverlay (idempotent, runs on every swap) and
+// attachGlobals (runs once for document-level handlers).
 
 (function () {
 	'use strict';
@@ -43,6 +48,7 @@
 	}
 
 	function show() {
+		if (!overlay) attachOverlay();
 		overlay.dataset.state = 'visible';
 		input.value = '';
 		list.innerHTML = '';
@@ -53,11 +59,11 @@
 	}
 
 	function hide() {
-		overlay.dataset.state = 'hidden';
+		if (overlay) overlay.dataset.state = 'hidden';
 	}
 
 	function isVisible() {
-		return overlay.dataset.state === 'visible';
+		return overlay && overlay.dataset.state === 'visible';
 	}
 
 	function isInputLike(el) {
@@ -123,8 +129,7 @@
 		const h = hits[i];
 		if (!h) return;
 		hide();
-		// Use full navigation so HTMX hx-boost picks up the destination
-		// in its standard request lifecycle.
+		// Plain navigation; htmx hx-boost picks up the destination.
 		window.location.href = '/s/' + encodeURIComponent(h.Module + '::' + h.Name);
 	}
 
@@ -155,25 +160,32 @@
 	}
 
 	function onGlobal(e) {
-		// ⌘K / Ctrl+K from anywhere
 		if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
 			e.preventDefault();
 			isVisible() ? hide() : show();
 			return;
 		}
-		// "/" opens the palette unless the user is typing in a real input
 		if (e.key === '/' && !isInputLike(document.activeElement) && !isVisible()) {
 			e.preventDefault();
 			show();
 		}
-		// Esc from anywhere closes
 		if (e.key === 'Escape' && isVisible()) {
 			e.preventDefault();
 			hide();
 		}
 	}
 
-	function init() {
+	// attachOverlay (re)injects the overlay element + its element-scoped
+	// listeners. Safe to call multiple times: it returns early if the
+	// overlay already exists.
+	function attachOverlay() {
+		if (document.querySelector('.palette-overlay')) {
+			overlay = document.querySelector('.palette-overlay');
+			input = overlay.querySelector('.palette-input');
+			list = overlay.querySelector('.palette-results');
+			empty = overlay.querySelector('.palette-empty');
+			return;
+		}
 		const root = document.createElement('div');
 		root.innerHTML = TEMPLATE;
 		document.body.appendChild(root.firstElementChild);
@@ -185,26 +197,36 @@
 
 		input.addEventListener('input', onInput);
 		input.addEventListener('keydown', onKey);
-
 		overlay.addEventListener('click', (e) => {
 			if (e.target === overlay) hide();
 		});
-
 		list.addEventListener('click', (e) => {
 			const li = e.target.closest('.palette-item');
 			if (!li) return;
 			navigate(parseInt(li.dataset.idx, 10));
 		});
+	}
 
-		// Optional: trigger from any element with data-palette-toggle
+	// attachGlobals attaches handlers on document/window — these survive
+	// hx-boost swaps and must only be installed once.
+	function attachGlobals() {
 		document.addEventListener('click', (e) => {
 			if (e.target.closest('[data-palette-toggle]')) {
 				e.preventDefault();
 				isVisible() ? hide() : show();
 			}
 		});
-
 		document.addEventListener('keydown', onGlobal);
+		// Re-attach the overlay after every htmx swap — body is the
+		// hx-target, so the overlay vanishes with each navigation.
+		document.body.addEventListener('htmx:afterSwap', attachOverlay);
+		// Some swaps replace body itself; listen on documentElement too.
+		document.documentElement.addEventListener('htmx:afterSwap', attachOverlay);
+	}
+
+	function init() {
+		attachOverlay();
+		attachGlobals();
 	}
 
 	if (document.readyState === 'loading') {
