@@ -11,9 +11,11 @@ import (
 )
 
 // Smidumper produces structured SMI documents from a MIB target
-// (module name or file path).
+// (module name or file path), along with any diagnostics smidump
+// emitted on stderr (the `-k` flag lets smidump emit warnings while
+// still exiting 0, so success-path diagnostics are routine).
 type Smidumper interface {
-	DumpModule(ctx context.Context, target string) (*SMI, error)
+	DumpModule(ctx context.Context, target string) (*SMI, []model.Diagnostic, error)
 }
 
 // Smilinter produces diagnostics for a MIB target.
@@ -76,21 +78,23 @@ func (c *Compiler) compileOne(ctx context.Context, target string) Result {
 	start := time.Now()
 	r := Result{Target: target}
 
-	smi, err := c.Smidump.DumpModule(ctx, target)
+	smi, smiDiags, err := c.Smidump.DumpModule(ctx, target)
 	if err != nil {
 		r.Err = err
+		r.Diagnostics = smiDiags
 		r.Duration = time.Since(start)
 		slog.Warn("smidump failed", "target", target, "err", err, "duration", r.Duration)
 		return r
 	}
 	r.SMI = smi
+	r.Diagnostics = smiDiags
 
 	if c.Smilint != nil {
 		diags, lerr := c.Smilint.Lint(ctx, target)
 		if lerr != nil {
 			slog.Debug("smilint error", "target", target, "err", lerr)
 		}
-		r.Diagnostics = diags
+		r.Diagnostics = append(r.Diagnostics, diags...)
 	}
 
 	mod, syms := ToModel(smi)

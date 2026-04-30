@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
+
+	"github.com/no42-org/blittermib/internal/model"
 )
 
 // Smidump invokes libsmi's smidump tool and parses its XML output.
@@ -27,17 +29,21 @@ func NewSmidump() *Smidump {
 	return &Smidump{Path: "smidump"}
 }
 
-// DumpModule runs `smidump -f xml <module>` and returns the parsed result.
-func (s *Smidump) DumpModule(ctx context.Context, moduleName string) (*SMI, error) {
+// DumpModule runs `smidump -f xml <module>` and returns the parsed
+// result plus any diagnostics smidump emitted on stderr (parsed as
+// model.Diagnostic — see ParseSmilintOutput; smidump's stderr format
+// matches smilint's). Diagnostics are returned even on success, since
+// `-k` lets smidump emit warnings while still exiting 0.
+func (s *Smidump) DumpModule(ctx context.Context, moduleName string) (*SMI, []model.Diagnostic, error) {
 	return s.run(ctx, moduleName)
 }
 
 // DumpFile runs smidump on a MIB file path.
-func (s *Smidump) DumpFile(ctx context.Context, path string) (*SMI, error) {
+func (s *Smidump) DumpFile(ctx context.Context, path string) (*SMI, []model.Diagnostic, error) {
 	return s.run(ctx, path)
 }
 
-func (s *Smidump) run(ctx context.Context, target string) (*SMI, error) {
+func (s *Smidump) run(ctx context.Context, target string) (*SMI, []model.Diagnostic, error) {
 	bin := s.Path
 	if bin == "" {
 		bin = "smidump"
@@ -57,21 +63,25 @@ func (s *Smidump) run(ctx context.Context, target string) (*SMI, error) {
 	// happen to start with a dash being interpreted as smidump options.
 	args = append(args, "--", target)
 
+	// Capture stdout and stderr separately. cmd.Output() only fills
+	// ExitError.Stderr on non-zero exit, but with `-k` smidump will
+	// happily print warnings to stderr and exit 0 — we want those
+	// diagnostics regardless of exit code.
 	cmd := exec.CommandContext(ctx, bin, args...)
-	stdout, err := cmd.Output()
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+	err := cmd.Run()
+	diags := ParseSmilintOutput(strings.NewReader(stderrBuf.String()))
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return nil, fmt.Errorf("smidump %s: %w: %s", target, err, string(ee.Stderr))
-		}
-		return nil, fmt.Errorf("smidump %s: %w", target, err)
+		return nil, diags, fmt.Errorf("smidump %s: %w: %s", target, err, stderrBuf.String())
 	}
 
-	smi, err := ParseXML(bytes.NewReader(stdout))
-	if err != nil {
-		return nil, fmt.Errorf("parse smidump output for %s: %w", target, err)
+	smi, perr := ParseXML(&stdoutBuf)
+	if perr != nil {
+		return nil, diags, fmt.Errorf("parse smidump output for %s: %w", target, perr)
 	}
-	return smi, nil
+	return smi, diags, nil
 }
 
 // ParseXML decodes smidump's XML output from r.
