@@ -1,4 +1,12 @@
-.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets
+.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate
+
+# Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
+TEMPL_VERSION := v0.3.1001
+
+# Pinned htmx version — fetched into internal/server/assets/htmx.min.js
+# by `make fetch-htmx`. The vendored copy is committed so self-hosted
+# builds do not require network access.
+HTMX_VERSION := 2.0.4
 
 GO      ?= go
 BIN     := blittermib
@@ -13,6 +21,15 @@ all: build
 prepare-assets:
 	@mkdir -p internal/server/assets
 	@cp -f prototype/styles.css internal/server/assets/styles.css
+
+generate:
+	$(GO) run github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION) generate
+
+fetch-htmx:
+	@mkdir -p internal/server/assets
+	curl -fL --silent --show-error -o internal/server/assets/htmx.min.js \
+		https://unpkg.com/htmx.org@$(HTMX_VERSION)/dist/htmx.min.js
+	@echo "fetched htmx $(HTMX_VERSION) -> internal/server/assets/htmx.min.js"
 
 check-tools:
 	@command -v smidump >/dev/null 2>&1 || { echo "smidump not found. Install libsmi >= $(LIBSMI_MIN) (brew install libsmi)"; exit 1; }
@@ -70,3 +87,4 @@ help:
 	@echo "make clean       remove build artifacts"
 	@echo "make check-tools verify libsmi (smidump/smilint) is installed"
 	@echo "make hooks       install pre-commit git hooks"
+	@echo "make generate    regenerate templ-generated _templ.go files"

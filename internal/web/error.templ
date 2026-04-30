@@ -1,0 +1,26 @@
+package web
+
+// NotFound renders a friendly 404 page.
+templ NotFound() {
+	@Base("Not found · blittermib") {
+		<h1 class="symbol-name">Not found</h1>
+		<p class="summary">The page you're looking for doesn't exist.</p>
+		<p>
+			<a href="/">Return to landing</a>
+			<span class="sep">·</span>
+			<a href="/m">Browse modules</a>
+		</p>
+	}
+}
+
+// InternalError renders a 500 page with optional detail.
+// detail is shown verbatim — handlers should pass user-safe text only.
+templ InternalError(detail string) {
+	@Base("Error · blittermib") {
+		<h1 class="symbol-name">Internal error</h1>
+		<p class="summary">Something went wrong serving this page.</p>
+		if detail != "" {
+			<pre class="disclosure-body">{ detail }</pre>
+		}
+	}
+}

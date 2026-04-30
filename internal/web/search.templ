@@ -1,0 +1,45 @@
+package web
+
+// SearchHit is the renderable shape the server passes in for results.
+// Defined here (rather than imported from store) to keep the web layer
+// independent of storage internals.
+type SearchHit struct {
+	Module  string
+	Name    string
+	OID     string
+	Kind    string
+	Snippet string
+}
+
+// SearchResults shows a list of FTS5 hits with their snippets.
+templ SearchResults(query string, hits []SearchHit) {
+	@Base("Search · blittermib") {
+		<h1 class="symbol-name">Search</h1>
+		<p class="summary">
+			Results for <code>{ query }</code>
+		</p>
+		if len(hits) == 0 {
+			<p class="muted">No matches.</p>
+		} else {
+			<table class="refs">
+				<tbody>
+					for _, h := range hits {
+						<tr>
+							<td><a href={ symbolURL(h.Module, h.Name) }><code>{ h.Name }</code></a></td>
+							<td class="kind">{ h.Kind }</td>
+							<td class="module">{ h.Module }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}
+
+// SearchEmpty is shown when a user lands on /search with no query.
+templ SearchEmpty() {
+	@Base("Search · blittermib") {
+		<h1 class="symbol-name">Search</h1>
+		<p class="summary muted">Enter a query in the URL: <code>/search?q=…</code></p>
+	}
+}

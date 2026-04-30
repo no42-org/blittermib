@@ -1,0 +1,49 @@
+package web
+
+import "github.com/no42-org/blittermib/internal/model"
+
+// ModuleIndex lists every loaded module in alpha order.
+templ ModuleIndex(modules []model.Module) {
+	@Base("Modules · blittermib") {
+		<h1 class="symbol-name">Modules</h1>
+		<table class="refs">
+			<tbody>
+				for _, m := range modules {
+					<tr>
+						<td><a href={ moduleURL(m.Name) }>{ m.Name }</a></td>
+						<td class="kind">{ string(m.ParseStatus) }</td>
+						<td class="module">{ m.OIDRoot }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	}
+}
+
+// ModuleDetail renders a module's metadata + symbol list.
+templ ModuleDetail(mod *model.Module, symbols []model.Symbol) {
+	@Base(mod.Name + " · blittermib") {
+		<nav class="breadcrumb">
+			<a href="/m">Modules</a>
+			<span class="sep">›</span>
+			{ mod.Name }
+		</nav>
+		<h1 class="symbol-name">{ mod.Name }</h1>
+		if mod.Description != "" {
+			<p class="summary">{ mod.Description }</p>
+		}
+		<div class="oid">{ mod.OIDRoot }</div>
+		<h2 class="section-label">Symbols</h2>
+		<table class="refs">
+			<tbody>
+				for _, s := range symbols {
+					<tr>
+						<td><a href={ symbolURL(s.ModuleName, s.Name) }><code>{ s.Name }</code></a></td>
+						<td class="kind">{ string(s.Kind) }</td>
+						<td class="module">{ s.OID }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	}
+}
