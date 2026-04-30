@@ -258,6 +258,62 @@ func TestSearchByOIDPrefix(t *testing.T) {
 	}
 }
 
+func TestDidYouMean(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if err := s.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
+		t.Fatalf("ReplaceModule: %v", err)
+	}
+
+	// "ifInOctts" — typo (distance 1) of "ifInOctets"
+	got, err := s.DidYouMean(ctx, "ifInOctts", 5)
+	if err != nil {
+		t.Fatalf("DidYouMean: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least one suggestion for typo 'ifInOctts'")
+	}
+	if got[0].Name != "ifInOctets" {
+		t.Errorf("top suggestion = %q, want ifInOctets", got[0].Name)
+	}
+}
+
+func TestDidYouMeanFarMissReturnsNothing(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if err := s.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
+		t.Fatalf("ReplaceModule: %v", err)
+	}
+	// Distance >> 3 from any seeded name.
+	got, err := s.DidYouMean(ctx, "totallyUnrelated", 5)
+	if err != nil {
+		t.Fatalf("DidYouMean: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected no suggestions, got %v", got)
+	}
+}
+
+func TestLevenshtein(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"", "", 0},
+		{"abc", "abc", 0},
+		{"abc", "", 3},
+		{"", "abc", 3},
+		{"kitten", "sitting", 3},
+		{"flaw", "lawn", 2},
+		{"ifInOctets", "ifInOctts", 1},
+	}
+	for _, c := range cases {
+		if got := levenshtein(c.a, c.b); got != c.want {
+			t.Errorf("levenshtein(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
 func TestSanitizeFTS(t *testing.T) {
 	cases := []struct {
 		in, want string

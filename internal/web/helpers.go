@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"unicode"
@@ -153,4 +154,27 @@ func collapseWhitespace(s string) string {
 
 func utf8Count(s string) int {
 	return len([]rune(s))
+}
+
+// SanitizeSnippet HTML-escapes the FTS5 snippet body while preserving
+// the inserted <mark>...</mark> highlight tags. SQLite's snippet()
+// emits the raw column contents (which may contain `<` or `>` from a
+// MIB description) wrapped with the markers we passed in — without
+// this sanitisation, we'd be embedding unescaped MIB text in HTML.
+//
+// Returned string is safe to render via templ.Raw.
+func SanitizeSnippet(s string) string {
+	if s == "" {
+		return ""
+	}
+	const (
+		openSentinel  = "\x01MARK_OPEN\x01"
+		closeSentinel = "\x02MARK_CLOSE\x02"
+	)
+	s = strings.ReplaceAll(s, "<mark>", openSentinel)
+	s = strings.ReplaceAll(s, "</mark>", closeSentinel)
+	s = html.EscapeString(s)
+	s = strings.ReplaceAll(s, openSentinel, "<mark>")
+	s = strings.ReplaceAll(s, closeSentinel, "</mark>")
+	return s
 }
