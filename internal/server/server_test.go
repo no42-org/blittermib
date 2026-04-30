@@ -146,7 +146,7 @@ func TestModuleDetail(t *testing.T) {
 	// The OID 1.3.6.1.2.1.31 no longer appears as a literal substring
 	// because FormatOIDHTML wraps each `.` in a span. Assert on the
 	// dot-styled fragment instead.
-	for _, want := range []string{"IF-MIB", "ifInOctets", `class="oid"`, `<span class="dot">.</span>`} {
+	for _, want := range []string{"IF-MIB", "ifInOctets", `class="oid `, `<span class="dot">.</span>`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("module page missing %q", want)
 		}
@@ -182,8 +182,74 @@ func TestOIDRedirect(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Errorf("status = %d, want 302", resp.StatusCode)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/s/IF-MIB::ifInOctets" {
-		t.Errorf("location = %q", loc)
+	if loc := resp.Header.Get("Location"); loc != "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10" {
+		t.Errorf("location = %q (Phase 3: /o/{oid} redirects to the workspace, not /s/...)", loc)
+	}
+}
+
+func TestWorkspaceRoute(t *testing.T) {
+	ts := newTestServer(t)
+	cases := []struct {
+		name      string
+		path      string
+		wantCode  int
+		wantInBody []string
+	}{
+		{"empty selection", "/m/IF-MIB", 200, []string{
+			"IF-MIB",
+			`class="status-bar-module"`,
+			`class="workspace-grid"`,
+			"Pick a symbol",
+		}},
+		{"with selection", "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10", 200, []string{
+			"ifInOctets",
+			"Counter32",
+			"octets",
+			`class="oid-decode"`,
+		}},
+		{"missing OID", "/m/IF-MIB/9.9.9", 200, []string{
+			`No symbol at`,
+			`9.9.9`,
+		}},
+		{"unknown module", "/m/NO-SUCH-MIB", 404, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp, err := http.Get(ts.URL + c.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != c.wantCode {
+				t.Errorf("status = %d, want %d", resp.StatusCode, c.wantCode)
+			}
+			if c.wantCode == 200 {
+				html := body(t, resp)
+				for _, want := range c.wantInBody {
+					if !strings.Contains(html, want) {
+						t.Errorf("workspace %s missing %q", c.name, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSearchResultsLinkToWorkspace(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/search?q=octets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	// Hit rows must point at the workspace selection, not the
+	// canonical detail page (Phase 3 retarget).
+	want := `href="/m/IF-MIB/1.3.6.1.2.1.2.2.1.10"`
+	if !strings.Contains(html, want) {
+		t.Errorf("search hit link missing %q (search results should target workspace, not /s/...)", want)
+	}
+	notWant := `href="/s/IF-MIB::ifInOctets"`
+	if strings.Contains(html, notWant) {
+		t.Errorf("search results still link to /s/...; expected workspace link instead")
 	}
 }
 

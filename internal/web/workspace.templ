@@ -1,0 +1,194 @@
+package web
+
+import (
+	"fmt"
+
+	"github.com/no42-org/blittermib/internal/model"
+)
+
+// Workspace is the canonical module-navigation surface served at
+// /m/{name} and /m/{name}/{oid}. Status bar across the top names
+// the active module and shows type-family counts; below it three
+// panes — OID tree on the left, symbol list in the center, detail
+// pane on the right.
+templ Workspace(view *WorkspaceView) {
+	@Base(view.Module.Name + " · blittermib") {
+		@workspaceStatusBar(view)
+		<div class="workspace-grid" x-data="workspace()">
+			<aside class="workspace-tree">
+				@workspaceTree(view.TreeRows)
+			</aside>
+			<section class="workspace-list">
+				@workspaceList(view.ListRows)
+			</section>
+			<section class="workspace-detail">
+				@workspaceDetail(view)
+			</section>
+		</div>
+		@modulePicker(view.Modules)
+	}
+}
+
+// workspaceStatusBar renders the module name (clickable; opens the
+// picker), the module's identity OID in mono, and the per-family
+// count chips. Each chip is colored by its t-… family class so the
+// Phase-1 oklch tokens reach the rendered DOM.
+templ workspaceStatusBar(view *WorkspaceView) {
+	<div class="status-bar">
+		<span class="status-bar-label">MODULE</span>
+		<button type="button" class="status-bar-module"
+			x-on:click="$dispatch('picker:open')"
+			aria-label="Switch module">
+			{ view.Module.Name }
+		</button>
+		if view.Module.OIDRoot != "" {
+			<span class="oid status-bar-oid">
+				@templ.Raw(FormatOIDHTML(view.Module.OIDRoot))
+			</span>
+		}
+		@statusBarCounts(view.Counts)
+	</div>
+}
+
+// statusBarCounts renders the visible family-count chips. Zero
+// counts are omitted to keep the bar tight.
+templ statusBarCounts(c *model.FamilyCounts) {
+	if c != nil {
+		<div class="status-bar-counts">
+			if c.Structs > 0 {
+				<span class="status-count t-struct">{ fmt.Sprintf("%d objects", c.Structs) }</span>
+			}
+			if c.Counters > 0 {
+				<span class="status-count t-counter">{ fmt.Sprintf("%d counters", c.Counters) }</span>
+			}
+			if c.Gauges > 0 {
+				<span class="status-count t-gauge">{ fmt.Sprintf("%d gauges", c.Gauges) }</span>
+			}
+			if c.Ints > 0 {
+				<span class="status-count t-int">{ fmt.Sprintf("%d integers", c.Ints) }</span>
+			}
+			if c.Texts > 0 {
+				<span class="status-count t-text">{ fmt.Sprintf("%d strings", c.Texts) }</span>
+			}
+			if c.Times > 0 {
+				<span class="status-count t-time">{ fmt.Sprintf("%d times", c.Times) }</span>
+			}
+			if c.Addrs > 0 {
+				<span class="status-count t-addr">{ fmt.Sprintf("%d addrs", c.Addrs) }</span>
+			}
+			if c.Bools > 0 {
+				<span class="status-count t-bool">{ fmt.Sprintf("%d bools", c.Bools) }</span>
+			}
+			if c.Notifs > 0 {
+				<span class="status-count t-notif">{ fmt.Sprintf("%d notifs", c.Notifs) }</span>
+			}
+		</div>
+	}
+}
+
+// workspaceTree renders the top-level OID children of the active
+// module. Rows with descendants get an HTMX-driven chevron that
+// fetches the children fragment from /api/v1/tree/fragment.
+templ workspaceTree(rows []TreeRow) {
+	<ul class="tree-list" role="tree">
+		for _, r := range rows {
+			@treeRow(r)
+		}
+	</ul>
+}
+
+templ treeRow(r TreeRow) {
+	<li class={ "tree-row " + FamilyClass(&r.Symbol) } role="treeitem">
+		if r.HasChildren {
+			<button type="button" class="tree-chevron"
+				hx-get={ string(treeFragmentURL(r.Symbol.OID)) }
+				hx-target="closest .tree-row"
+				hx-swap="beforeend"
+				hx-trigger="click once"
+				aria-label="Expand">›</button>
+		} else {
+			<span class="tree-chevron-spacer" aria-hidden="true"></span>
+		}
+		<a class="tree-row-link" href={ workspaceURL(r.Symbol.ModuleName, r.Symbol.OID) }>
+			<code class="tree-row-name">{ r.Symbol.Name }</code>
+			<span class="tree-row-oid">{ r.Symbol.OID }</span>
+		</a>
+	</li>
+}
+
+// workspaceList renders the flat symbol list. The filter input is
+// pure Alpine; rows that don't match the filter get hidden via
+// x-show. Kind-filter chips are also Alpine state.
+templ workspaceList(rows []model.Symbol) {
+	<div class="list-controls">
+		<input type="search"
+			class="list-filter"
+			placeholder="Filter symbols…"
+			x-model="filter"
+			autocomplete="off"/>
+	</div>
+	<table class="list-table">
+		<tbody>
+			for _, s := range rows {
+				<tr class={ "list-row " + FamilyClass(&s) }
+					data-name={ s.Name }
+					data-oid={ s.OID }
+					x-show="!filter || matchesRow($el)">
+					<td class="list-cell-name">
+						<a href={ workspaceURL(s.ModuleName, s.OID) }><code>{ s.Name }</code></a>
+					</td>
+					<td class="list-cell-kind">{ string(s.Kind) }</td>
+					<td class="list-cell-syntax">{ s.Syntax }</td>
+					<td class="list-cell-oid">{ s.OID }</td>
+				</tr>
+			}
+		</tbody>
+	</table>
+}
+
+// workspaceDetail renders the right pane. When a symbol is
+// selected, the OID-decode breadcrumb is shown above the canonical
+// detail body. Otherwise an empty-state hint or a missing-OID
+// notice.
+templ workspaceDetail(view *WorkspaceView) {
+	if view.Selected != nil {
+		@oidDecode(view.OIDPath)
+		@symbolDetailBody(view.Selected)
+	} else if view.MissingOID != "" {
+		<div class="empty-state">
+			<p class="empty-title">No symbol at <code>{ view.MissingOID }</code></p>
+			<p class="empty-hint">This module doesn't cover that OID. Pick a symbol from the tree or list.</p>
+		</div>
+	} else {
+		<div class="empty-state">
+			<p class="empty-title">Pick a symbol</p>
+			<p class="empty-hint">Open the tree on the left, or filter the list in the center, to drill in.</p>
+		</div>
+	}
+}
+
+// oidDecode renders the breadcrumb-style decoded OID path above the
+// detail body. Each step is a link to that step's workspace URL,
+// so the user can navigate up/across the hierarchy.
+templ oidDecode(steps []model.OIDStep) {
+	if len(steps) > 0 {
+		<nav class="oid-decode" aria-label="OID path">
+			for i, st := range steps {
+				if i > 0 {
+					<span class="sep" aria-hidden="true">›</span>
+				}
+				if st.Module != "" {
+					<a class="oid-step" href={ workspaceURL(st.Module, st.Prefix) }>
+						<span class="oid-step-name">{ stepDisplayName(st) }</span>
+						<span class="oid-step-num">{ lastSegment(st.Prefix) }</span>
+					</a>
+				} else {
+					<span class="oid-step">
+						<span class="oid-step-name">{ stepDisplayName(st) }</span>
+						<span class="oid-step-num">{ lastSegment(st.Prefix) }</span>
+					</span>
+				}
+			}
+		</nav>
+	}
+}

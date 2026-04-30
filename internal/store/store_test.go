@@ -440,3 +440,124 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestCountByFamily(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	// Seed a fixture covering several families so the helper has
+	// something to classify: 3 counters, 2 gauges, 1 table, 1
+	// table-entry, 2 columns (one Counter32 → t-counter, one
+	// DisplayString → t-text), 1 NOTIFICATION-TYPE.
+	syms := []model.Symbol{
+		{ModuleName: "X", Name: "scalar1", OID: "1.1", Kind: model.KindScalar, Syntax: "Counter32", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "scalar2", OID: "1.2", Kind: model.KindScalar, Syntax: "Counter64", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "scalar3", OID: "1.3", Kind: model.KindScalar, Syntax: "Gauge32", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "scalar4", OID: "1.4", Kind: model.KindScalar, Syntax: "Unsigned32", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "tbl", OID: "1.5", Kind: model.KindTable, Syntax: "SEQUENCE OF Y", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "row", OID: "1.5.1", Kind: model.KindTableEntry, Syntax: "Y", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "col1", OID: "1.5.1.1", Kind: model.KindColumn, Syntax: "Counter32", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "col2", OID: "1.5.1.2", Kind: model.KindColumn, Syntax: "DisplayString", Status: model.StatusCurrent},
+		{ModuleName: "X", Name: "alert", OID: "1.6", Kind: model.KindNotificationType, Status: model.StatusCurrent},
+	}
+	if err := s.ReplaceModule(ctx,
+		&model.Module{Name: "X", ParseStatus: model.ParseStatusClean},
+		syms, nil, nil); err != nil {
+		t.Fatalf("ReplaceModule: %v", err)
+	}
+
+	fc, err := s.CountByFamily(ctx, "X")
+	if err != nil {
+		t.Fatalf("CountByFamily: %v", err)
+	}
+	if fc.Counters != 3 {
+		t.Errorf("Counters = %d, want 3", fc.Counters)
+	}
+	if fc.Gauges != 2 {
+		t.Errorf("Gauges = %d, want 2", fc.Gauges)
+	}
+	if fc.Texts != 1 {
+		t.Errorf("Texts = %d, want 1", fc.Texts)
+	}
+	if fc.Notifs != 1 {
+		t.Errorf("Notifs = %d, want 1", fc.Notifs)
+	}
+	// Structs = table + table-entry (the locked Reading-3 set).
+	if fc.Structs != 2 {
+		t.Errorf("Structs = %d, want 2", fc.Structs)
+	}
+}
+
+func TestOIDPath(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	if err := s.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
+		t.Fatalf("ReplaceModule: %v", err)
+	}
+
+	// IF-MIB anchored under 1.3.6.1.2.1.2.2.1.10 (ifInOctets):
+	// 10 prefixes total. The first six (1, 1.3, 1.3.6, 1.3.6.1,
+	// 1.3.6.1.2, 1.3.6.1.2.1) come from the canonical table; the
+	// rest from the fixture (1.3.6.1.2.1.2 → bare; 1.3.6.1.2.1.2.2
+	// → ifTable; 1.3.6.1.2.1.2.2.1 → ifEntry; 1.3.6.1.2.1.2.2.1.10
+	// → ifInOctets).
+	steps, err := s.OIDPath(ctx, "1.3.6.1.2.1.2.2.1.10")
+	if err != nil {
+		t.Fatalf("OIDPath: %v", err)
+	}
+	if len(steps) != 10 {
+		t.Fatalf("step count = %d, want 10", len(steps))
+	}
+	wantNames := []string{
+		"iso", "org", "dod", "internet", "mgmt", "mib-2",
+		"", "ifTable", "ifEntry", "ifInOctets",
+	}
+	for i, want := range wantNames {
+		if steps[i].Name != want {
+			t.Errorf("step[%d].Name = %q, want %q (prefix %q)",
+				i, steps[i].Name, want, steps[i].Prefix)
+		}
+	}
+	if !steps[0].Canonical {
+		t.Error("step 0 (iso) should be Canonical")
+	}
+	if steps[7].Canonical {
+		t.Error("step 7 (ifTable) should not be Canonical")
+	}
+	if steps[7].Module != "IF-MIB" {
+		t.Errorf("step 7 module = %q, want IF-MIB", steps[7].Module)
+	}
+
+	// Empty input is allowed, returns empty slice.
+	if steps, err := s.OIDPath(ctx, ""); err != nil || len(steps) != 0 {
+		t.Errorf("OIDPath(\"\") = %v, %v", steps, err)
+	}
+}
+
+func TestOIDPathDeterministicOrdering(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	// Two modules both export a symbol at the same OID. OIDPath
+	// MUST pick one deterministically — alphabetical by module
+	// name, then by symbol name.
+	for _, m := range []string{"Z-MIB", "A-MIB"} {
+		if err := s.ReplaceModule(ctx,
+			&model.Module{Name: m, ParseStatus: model.ParseStatusClean},
+			[]model.Symbol{{ModuleName: m, Name: "shared",
+				OID: "1.99", Kind: model.KindScalar, Status: model.StatusCurrent}},
+			nil, nil); err != nil {
+			t.Fatalf("ReplaceModule(%s): %v", m, err)
+		}
+	}
+	steps, err := s.OIDPath(ctx, "1.99")
+	if err != nil {
+		t.Fatalf("OIDPath: %v", err)
+	}
+	// Last step is the contended one.
+	last := steps[len(steps)-1]
+	if last.Module != "A-MIB" {
+		t.Errorf("multi-match resolved to %q, want A-MIB (alphabetical)", last.Module)
+	}
+}

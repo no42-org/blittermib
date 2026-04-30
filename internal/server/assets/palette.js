@@ -144,7 +144,10 @@
 		if (!h) return;
 		hide();
 		// Plain navigation; htmx hx-boost picks up the destination.
-		window.location.href = '/s/' + encodeURIComponent(h.Module + '::' + h.Name);
+		// Hit rows go to the workspace selection so the user lands in
+		// the navigation context that owns the OID, matching what the
+		// /search results page does.
+		window.location.href = '/m/' + encodeURIComponent(h.Module) + '/' + h.OID;
 	}
 
 	function onInput() {

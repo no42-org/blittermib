@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // ParseStatus indicates how cleanly a module parsed.
 type ParseStatus string
 
@@ -107,6 +109,83 @@ type Revision struct {
 type EnumValue struct {
 	Name   string `json:"name"`
 	Number int64  `json:"number"`
+}
+
+// FamilyCounts holds the per-type-family symbol totals for one
+// module. The fields mirror the type-family taxonomy defined in
+// `docs/design/handoff/` (ten families) so the status bar can show
+// each chip via the matching `--c-…` CSS variable. Counts are
+// independent metrics — they do NOT sum to the module's symbol
+// total. The Structs count is also surfaced as "objects" in the
+// status bar (Reading-3 semantics from the locked redesign
+// decisions: structural-kind total = module-identity +
+// object-identity + table + table-entry).
+type FamilyCounts struct {
+	Counters int
+	Gauges   int
+	Ints     int
+	Texts    int
+	Indexes  int
+	Times    int
+	Addrs    int
+	Bools    int
+	Notifs   int
+	Structs  int
+}
+
+// OIDStep is one segment of a decoded OID path. Canonical is true
+// when the step's name comes from the hardcoded canonical-OID
+// fallback table (iso, org, dod, …) rather than a loaded MIB.
+type OIDStep struct {
+	Prefix    string
+	Name      string
+	Module    string
+	Kind      SymbolKind
+	Canonical bool
+}
+
+// TypeFamily classifies an SMI symbol into one of ten visual
+// families used by the workspace status bar, tree rows, and list
+// rows. The taxonomy mirrors `docs/design/handoff/helpers.js`'s
+// `typeFamily` function so the front-end and back-end agree without
+// a translation layer.
+//
+// Returns one of: "t-counter", "t-gauge", "t-int", "t-text",
+// "t-index", "t-time", "t-addr", "t-bool", "t-notif", "t-struct".
+func TypeFamily(kind SymbolKind, syntax string, isIndex bool) string {
+	if kind == KindNotificationType {
+		return "t-notif"
+	}
+	switch kind {
+	case KindTable, KindTableEntry, KindObjectIdentity, KindModuleIdentity:
+		return "t-struct"
+	}
+	if isIndex {
+		return "t-index"
+	}
+	if syntax == "" {
+		return "t-struct"
+	}
+	t := strings.ToLower(syntax)
+	switch {
+	case strings.HasPrefix(t, "counter"):
+		return "t-counter"
+	case strings.HasPrefix(t, "gauge"), strings.HasPrefix(t, "unsigned"):
+		return "t-gauge"
+	case strings.HasPrefix(t, "integer"):
+		return "t-int"
+	case t == "displaystring", strings.Contains(t, "string"), strings.Contains(t, "octet"):
+		return "t-text"
+	case t == "timeticks":
+		return "t-time"
+	case strings.Contains(t, "address"), t == "ipaddress", t == "macaddress", t == "physaddress":
+		return "t-addr"
+	case t == "truthvalue", t == "boolean":
+		return "t-bool"
+	case strings.Contains(t, "index"), strings.Contains(t, "rowpointer"):
+		return "t-index"
+	}
+	return "t-struct"
 }
 
 // Symbol is any named SMI definition.

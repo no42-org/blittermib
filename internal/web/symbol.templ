@@ -16,10 +16,10 @@ type SymbolView struct {
 	SourcePath string // module.source_path; empty if no source available
 }
 
-// SymbolDetail renders the canonical reference page for a symbol,
-// following the page rhythm defined in design.md (breadcrumb → name
-// → OID → type-line → in-context → description → table-of-tables
-// (when applicable) → used-by).
+// SymbolDetail renders the canonical reference page for a symbol
+// at /s/{module}::{name}. The breadcrumb header is page-specific;
+// the rest delegates to symbolDetailBody, which is also embedded by
+// the workspace right pane so the two surfaces never drift.
 templ SymbolDetail(view *SymbolView) {
 	@Base(view.Symbol.QualifiedName() + " · blittermib") {
 		<nav class="breadcrumb">
@@ -27,110 +27,118 @@ templ SymbolDetail(view *SymbolView) {
 			<span class="sep">›</span>
 			{ view.Symbol.Name }
 		</nav>
-		<h1 class="symbol-name">{ view.Symbol.Name }</h1>
-		<p class="summary">{ SummarizeSymbol(view.Symbol) }</p>
-		<div class="oid-row">
-			<span class="oid">
-				@templ.Raw(FormatOIDHTML(view.Symbol.OID))
-			</span>
-		</div>
-		<div class="type-line">
-			if view.Symbol.Syntax != "" {
-				<span class="syntax">{ view.Symbol.Syntax }</span>
-			}
-			if view.Symbol.Access != "" {
-				<span class="sep">·</span>
-				{ string(view.Symbol.Access) }
-			}
-			if view.Symbol.Status != "" {
-				<span class="sep">·</span>
-				{ string(view.Symbol.Status) }
-			}
-			if view.Symbol.Units != "" {
-				<span class="sep">·</span>
-				units: { view.Symbol.Units }
-			}
-		</div>
-		if len(view.Symbol.EnumValues) > 0 {
-			<section class="section">
-				<h2 class="section-label">Values</h2>
-				<ul class="enum-list">
-					for _, ev := range view.Symbol.EnumValues {
-						<li><code>{ ev.Name }({ fmtInt64(ev.Number) })</code></li>
-					}
-				</ul>
-			</section>
+		@symbolDetailBody(view)
+	}
+}
+
+// symbolDetailBody renders the symbol's name, OID, type-line, enum
+// values, in-context block, description, columns (when applicable),
+// used-by, and source disclosure. Reused by both the canonical
+// /s/... page and the workspace right pane.
+templ symbolDetailBody(view *SymbolView) {
+	<h1 class="symbol-name">{ view.Symbol.Name }</h1>
+	<p class="summary">{ SummarizeSymbol(view.Symbol) }</p>
+	<div class="oid-row">
+		<span class="oid">
+			@templ.Raw(FormatOIDHTML(view.Symbol.OID))
+		</span>
+	</div>
+	<div class="type-line">
+		if view.Symbol.Syntax != "" {
+			<span class="syntax">{ view.Symbol.Syntax }</span>
 		}
-		if view.Context != nil {
-			@inContext(view.Context)
+		if view.Symbol.Access != "" {
+			<span class="sep">·</span>
+			{ string(view.Symbol.Access) }
 		}
-		if view.Symbol.Description != "" {
-			<section class="section">
-				<h2 class="section-label">Description</h2>
-				<div class="prose">
-					<p>{ view.Symbol.Description }</p>
-				</div>
-			</section>
+		if view.Symbol.Status != "" {
+			<span class="sep">·</span>
+			{ string(view.Symbol.Status) }
 		}
-		if len(view.Columns) > 0 {
-			<section class="section">
-				<h2 class="section-label">Columns</h2>
-				<table class="toc-table">
-					<thead>
-						<tr>
-							<th>#</th>
-							<th>Column</th>
-							<th>Syntax</th>
-							<th>Access</th>
-							<th>Status</th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, c := range view.Columns {
-							<tr>
-								<td class="col-num">{ c.Position }</td>
-								<td class="col-name">
-									<a href={ symbolURL(c.Module, c.Name) }>{ c.Name }</a>
-									if c.IsIndex {
-										<span class="key">index</span>
-									}
-								</td>
-								<td class="col-syntax">{ c.Syntax }</td>
-								<td class="col-access">{ c.Access }</td>
-								<td class="col-status">{ c.Status }</td>
-							</tr>
-						}
-					</tbody>
-				</table>
-			</section>
+		if view.Symbol.Units != "" {
+			<span class="sep">·</span>
+			units: { view.Symbol.Units }
 		}
-		if len(view.UsedBy) > 0 {
-			<section class="section">
-				<h2 class="section-label">Used by</h2>
-				<table class="refs">
-					<tbody>
-						for _, ref := range view.UsedBy {
-							<tr>
-								<td><a href={ symbolURL(ref.SourceModule, ref.SourceName) }><code>{ ref.SourceName }</code></a></td>
-								<td class="kind">{ string(ref.Kind) }</td>
-								<td class="module">{ ref.SourceModule }</td>
-							</tr>
-						}
-					</tbody>
-				</table>
-			</section>
-		}
-		if view.SourceText != "" {
-			<details class="disclosure">
-				<summary>Show full SMI source</summary>
-				<pre class="disclosure-body">{ view.SourceText }</pre>
-				if view.SourcePath != "" {
-					<p class="see-more">
-						<a href={ moduleSourceURL(view.Symbol.ModuleName) }>View entire MIB source →</a>
-					</p>
+	</div>
+	if len(view.Symbol.EnumValues) > 0 {
+		<section class="section">
+			<h2 class="section-label">Values</h2>
+			<ul class="enum-list">
+				for _, ev := range view.Symbol.EnumValues {
+					<li><code>{ ev.Name }({ fmtInt64(ev.Number) })</code></li>
 				}
-			</details>
-		}
+			</ul>
+		</section>
+	}
+	if view.Context != nil {
+		@inContext(view.Context)
+	}
+	if view.Symbol.Description != "" {
+		<section class="section">
+			<h2 class="section-label">Description</h2>
+			<div class="prose">
+				<p>{ view.Symbol.Description }</p>
+			</div>
+		</section>
+	}
+	if len(view.Columns) > 0 {
+		<section class="section">
+			<h2 class="section-label">Columns</h2>
+			<table class="toc-table">
+				<thead>
+					<tr>
+						<th>#</th>
+						<th>Column</th>
+						<th>Syntax</th>
+						<th>Access</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, c := range view.Columns {
+						<tr>
+							<td class="col-num">{ c.Position }</td>
+							<td class="col-name">
+								<a href={ symbolURL(c.Module, c.Name) }>{ c.Name }</a>
+								if c.IsIndex {
+									<span class="key">index</span>
+								}
+							</td>
+							<td class="col-syntax">{ c.Syntax }</td>
+							<td class="col-access">{ c.Access }</td>
+							<td class="col-status">{ c.Status }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</section>
+	}
+	if len(view.UsedBy) > 0 {
+		<section class="section">
+			<h2 class="section-label">Used by</h2>
+			<table class="refs">
+				<tbody>
+					for _, ref := range view.UsedBy {
+						<tr>
+							<td><a href={ symbolURL(ref.SourceModule, ref.SourceName) }><code>{ ref.SourceName }</code></a></td>
+							<td class="kind">{ string(ref.Kind) }</td>
+							<td class="module">{ ref.SourceModule }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</section>
+	}
+	if view.SourceText != "" {
+		<details class="disclosure">
+			<summary>Show full SMI source</summary>
+			<pre class="disclosure-body">{ view.SourceText }</pre>
+			if view.SourcePath != "" {
+				<p class="see-more">
+					<a href={ moduleSourceURL(view.Symbol.ModuleName) }>View entire MIB source →</a>
+				</p>
+			}
+		</details>
 	}
 }
 

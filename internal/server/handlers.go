@@ -62,7 +62,14 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 		s.handleModuleSource(w, r, strings.TrimSuffix(rest, "/source"))
 		return
 	}
-	s.handleModuleDetail(w, r, rest)
+	// /m/{name} or /m/{name}/{oid}. The first slash splits name from
+	// the optional OID tail; OIDs are dot-separated digits so they
+	// never themselves contain a slash.
+	name, oid := rest, ""
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		name, oid = rest[:i], rest[i+1:]
+	}
+	s.handleWorkspace(w, r, name, oid)
 }
 
 // handleModuleSource serves the raw MIB source file for a module as
@@ -102,7 +109,14 @@ func (s *Server) handleModuleIndex(w http.ResponseWriter, r *http.Request) {
 	render(w, r, http.StatusOK, web.ModuleIndex(mods))
 }
 
-func (s *Server) handleModuleDetail(w http.ResponseWriter, r *http.Request, name string) {
+// handleWorkspace serves the 3-pane workspace shell at /m/{name}
+// and /m/{name}/{oid}. When oid is empty the right pane shows an
+// empty-state hint; when oid resolves to a symbol the right pane
+// renders the canonical detail body plus an OID-decode breadcrumb;
+// when oid is non-empty but doesn't match anything in the module
+// the workspace renders without a selection plus a soft missing-OID
+// notice.
+func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, oid string) {
 	ctx := r.Context()
 	mod, err := s.store.GetModule(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
@@ -113,12 +127,85 @@ func (s *Server) handleModuleDetail(w http.ResponseWriter, r *http.Request, name
 		s.internalError(w, r, err)
 		return
 	}
+
 	syms, err := s.store.ListSymbolsByModule(ctx, name)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
-	render(w, r, http.StatusOK, web.ModuleDetail(mod, syms))
+
+	// Top-level tree rows: children of the module's identity OID
+	// (or, if the module never declared one, the symbols whose
+	// parent_oid is empty).
+	root := mod.OIDRoot
+	treeChildren, err := s.store.ListChildren(ctx, root)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	treeRows := make([]web.TreeRow, 0, len(treeChildren))
+	for _, c := range treeChildren {
+		hc, _ := s.store.HasChildren(ctx, c.OID)
+		treeRows = append(treeRows, web.TreeRow{Symbol: c, HasChildren: hc})
+	}
+
+	counts, err := s.store.CountByFamily(ctx, name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+
+	allModules, err := s.store.ListModules(ctx)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+
+	view := &web.WorkspaceView{
+		Module:   mod,
+		Counts:   counts,
+		TreeRows: treeRows,
+		ListRows: syms,
+		Modules:  allModules,
+	}
+
+	if oid != "" {
+		sym, err := s.store.GetSymbolByOID(ctx, oid)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			view.MissingOID = oid
+		case err != nil:
+			s.internalError(w, r, err)
+			return
+		default:
+			selected := &web.SymbolView{Symbol: sym}
+			selected.Context = s.buildSymbolContext(ctx, sym)
+			if sym.Kind == model.KindTable {
+				selected.Columns = s.buildTableColumns(ctx, sym)
+			}
+			usedBy, err := s.store.ListReferencesTo(ctx, sym.ModuleName, sym.Name)
+			if err != nil {
+				s.internalError(w, r, err)
+				return
+			}
+			selected.UsedBy = usedBy
+			if symMod, err := s.store.GetModule(ctx, sym.ModuleName); err == nil && symMod.SourcePath != "" && sym.SourceLine > 0 {
+				if slice, err := source.Slice(symMod.SourcePath, sym.SourceLine, source.DefaultWindow); err == nil && slice != "" {
+					selected.SourceText = slice
+					selected.SourcePath = symMod.SourcePath
+				}
+			}
+			view.Selected = selected
+			path, err := s.store.OIDPath(ctx, oid)
+			if err != nil {
+				s.internalError(w, r, err)
+				return
+			}
+			view.OIDPath = path
+		}
+	}
+
+	render(w, r, http.StatusOK, web.Workspace(view))
 }
 
 func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {
@@ -307,7 +394,10 @@ func (s *Server) handleOID(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/s/"+sym.QualifiedName(), http.StatusFound)
+	// Redirect to the workspace selection rather than the canonical
+	// /s/... page so the user lands in the navigation context that
+	// owns the OID. The /s/... page remains for direct deep links.
+	http.Redirect(w, r, "/m/"+sym.ModuleName+"/"+sym.OID, http.StatusFound)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

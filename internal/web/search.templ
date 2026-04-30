@@ -25,7 +25,7 @@ templ SearchResults(query string, hits []SearchHit) {
 				<tbody>
 					for _, h := range hits {
 						<tr>
-							<td><a href={ symbolURL(h.Module, h.Name) }><code>{ h.Name }</code></a></td>
+							<td><a href={ workspaceURL(h.Module, h.OID) }><code>{ h.Name }</code></a></td>
 							<td class="kind">{ h.Kind }</td>
 							<td class="module">{ h.Module }</td>
 						</tr>
@@ -59,7 +59,7 @@ templ SearchNoResults(query string, suggestions []SearchHit) {
 					<tbody>
 						for _, s := range suggestions {
 							<tr>
-								<td><a href={ symbolURL(s.Module, s.Name) }><code>{ s.Name }</code></a></td>
+								<td><a href={ workspaceURL(s.Module, s.OID) }><code>{ s.Name }</code></a></td>
 								<td class="kind">{ s.Kind }</td>
 								<td class="module">{ s.Module }</td>
 							</tr>

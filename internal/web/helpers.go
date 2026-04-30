@@ -31,6 +31,41 @@ func moduleSourceURL(module string) templ.SafeURL {
 	return templ.SafeURL("/m/" + module + "/source")
 }
 
+// workspaceURL returns the URL for a workspace selection. SMI
+// module names are alphanumeric + dash and OIDs are digits + dot,
+// so neither input needs URL escaping.
+func workspaceURL(module, oid string) templ.SafeURL {
+	if oid == "" {
+		return templ.SafeURL("/m/" + module)
+	}
+	return templ.SafeURL("/m/" + module + "/" + oid)
+}
+
+// treeFragmentURL is the HTMX target that returns the children of
+// an OID rendered as workspace tree-rows.
+func treeFragmentURL(parentOID string) templ.SafeURL {
+	return templ.SafeURL("/api/v1/tree/fragment?parent=" + parentOID)
+}
+
+// stepDisplayName picks the readable label for an OID-decode step.
+// Falls back to the bare numeric segment when neither a loaded
+// symbol nor the canonical table covers the prefix.
+func stepDisplayName(s model.OIDStep) string {
+	if s.Name != "" {
+		return s.Name
+	}
+	return lastSegment(s.Prefix)
+}
+
+// lastSegment returns the final dotted segment of an OID, or the
+// full string when there's no dot.
+func lastSegment(oid string) string {
+	if i := strings.LastIndex(oid, "."); i >= 0 {
+		return oid[i+1:]
+	}
+	return oid
+}
+
 // IsTabular reports whether the kind names a symbol that participates
 // in SMIv2 conceptual-row table rendering. The three answers — table,
 // table-entry, column — are grouped here so templates and handlers
@@ -42,6 +77,24 @@ func IsTabular(k model.SymbolKind) bool {
 		return true
 	}
 	return false
+}
+
+// FamilyClass returns the type-family CSS class for a symbol —
+// `t-counter`, `t-gauge`, `t-int`, `t-text`, `t-index`, `t-time`,
+// `t-addr`, `t-bool`, `t-notif`, or `t-struct`. Templates emit
+// `class={ "row " + FamilyClass(s) }` so Phase-1's `--c-*` color
+// tokens reach the rendered DOM.
+//
+// isIndex defaults to false here because most call sites don't have
+// the parent entry's IndexColumns in scope. The status-bar count
+// helper passes false too. A future refinement can thread the bool
+// through tree/list rendering when accessing the parent row's
+// IndexColumns is cheap.
+func FamilyClass(s *model.Symbol) string {
+	if s == nil {
+		return "t-struct"
+	}
+	return model.TypeFamily(s.Kind, s.Syntax, false)
 }
 
 // fmtLine renders a line number for diagnostics templates without
@@ -87,6 +140,31 @@ type TableColumn struct {
 	Status   string
 	Units    string
 	IsIndex  bool
+}
+
+// TreeRow is one node in the workspace's left-rail OID tree. The
+// initial paint includes only the module's top-level OID children;
+// HasChildren drives whether a chevron renders so the user can
+// drill in via lazy HTMX-fragment expansion.
+type TreeRow struct {
+	Symbol      model.Symbol
+	HasChildren bool
+}
+
+// WorkspaceView aggregates everything the workspace shell needs for
+// a single page render. Built by Server.handleWorkspace.
+type WorkspaceView struct {
+	Module   *model.Module
+	Counts   *model.FamilyCounts
+	TreeRows []TreeRow
+	ListRows []model.Symbol
+	Selected *SymbolView // nil → empty-state right pane
+	OIDPath  []model.OIDStep
+	Modules  []model.Module // preloaded for the status-bar picker
+	// MissingOID is set when the URL specifies an OID the module
+	// doesn't cover; the workspace renders without selection and a
+	// soft hint in the right pane.
+	MissingOID string
 }
 
 // SummarizeSymbol produces the one-sentence plain-language lede that

@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts dist docker-build
+.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine dist docker-build
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -7,6 +7,11 @@ TEMPL_VERSION := v0.3.1001
 # by `make fetch-htmx`. The vendored copy is committed so self-hosted
 # builds do not require network access.
 HTMX_VERSION := 2.0.4
+
+# Pinned Alpine.js version — fetched into internal/server/assets/alpine.min.js
+# by `make fetch-alpine`. Drives the workspace shell's interactivity
+# (filter inputs, module picker modal, tree expand chevrons).
+ALPINE_VERSION := 3.14.1
 
 GO      ?= go
 BIN     := blittermib
@@ -30,6 +35,15 @@ fetch-htmx:
 	curl -fL --silent --show-error -o internal/server/assets/htmx.min.js \
 		https://unpkg.com/htmx.org@$(HTMX_VERSION)/dist/htmx.min.js
 	@echo "fetched htmx $(HTMX_VERSION) -> internal/server/assets/htmx.min.js"
+
+# Fetch the pinned Alpine.js bundle into internal/server/assets/.
+# Alpine drives the workspace's filter inputs, module picker modal,
+# and tree expand chevrons.
+fetch-alpine:
+	@mkdir -p internal/server/assets
+	curl -fL --silent --show-error -o internal/server/assets/alpine.min.js \
+		https://unpkg.com/alpinejs@$(ALPINE_VERSION)/dist/cdn.min.js
+	@echo "fetched Alpine.js $(ALPINE_VERSION) -> internal/server/assets/alpine.min.js"
 
 # Fetch self-hosted Inter + JetBrains Mono woff2 files from Fontsource
 # (CDN-mirrored open-source fonts via jsdelivr). Vendored into

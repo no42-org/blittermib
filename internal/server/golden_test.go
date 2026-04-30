@@ -40,7 +40,8 @@ func TestGoldenHTML(t *testing.T) {
 	}{
 		{"landing", "/"},
 		{"module-index", "/m"},
-		{"module-detail", "/m/IF-MIB"},
+		{"workspace-empty", "/m/IF-MIB"},
+		{"workspace-with-selection", "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10"},
 		{"symbol-column", "/s/IF-MIB::ifInOctets"},
 		{"symbol-table", "/s/IF-MIB::ifTable"},
 		{"symbol-not-found", "/s/IF-MIB::doesNotExist"},

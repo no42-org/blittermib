@@ -1,0 +1,41 @@
+package web
+
+import "github.com/no42-org/blittermib/internal/model"
+
+// modulePicker is the body-mounted Alpine modal triggered by
+// clicking the module name in the status bar. The full module list
+// is preloaded (it's bounded — at most ~1k rows in the worst
+// standard-MIB-bundle case), so the filter is pure client-side
+// string matching with no AJAX round-trip.
+templ modulePicker(modules []model.Module) {
+	<div class="module-picker"
+		x-data="picker()"
+		x-show="open"
+		x-on:picker:open.window="open = true; $nextTick(() => $refs.input.focus())"
+		x-on:keydown.escape.window="open = false"
+		x-on:click.self="open = false"
+		x-cloak>
+		<div class="module-picker-card" role="dialog" aria-label="Switch module">
+			<input type="search"
+				class="module-picker-input"
+				x-ref="input"
+				x-model="query"
+				placeholder="Switch module…"
+				autocomplete="off"/>
+			<ul class="module-picker-list">
+				for _, m := range modules {
+					<li class="module-picker-item"
+						data-name={ m.Name }
+						x-show="!query || matchesRow($el)">
+						<a href={ moduleURL(m.Name) }>
+							<code class="module-picker-name">{ m.Name }</code>
+							if m.OIDRoot != "" {
+								<span class="module-picker-oid">{ m.OIDRoot }</span>
+							}
+						</a>
+					</li>
+				}
+			</ul>
+		</div>
+	</div>
+}

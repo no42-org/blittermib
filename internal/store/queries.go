@@ -186,6 +186,129 @@ func (s *Store) CountModules(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// CountByFamily returns the per-type-family symbol totals for one
+// module. One DB query loads (kind, syntax) tuples; classification
+// runs in Go via model.TypeFamily so the same taxonomy serves the
+// status bar, the row-class application, and the front-end. The
+// counts are independent metrics — they do NOT sum to the module's
+// symbol total. The Structs count is also surfaced as "objects" in
+// the status bar.
+func (s *Store) CountByFamily(ctx context.Context, moduleName string) (*model.FamilyCounts, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT kind, syntax FROM symbol WHERE module_name = ?`, moduleName)
+	if err != nil {
+		return nil, fmt.Errorf("count by family for %s: %w", moduleName, err)
+	}
+	defer rows.Close()
+
+	var fc model.FamilyCounts
+	for rows.Next() {
+		var kind, syntax string
+		if err := rows.Scan(&kind, &syntax); err != nil {
+			return nil, err
+		}
+		switch model.TypeFamily(model.SymbolKind(kind), syntax, false) {
+		case "t-counter":
+			fc.Counters++
+		case "t-gauge":
+			fc.Gauges++
+		case "t-int":
+			fc.Ints++
+		case "t-text":
+			fc.Texts++
+		case "t-index":
+			fc.Indexes++
+		case "t-time":
+			fc.Times++
+		case "t-addr":
+			fc.Addrs++
+		case "t-bool":
+			fc.Bools++
+		case "t-notif":
+			fc.Notifs++
+		case "t-struct":
+			fc.Structs++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &fc, nil
+}
+
+// OIDPath decodes an OID into one model.OIDStep per ancestor
+// prefix, naming each step from a loaded MIB symbol when one
+// matches and from the canonical-OID fallback table otherwise.
+//
+// One database hit total: every prefix is included in a single
+// `WHERE oid IN (?, …)` query. Multi-match on the same prefix is
+// resolved deterministically by ascending module_name, then name.
+//
+// Returned slice is empty when oid is empty.
+func (s *Store) OIDPath(ctx context.Context, oid string) ([]model.OIDStep, error) {
+	prefixes := oidPrefixes(oid)
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+
+	args := make([]any, 0, len(prefixes))
+	placeholders := make([]byte, 0, 2*len(prefixes))
+	for i, p := range prefixes {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, p)
+	}
+
+	q := `SELECT oid, module_name, name, kind FROM symbol WHERE oid IN (` +
+		string(placeholders) + `) ORDER BY oid, module_name, name`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("oid path %s: %w", oid, err)
+	}
+	defer rows.Close()
+
+	type hit struct {
+		module string
+		name   string
+		kind   model.SymbolKind
+	}
+	first := make(map[string]hit, len(prefixes))
+	for rows.Next() {
+		var stepOID, mod, name, kind string
+		if err := rows.Scan(&stepOID, &mod, &name, &kind); err != nil {
+			return nil, err
+		}
+		if _, seen := first[stepOID]; seen {
+			continue
+		}
+		first[stepOID] = hit{module: mod, name: name, kind: model.SymbolKind(kind)}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]model.OIDStep, 0, len(prefixes))
+	for _, p := range prefixes {
+		if h, ok := first[p]; ok {
+			out = append(out, model.OIDStep{
+				Prefix: p, Name: h.name, Module: h.module, Kind: h.kind,
+			})
+			continue
+		}
+		if name, ok := canonicalName(p); ok {
+			out = append(out, model.OIDStep{
+				Prefix: p, Name: name, Canonical: true,
+			})
+			continue
+		}
+		// Bare numeric — last segment only, no name.
+		out = append(out, model.OIDStep{Prefix: p})
+	}
+	return out, nil
+}
+
 // --- internal helpers --------------------------------------------------
 
 const symbolSelectColumns = `
