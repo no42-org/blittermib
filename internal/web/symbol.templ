@@ -51,6 +51,16 @@ templ SymbolDetail(view *SymbolView) {
 				units: { view.Symbol.Units }
 			}
 		</div>
+		if len(view.Symbol.EnumValues) > 0 {
+			<section class="section">
+				<h2 class="section-label">Values</h2>
+				<ul class="enum-list">
+					for _, ev := range view.Symbol.EnumValues {
+						<li><code>{ ev.Name }({ fmtLine(int(ev.Number)) })</code></li>
+					}
+				</ul>
+			</section>
+		}
 		if view.Context != nil {
 			@inContext(view.Context)
 		}

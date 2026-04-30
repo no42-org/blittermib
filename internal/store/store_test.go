@@ -36,24 +36,28 @@ func sampleSymbols() []model.Symbol {
 		{
 			ModuleName: "IF-MIB", Name: "ifTable",
 			OID: "1.3.6.1.2.1.2.2", ParentOID: "1.3.6.1.2.1.2",
-			Kind: model.KindObjectType, Syntax: "SEQUENCE OF IfEntry",
+			Kind: model.KindTable, Syntax: "SEQUENCE OF IfEntry",
 			Access: model.AccessNotAccessible, Status: model.StatusCurrent,
-			IsTable: true, Description: "A list of interface entries.",
+			Description: "A list of interface entries.",
 		},
 		{
 			ModuleName: "IF-MIB", Name: "ifEntry",
 			OID: "1.3.6.1.2.1.2.2.1", ParentOID: "1.3.6.1.2.1.2.2",
-			Kind: model.KindObjectType, Syntax: "IfEntry",
+			Kind: model.KindTableEntry, Syntax: "IfEntry",
 			Access: model.AccessNotAccessible, Status: model.StatusCurrent,
-			IsTableEntry: true, IndexColumns: []string{"ifIndex"},
+			IndexColumns: []string{"ifIndex"},
 		},
 		{
 			ModuleName: "IF-MIB", Name: "ifInOctets",
 			OID: "1.3.6.1.2.1.2.2.1.10", ParentOID: "1.3.6.1.2.1.2.2.1",
-			Kind: model.KindObjectType, Syntax: "Counter32",
+			Kind: model.KindColumn, Syntax: "Counter32",
 			Access: model.AccessReadOnly, Status: model.StatusCurrent,
 			Units:       "octets",
 			Description: "The total number of octets received on the interface.",
+			EnumValues: []model.EnumValue{
+				{Name: "ok", Number: 1},
+				{Name: "fault", Number: 2},
+			},
 		},
 	}
 }
@@ -133,8 +137,27 @@ func TestReplaceAndQuery(t *testing.T) {
 	if got, want := entry.IndexColumns, []string{"ifIndex"}; !equalStrings(got, want) {
 		t.Errorf("IndexColumns = %v, want %v", got, want)
 	}
-	if !entry.IsTableEntry {
-		t.Error("ifEntry should be IsTableEntry")
+	if entry.Kind != model.KindTableEntry {
+		t.Errorf("ifEntry Kind = %q, want %q", entry.Kind, model.KindTableEntry)
+	}
+
+	// Enum values round-trip through JSON column.
+	in2, err := s.GetSymbol(ctx, "IF-MIB", "ifInOctets")
+	if err != nil {
+		t.Fatalf("GetSymbol(ifInOctets): %v", err)
+	}
+	wantEnum := []model.EnumValue{
+		{Name: "ok", Number: 1},
+		{Name: "fault", Number: 2},
+	}
+	if got := in2.EnumValues; len(got) != len(wantEnum) {
+		t.Errorf("EnumValues length = %d, want %d", len(got), len(wantEnum))
+	} else {
+		for i := range got {
+			if got[i] != wantEnum[i] {
+				t.Errorf("EnumValues[%d] = %+v, want %+v", i, got[i], wantEnum[i])
+			}
+		}
 	}
 
 	children, err := s.ListChildren(ctx, "1.3.6.1.2.1.2.2.1")

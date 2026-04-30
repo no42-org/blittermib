@@ -60,16 +60,22 @@ type XMLImport struct {
 // In smidump's emitted XML, typedef bodies are flat — `<range>`,
 // `<format>`, `<description>` are direct children of `<typedef>`.
 // There is no `<syntax>` wrapper here (unlike for nodes/columns).
+//
+// `<namednumber>` enumeration entries also live here when the
+// typedef has `basetype="Enumeration"` — both at module level
+// (TEXTUAL-CONVENTION INTEGER {…}) and inline inside a column or
+// scalar's `<syntax>` (`<typedef basetype="Enumeration">…`).
 type XMLTypedef struct {
-	Name        string     `xml:"name,attr"`
-	BaseType    string     `xml:"basetype,attr"`
-	Status      string     `xml:"status,attr"`
-	Default     string     `xml:"default,omitempty"`
-	Format      string     `xml:"format,omitempty"`
-	Range       []XMLRange `xml:"range"`
-	Description string     `xml:"description"`
-	Reference   string     `xml:"reference,omitempty"`
-	Line        int        `xml:"line,attr,omitempty"`
+	Name         string           `xml:"name,attr"`
+	BaseType     string           `xml:"basetype,attr"`
+	Status       string           `xml:"status,attr"`
+	Default      string           `xml:"default,omitempty"`
+	Format       string           `xml:"format,omitempty"`
+	Range        []XMLRange       `xml:"range"`
+	NamedNumbers []XMLNamedNumber `xml:"namednumber,omitempty"`
+	Description  string           `xml:"description"`
+	Reference    string           `xml:"reference,omitempty"`
+	Line         int              `xml:"line,attr,omitempty"`
 }
 
 // XMLNodes is the heterogeneous container under `<nodes>`. smidump

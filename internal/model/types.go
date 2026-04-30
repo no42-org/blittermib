@@ -10,10 +10,17 @@ const (
 )
 
 // SymbolKind enumerates the SMI definitions blittermib recognizes.
+//
+// OBJECT-TYPE-derived symbols are split into four narrow kinds —
+// scalar, table, table-entry, column — so render-time consumers can
+// branch on Kind alone, without auxiliary boolean flags.
 type SymbolKind string
 
 const (
-	KindObjectType        SymbolKind = "object-type"
+	KindScalar            SymbolKind = "scalar"
+	KindTable             SymbolKind = "table"
+	KindTableEntry        SymbolKind = "table-entry"
+	KindColumn            SymbolKind = "column"
 	KindTextualConvention SymbolKind = "textual-convention"
 	KindObjectIdentity    SymbolKind = "object-identity"
 	KindNotificationType  SymbolKind = "notification-type"
@@ -94,6 +101,14 @@ type Revision struct {
 	Description string
 }
 
+// EnumValue is one entry in an `INTEGER { name(value), … }`
+// enumeration. Number is a 64-bit int because SMI permits values
+// outside the int32 range (rare but legal).
+type EnumValue struct {
+	Name   string
+	Number int64
+}
+
 // Symbol is any named SMI definition.
 type Symbol struct {
 	ID           int64
@@ -109,10 +124,9 @@ type Symbol struct {
 	Reference    string
 	Description  string
 	DefaultValue string
-	IsTable      bool
-	IsTableEntry bool
 	Augments     string
 	IndexColumns []string
+	EnumValues   []EnumValue
 	SourceLine   int
 }
 

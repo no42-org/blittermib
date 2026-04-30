@@ -145,7 +145,7 @@ func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {
 
 	view := &web.SymbolView{Symbol: sym}
 	view.Context = s.buildSymbolContext(ctx, sym)
-	if sym.IsTable {
+	if sym.Kind == model.KindTable {
 		view.Columns = s.buildTableColumns(ctx, sym)
 	}
 	usedBy, err := s.store.ListReferencesTo(ctx, module, name)
@@ -198,10 +198,10 @@ func (s *Server) buildSymbolContext(ctx context.Context, sym *model.Symbol) *web
 		parent, err := s.store.GetSymbolByOID(ctx, sym.ParentOID)
 		if err == nil {
 			switch {
-			case parent.IsTableEntry:
+			case parent.Kind == model.KindTableEntry:
 				// We're a column. The table is parent's parent.
 				if parent.ParentOID != "" {
-					if grand, err := s.store.GetSymbolByOID(ctx, parent.ParentOID); err == nil && grand.IsTable {
+					if grand, err := s.store.GetSymbolByOID(ctx, parent.ParentOID); err == nil && grand.Kind == model.KindTable {
 						out.ParentTable = &web.SymbolRef{Module: grand.ModuleName, Name: grand.Name}
 						out.ColumnNumber = lastOIDSegment(sym.OID)
 						any = true
@@ -214,7 +214,7 @@ func (s *Server) buildSymbolContext(ctx context.Context, sym *model.Symbol) *web
 				if len(parent.IndexColumns) > 0 {
 					any = true
 				}
-			case parent.IsTable && sym.IsTableEntry:
+			case parent.Kind == model.KindTable && sym.Kind == model.KindTableEntry:
 				// We're an entry — point to the parent table.
 				out.ParentTable = &web.SymbolRef{Module: parent.ModuleName, Name: parent.Name}
 				any = true
@@ -223,7 +223,7 @@ func (s *Server) buildSymbolContext(ctx context.Context, sym *model.Symbol) *web
 	}
 
 	// Direct entry-row data.
-	if sym.IsTableEntry {
+	if sym.Kind == model.KindTableEntry {
 		for _, idx := range sym.IndexColumns {
 			out.IndexedBy = append(out.IndexedBy, web.SymbolRef{Module: sym.ModuleName, Name: idx})
 		}
@@ -251,7 +251,7 @@ func (s *Server) buildSymbolContext(ctx context.Context, sym *model.Symbol) *web
 // symbol page. Columns are the children of the entry row, ordered by
 // OID. Index columns get the IsIndex flag set.
 func (s *Server) buildTableColumns(ctx context.Context, table *model.Symbol) []web.TableColumn {
-	if !table.IsTable {
+	if table.Kind != model.KindTable {
 		return nil
 	}
 	rows, err := s.store.ListChildren(ctx, table.OID)
@@ -260,7 +260,7 @@ func (s *Server) buildTableColumns(ctx context.Context, table *model.Symbol) []w
 	}
 	var entry *model.Symbol
 	for i := range rows {
-		if rows[i].IsTableEntry {
+		if rows[i].Kind == model.KindTableEntry {
 			entry = &rows[i]
 			break
 		}

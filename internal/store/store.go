@@ -55,7 +55,65 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+
+	if err := migrateSymbolKindSplit(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate symbol table: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrateSymbolKindSplit handles the one-shot Phase-2 migration:
+// older databases have `is_table`/`is_table_entry` columns on the
+// symbol table that no longer exist in schema.sql. Detect their
+// presence, drop the symbol table + its FTS shadow + triggers, then
+// re-apply the schema so the new shape is created. The loader's
+// startup scan repopulates the table on the same boot — no symbol
+// data is preserved across the migration (it's recompiled from the
+// on-disk MIB bundle, which is the source-of-truth).
+func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(symbol)`)
+	if err != nil {
+		return fmt.Errorf("inspect symbol columns: %w", err)
+	}
+	defer rows.Close()
+	hasOldFlags := false
+	for rows.Next() {
+		var (
+			cid, notnull, pk int
+			name, ctype, dflt sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return fmt.Errorf("scan column row: %w", err)
+		}
+		if name.Valid && (name.String == "is_table" || name.String == "is_table_entry") {
+			hasOldFlags = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !hasOldFlags {
+		return nil
+	}
+
+	slog.Info("migrating symbol table to phase-2 kind split")
+
+	for _, stmt := range []string{
+		`DROP TRIGGER IF EXISTS symbol_ai`,
+		`DROP TRIGGER IF EXISTS symbol_ad`,
+		`DROP TRIGGER IF EXISTS symbol_au`,
+		`DROP TABLE IF EXISTS symbol_fts`,
+		`DROP TABLE IF EXISTS symbol`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("%s: %w", stmt, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
+		return fmt.Errorf("recreate schema: %w", err)
+	}
+	return nil
 }
 
 // OpenInMemory is a convenience for tests.
@@ -124,9 +182,9 @@ func (s *Store) ReplaceModule(
 	insSym, err := tx.PrepareContext(ctx, `
 		INSERT INTO symbol
 		    (module_name, name, oid, parent_oid, kind, syntax, access, status,
-		     units, reference_text, description, default_value, is_table,
-		     is_table_entry, augments, index_columns, source_line)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		     units, reference_text, description, default_value, augments,
+		     index_columns, enum_values, source_line)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare insert symbol: %w", err)
 	}
@@ -134,13 +192,13 @@ func (s *Store) ReplaceModule(
 
 	for i := range syms {
 		idxJSON := encodeIndex(syms[i].IndexColumns)
+		enumJSON := encodeEnumValues(syms[i].EnumValues)
 		if _, err := insSym.ExecContext(ctx,
 			syms[i].ModuleName, syms[i].Name, syms[i].OID, syms[i].ParentOID,
 			string(syms[i].Kind), syms[i].Syntax, string(syms[i].Access),
 			string(syms[i].Status), syms[i].Units, syms[i].Reference,
 			syms[i].Description, syms[i].DefaultValue,
-			boolInt(syms[i].IsTable), boolInt(syms[i].IsTableEntry),
-			syms[i].Augments, idxJSON, syms[i].SourceLine,
+			syms[i].Augments, idxJSON, enumJSON, syms[i].SourceLine,
 		); err != nil {
 			return fmt.Errorf("insert symbol %s::%s: %w",
 				syms[i].ModuleName, syms[i].Name, err)
@@ -217,11 +275,25 @@ func decodeIndex(s string) []string {
 	return out
 }
 
-func boolInt(b bool) int {
-	if b {
-		return 1
+func encodeEnumValues(vs []model.EnumValue) string {
+	if len(vs) == 0 {
+		return ""
 	}
-	return 0
+	b, err := json.Marshal(vs)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
-func intBool(i int) bool { return i != 0 }
+func decodeEnumValues(s string) []model.EnumValue {
+	if s == "" {
+		return nil
+	}
+	var out []model.EnumValue
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		slog.Warn("invalid enum_values JSON in symbol row", "value", s, "err", err)
+		return nil
+	}
+	return out
+}

@@ -190,17 +190,16 @@ func (s *Store) CountModules(ctx context.Context) (int, error) {
 
 const symbolSelectColumns = `
 	SELECT id, module_name, name, oid, parent_oid, kind, syntax, access, status,
-	       units, reference_text, description, default_value, is_table,
-	       is_table_entry, augments, index_columns, source_line `
+	       units, reference_text, description, default_value, augments,
+	       index_columns, enum_values, source_line `
 
 func scanSymbol(scan func(...any) error) (*model.Symbol, error) {
 	var s model.Symbol
-	var kind, access, status, idxJSON string
-	var isTable, isEntry int
+	var kind, access, status, idxJSON, enumJSON string
 	if err := scan(&s.ID, &s.ModuleName, &s.Name, &s.OID, &s.ParentOID,
 		&kind, &s.Syntax, &access, &status, &s.Units, &s.Reference,
-		&s.Description, &s.DefaultValue, &isTable, &isEntry,
-		&s.Augments, &idxJSON, &s.SourceLine); err != nil {
+		&s.Description, &s.DefaultValue,
+		&s.Augments, &idxJSON, &enumJSON, &s.SourceLine); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -209,9 +208,8 @@ func scanSymbol(scan func(...any) error) (*model.Symbol, error) {
 	s.Kind = model.SymbolKind(kind)
 	s.Access = model.Access(access)
 	s.Status = model.Status(status)
-	s.IsTable = intBool(isTable)
-	s.IsTableEntry = intBool(isEntry)
 	s.IndexColumns = decodeIndex(idxJSON)
+	s.EnumValues = decodeEnumValues(enumJSON)
 	return &s, nil
 }
 

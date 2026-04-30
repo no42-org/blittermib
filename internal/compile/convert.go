@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/no42-org/blittermib/internal/model"
@@ -71,15 +72,15 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 		if n.Name == identityName {
 			kind = model.KindModuleIdentity
 		}
-		syms = append(syms, nodeToSymbol(smi.Module.Name, n, kind, false, false))
+		syms = append(syms, nodeToSymbol(smi.Module.Name, n, kind))
 	}
 
 	for _, n := range smi.Nodes.Scalars {
-		kind := model.KindObjectType
+		kind := model.KindScalar
 		if n.Name == identityName {
 			kind = model.KindModuleIdentity
 		}
-		syms = append(syms, nodeToSymbol(smi.Module.Name, n, kind, false, false))
+		syms = append(syms, nodeToSymbol(smi.Module.Name, n, kind))
 	}
 
 	for _, tbl := range smi.Nodes.Tables {
@@ -88,28 +89,26 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 			Name:        tbl.Name,
 			OID:         tbl.OID,
 			ParentOID:   parentOID(tbl.OID),
-			Kind:        model.KindObjectType,
+			Kind:        model.KindTable,
 			Status:      model.Status(tbl.Status),
 			Description: strings.TrimSpace(tbl.Description),
 			Reference:   strings.TrimSpace(tbl.Reference),
 			SourceLine:  tbl.Line,
-			IsTable:     true,
 		})
 		if tbl.Row == nil {
 			continue
 		}
 		row := tbl.Row
 		rowSym := model.Symbol{
-			ModuleName:   smi.Module.Name,
-			Name:         row.Name,
-			OID:          row.OID,
-			ParentOID:    parentOID(row.OID),
-			Kind:         model.KindObjectType,
-			Status:       model.Status(row.Status),
-			Description:  strings.TrimSpace(row.Description),
-			Reference:    strings.TrimSpace(row.Reference),
-			SourceLine:   row.Line,
-			IsTableEntry: true,
+			ModuleName:  smi.Module.Name,
+			Name:        row.Name,
+			OID:         row.OID,
+			ParentOID:   parentOID(row.OID),
+			Kind:        model.KindTableEntry,
+			Status:      model.Status(row.Status),
+			Description: strings.TrimSpace(row.Description),
+			Reference:   strings.TrimSpace(row.Reference),
+			SourceLine:  row.Line,
 		}
 		if row.Linkage != nil {
 			if row.Linkage.Augments != nil {
@@ -121,7 +120,7 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 		}
 		syms = append(syms, rowSym)
 		for _, c := range row.Columns {
-			syms = append(syms, nodeToSymbol(smi.Module.Name, c, model.KindObjectType, false, false))
+			syms = append(syms, nodeToSymbol(smi.Module.Name, c, model.KindColumn))
 		}
 	}
 
@@ -174,7 +173,7 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 	return mod, syms
 }
 
-func nodeToSymbol(moduleName string, n XMLNode, kind model.SymbolKind, isTable, isTableEntry bool) model.Symbol {
+func nodeToSymbol(moduleName string, n XMLNode, kind model.SymbolKind) model.Symbol {
 	sym := model.Symbol{
 		ModuleName:   moduleName,
 		Name:         n.Name,
@@ -188,11 +187,10 @@ func nodeToSymbol(moduleName string, n XMLNode, kind model.SymbolKind, isTable, 
 		Description:  strings.TrimSpace(n.Description),
 		DefaultValue: n.Default,
 		SourceLine:   n.Line,
-		IsTable:      isTable,
-		IsTableEntry: isTableEntry,
 	}
 	if n.Syntax != nil {
 		sym.Syntax = renderSyntax(n.Syntax)
+		sym.EnumValues = extractEnumValues(n.Syntax)
 	}
 	if n.Linkage != nil {
 		if n.Linkage.Augments != nil {
@@ -203,6 +201,40 @@ func nodeToSymbol(moduleName string, n XMLNode, kind model.SymbolKind, isTable, 
 		}
 	}
 	return sym
+}
+
+// extractEnumValues lifts smidump's <namednumber> entries into the
+// structured form the model + UI consume. They live in two places in
+// the XML — directly under <syntax> for the rare inline form, or
+// (the common case) inside an inline <typedef basetype="Enumeration">
+// wrapper for INTEGER { up(1), down(2) } column declarations. Both
+// shapes are accepted. Numbers that fail to parse are skipped rather
+// than failing the whole symbol.
+func extractEnumValues(s *XMLSyntax) []model.EnumValue {
+	if s == nil {
+		return nil
+	}
+	var nums []XMLNamedNumber
+	switch {
+	case len(s.NamedNumbers) > 0:
+		nums = s.NamedNumbers
+	case s.Typedef != nil && len(s.Typedef.NamedNumbers) > 0:
+		nums = s.Typedef.NamedNumbers
+	default:
+		return nil
+	}
+	out := make([]model.EnumValue, 0, len(nums))
+	for _, nn := range nums {
+		num, err := strconv.ParseInt(strings.TrimSpace(nn.Number), 10, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, model.EnumValue{Name: nn.Name, Number: num})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func findOIDByName(smi *SMI, name string) string {

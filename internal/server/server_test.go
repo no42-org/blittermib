@@ -37,27 +37,27 @@ func newTestServer(t *testing.T) *httptest.Server {
 			{
 				ModuleName: "IF-MIB", Name: "ifTable",
 				OID: "1.3.6.1.2.1.2.2", ParentOID: "1.3.6.1.2.1.2",
-				Kind: model.KindObjectType, Syntax: "SEQUENCE OF IfEntry",
+				Kind: model.KindTable, Syntax: "SEQUENCE OF IfEntry",
 				Access: model.AccessNotAccessible, Status: model.StatusCurrent,
-				IsTable: true, Description: "A list of interface entries.",
+				Description: "A list of interface entries.",
 			},
 			{
 				ModuleName: "IF-MIB", Name: "ifEntry",
 				OID: "1.3.6.1.2.1.2.2.1", ParentOID: "1.3.6.1.2.1.2.2",
-				Kind: model.KindObjectType, Syntax: "IfEntry",
+				Kind: model.KindTableEntry, Syntax: "IfEntry",
 				Access: model.AccessNotAccessible, Status: model.StatusCurrent,
-				IsTableEntry: true, IndexColumns: []string{"ifIndex"},
+				IndexColumns: []string{"ifIndex"},
 			},
 			{
 				ModuleName: "IF-MIB", Name: "ifIndex",
 				OID: "1.3.6.1.2.1.2.2.1.1", ParentOID: "1.3.6.1.2.1.2.2.1",
-				Kind: model.KindObjectType, Syntax: "InterfaceIndex",
+				Kind: model.KindColumn, Syntax: "InterfaceIndex",
 				Access: model.AccessReadOnly, Status: model.StatusCurrent,
 			},
 			{
 				ModuleName: "IF-MIB", Name: "ifInOctets",
 				OID: "1.3.6.1.2.1.2.2.1.10", ParentOID: "1.3.6.1.2.1.2.2.1",
-				Kind: model.KindObjectType, Syntax: "Counter32",
+				Kind: model.KindColumn, Syntax: "Counter32",
 				Access: model.AccessReadOnly, Status: model.StatusCurrent,
 				Units: "octets", Description: "The total number of octets received on the interface.",
 			},
@@ -637,7 +637,7 @@ func TestSymbolPlainLanguageSummaryFallback(t *testing.T) {
 	if err := st.ReplaceModule(context.Background(),
 		&model.Module{Name: "MM", ParseStatus: model.ParseStatusClean},
 		[]model.Symbol{
-			{ModuleName: "MM", Name: "noDesc", OID: "1.2", Kind: model.KindObjectType,
+			{ModuleName: "MM", Name: "noDesc", OID: "1.2", Kind: model.KindScalar,
 				Status: model.StatusCurrent},
 		}, nil, nil); err != nil {
 		t.Fatal(err)
@@ -648,7 +648,7 @@ func TestSymbolPlainLanguageSummaryFallback(t *testing.T) {
 
 	resp, _ := http.Get(ts.URL + "/s/MM::noDesc")
 	html := body(t, resp)
-	if !strings.Contains(html, "object-type in MM") {
+	if !strings.Contains(html, "scalar in MM") {
 		t.Errorf("fallback summary missing; got: %s", html[:min(2000, len(html))])
 	}
 }
@@ -681,7 +681,7 @@ func TestSymbolDisambiguationChooser(t *testing.T) {
 		if err := st.ReplaceModule(context.Background(),
 			&model.Module{Name: m, ParseStatus: model.ParseStatusClean},
 			[]model.Symbol{{ModuleName: m, Name: "common", OID: "1." + m,
-				Kind: model.KindObjectType, Status: model.StatusCurrent}},
+				Kind: model.KindScalar, Status: model.StatusCurrent}},
 			nil, nil); err != nil {
 			t.Fatal(err)
 		}

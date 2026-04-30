@@ -17,6 +17,13 @@ CREATE TABLE IF NOT EXISTS module (
     parse_status   TEXT    NOT NULL DEFAULT 'clean'
 );
 
+-- `kind` values: scalar, table, table-entry, column, textual-convention,
+-- object-identity, module-identity, notification-type, trap-type,
+-- object-group, notification-group, module-compliance.
+-- The four OBJECT-TYPE-derived values (scalar, table, table-entry, column)
+-- carry the structural role that prior versions encoded as is_table /
+-- is_table_entry boolean columns; those columns are gone and downstream
+-- code branches on `kind` directly.
 CREATE TABLE IF NOT EXISTS symbol (
     id             INTEGER PRIMARY KEY,
     module_name    TEXT    NOT NULL REFERENCES module(name) ON DELETE CASCADE,
@@ -31,10 +38,9 @@ CREATE TABLE IF NOT EXISTS symbol (
     reference_text TEXT    NOT NULL DEFAULT '',
     description    TEXT    NOT NULL DEFAULT '',
     default_value  TEXT    NOT NULL DEFAULT '',
-    is_table       INTEGER NOT NULL DEFAULT 0,
-    is_table_entry INTEGER NOT NULL DEFAULT 0,
     augments       TEXT    NOT NULL DEFAULT '',
     index_columns  TEXT    NOT NULL DEFAULT '',  -- JSON array
+    enum_values    TEXT    NOT NULL DEFAULT '',  -- JSON array of {Name,Number}
     source_line    INTEGER NOT NULL DEFAULT 0,
     UNIQUE (module_name, name)
 );

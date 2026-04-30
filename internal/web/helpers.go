@@ -31,6 +31,19 @@ func moduleSourceURL(module string) templ.SafeURL {
 	return templ.SafeURL("/m/" + module + "/source")
 }
 
+// IsTabular reports whether the kind names a symbol that participates
+// in SMIv2 conceptual-row table rendering. The three answers — table,
+// table-entry, column — are grouped here so templates and handlers
+// don't fan out into kind-by-kind switches when they want a coarse
+// "is this part of a table" predicate.
+func IsTabular(k model.SymbolKind) bool {
+	switch k {
+	case model.KindTable, model.KindTableEntry, model.KindColumn:
+		return true
+	}
+	return false
+}
+
 // fmtLine renders a line number for diagnostics templates without
 // inlining strconv.Itoa noise into every template.
 func fmtLine(n int) string {

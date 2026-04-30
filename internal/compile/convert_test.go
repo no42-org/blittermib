@@ -64,7 +64,10 @@ func TestParseAndConvert(t *testing.T) {
 		model.KindTextualConvention,
 		model.KindModuleIdentity,
 		model.KindObjectIdentity,
-		model.KindObjectType,
+		model.KindScalar,
+		model.KindTable,
+		model.KindTableEntry,
+		model.KindColumn,
 		model.KindNotificationType,
 		model.KindObjectGroup,
 		model.KindModuleCompliance,
@@ -96,20 +99,37 @@ func TestParseAndConvert(t *testing.T) {
 		t.Errorf("qualified name = %q", got)
 	}
 
-	// IsTable / IsTableEntry / IndexColumns flow through the table path.
+	// Kind / IndexColumns flow through the table path.
 	ifTable, ok := byName["ifTable"]
-	if !ok || !ifTable.IsTable {
-		t.Error("ifTable should be present and have IsTable=true")
+	if !ok || ifTable.Kind != model.KindTable {
+		t.Errorf("ifTable should be present with Kind=%q (got %q)", model.KindTable, ifTable.Kind)
 	}
 	ifEntry, ok := byName["ifEntry"]
 	if !ok {
 		t.Fatal("ifEntry missing")
 	}
-	if !ifEntry.IsTableEntry {
-		t.Error("ifEntry should have IsTableEntry=true")
+	if ifEntry.Kind != model.KindTableEntry {
+		t.Errorf("ifEntry Kind = %q, want %q", ifEntry.Kind, model.KindTableEntry)
 	}
 	if got, want := ifEntry.IndexColumns, []string{"ifIndex"}; !equalStrings(got, want) {
 		t.Errorf("ifEntry IndexColumns = %v, want %v", got, want)
+	}
+	if ifInOctets := byName["ifInOctets"]; ifInOctets.Kind != model.KindColumn {
+		t.Errorf("ifInOctets Kind = %q, want %q", ifInOctets.Kind, model.KindColumn)
+	}
+
+	// Enum values: ifAdminStatus declares INTEGER { up(1), down(2), testing(3) }.
+	ifAdminStatus, ok := byName["ifAdminStatus"]
+	if !ok {
+		t.Fatal("ifAdminStatus missing")
+	}
+	wantEnum := []model.EnumValue{
+		{Name: "up", Number: 1},
+		{Name: "down", Number: 2},
+		{Name: "testing", Number: 3},
+	}
+	if !equalEnums(ifAdminStatus.EnumValues, wantEnum) {
+		t.Errorf("ifAdminStatus EnumValues = %+v, want %+v", ifAdminStatus.EnumValues, wantEnum)
 	}
 
 	// MODULE-IDENTITY resolution.
@@ -123,6 +143,18 @@ func TestParseAndConvert(t *testing.T) {
 }
 
 func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalEnums(a, b []model.EnumValue) bool {
 	if len(a) != len(b) {
 		return false
 	}

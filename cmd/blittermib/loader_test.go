@@ -57,7 +57,7 @@ func TestRejectReason(t *testing.T) {
 					},
 				},
 				Symbols: []model.Symbol{
-					{Name: "ifInOctets", Kind: model.KindObjectType},
+					{Name: "ifInOctets", Kind: model.KindScalar},
 				},
 			},
 			wantOK: true,
@@ -67,7 +67,7 @@ func TestRejectReason(t *testing.T) {
 			result: compile.Result{
 				Module: &model.Module{Name: "MINIMAL-MIB"},
 				Symbols: []model.Symbol{
-					{Name: "foo", Kind: model.KindObjectType},
+					{Name: "foo", Kind: model.KindScalar},
 				},
 			},
 			wantOK: true,
