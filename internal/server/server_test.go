@@ -331,6 +331,40 @@ func TestPaletteCSSLoaded(t *testing.T) {
 			t.Errorf("styles.css missing palette selector %q — did prepare-assets run?", sel)
 		}
 	}
+	// Regression: design.md mandates "no layered shadows" — the
+	// glossary popover must not use box-shadow. Match only actual
+	// declarations (`box-shadow:`), not the substring inside
+	// explanatory comments.
+	if strings.Contains(css, "box-shadow:") {
+		t.Error("styles.css contains a box-shadow declaration — design.md says 'no shadows'")
+	}
+	// Regression: glossary-seen rule must exist (dropped inline style
+	// in glossary.js relies on this CSS owning the styling).
+	if !strings.Contains(css, ".glossary-seen") {
+		t.Error("styles.css missing .glossary-seen rule")
+	}
+}
+
+// TestIslandsRebindOnHTMXSwap is a smoke test that the JS islands
+// register an htmx:afterSwap handler. Without it, the palette
+// overlay (appended to <body>) is destroyed on the first hx-boost
+// navigation and the palette silently breaks. We can't drive the
+// browser from Go tests, so we verify the source contains the
+// re-binding code path.
+func TestIslandsRebindOnHTMXSwap(t *testing.T) {
+	ts := newTestServer(t)
+	for _, asset := range []string{"/static/palette.js", "/static/glossary.js"} {
+		t.Run(asset, func(t *testing.T) {
+			resp, err := http.Get(ts.URL + asset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			js := body(t, resp)
+			if !strings.Contains(js, "htmx:afterSwap") {
+				t.Errorf("%s missing htmx:afterSwap handler — palette/glossary will break after first nav", asset)
+			}
+		})
+	}
 }
 
 func TestHTMXAssetServed(t *testing.T) {
