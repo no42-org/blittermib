@@ -40,6 +40,10 @@
 	let hits = [];
 	let debounce;
 	let lastReqSeq = 0;
+	// Focus trap: remember the element that had focus when the palette
+	// opened so we can restore it on close. Without this, dismissing
+	// the palette leaves keyboard focus orphaned in the DOM.
+	let returnFocusTo = null;
 
 	function escape(s) {
 		const d = document.createElement('div');
@@ -55,11 +59,21 @@
 		empty.dataset.state = 'hidden';
 		hits = [];
 		active = -1;
+		// Save the previously-focused element so we can return focus
+		// to it when the palette closes — better keyboard ergonomics
+		// than dropping focus on document.body.
+		const ae = document.activeElement;
+		if (ae && ae !== document.body) returnFocusTo = ae;
 		input.focus();
 	}
 
 	function hide() {
-		if (overlay) overlay.dataset.state = 'hidden';
+		if (!overlay) return;
+		overlay.dataset.state = 'hidden';
+		if (returnFocusTo && typeof returnFocusTo.focus === 'function') {
+			try { returnFocusTo.focus(); } catch (_) { /* node removed */ }
+		}
+		returnFocusTo = null;
 	}
 
 	function isVisible() {
@@ -156,6 +170,13 @@
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			hide();
+		} else if (e.key === 'Tab') {
+			// Focus trap: the palette only has the input as a real
+			// focus target (results are click/Enter-driven). Stop Tab
+			// from leaving the modal so background focus stays parked
+			// where it was when the palette opened.
+			e.preventDefault();
+			input.focus();
 		}
 	}
 

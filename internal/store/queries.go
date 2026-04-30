@@ -139,6 +139,18 @@ func (s *Store) ListDiagnosticsByModule(ctx context.Context, module string) ([]m
 	return out, rows.Err()
 }
 
+// LookupByName returns every symbol matching the given name across
+// all modules. Used by the /s/{name} disambiguation handler when a
+// user supplies a bare name without the Module:: qualifier.
+func (s *Store) LookupByName(ctx context.Context, name string) ([]model.Symbol, error) {
+	rows, err := s.db.QueryContext(ctx, symbolSelectColumns+`
+		FROM symbol WHERE name = ? ORDER BY module_name`, name)
+	if err != nil {
+		return nil, fmt.Errorf("lookup by name %s: %w", name, err)
+	}
+	return scanSymbolRows(rows)
+}
+
 // HasChildren reports whether the given OID has at least one direct child
 // in the symbol table. Used by the tree API to decide whether to surface
 // an expand chevron without paying for a full children list.

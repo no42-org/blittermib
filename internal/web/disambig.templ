@@ -1,0 +1,30 @@
+package web
+
+import "github.com/no42-org/blittermib/internal/model"
+
+// SymbolDisambiguation renders a chooser when /s/{name} matches more
+// than one symbol across modules.
+//
+// The handler 302s to the canonical /s/{module}::{name} when there's
+// exactly one match, and serves a 404 when there are zero. This page
+// is only rendered for the multi-match case.
+templ SymbolDisambiguation(name string, matches []model.Symbol) {
+	@Base("Multiple symbols named " + name + " · blittermib") {
+		<h1 class="symbol-name">{ name }</h1>
+		<p class="summary">
+			Multiple modules export a symbol named <code>{ name }</code>.
+			Pick the one you want:
+		</p>
+		<table class="refs">
+			<tbody>
+				for _, s := range matches {
+					<tr>
+						<td><a href={ symbolURL(s.ModuleName, s.Name) }>{ s.QualifiedName() }</a></td>
+						<td class="kind">{ string(s.Kind) }</td>
+						<td class="module">{ s.OID }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	}
+}

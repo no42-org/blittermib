@@ -4,13 +4,16 @@ import "github.com/no42-org/blittermib/internal/model"
 
 // SymbolView aggregates everything the symbol detail page needs:
 // the symbol itself, its in-context placement (where it sits in the
-// SMI tree), the columns of a table when applicable, and inbound
-// references for the Used-by panel.
+// SMI tree), the columns of a table when applicable, inbound
+// references for the Used-by panel, and the SMI source slice for
+// the Show-full-SMI-source disclosure.
 type SymbolView struct {
-	Symbol  *model.Symbol
-	Context *SymbolContext
-	Columns []TableColumn
-	UsedBy  []model.Reference
+	Symbol     *model.Symbol
+	Context    *SymbolContext
+	Columns    []TableColumn
+	UsedBy     []model.Reference
+	SourceText string // raw SMI lines from the module's source file
+	SourcePath string // module.source_path; empty if no source available
 }
 
 // SymbolDetail renders the canonical reference page for a symbol,
@@ -25,6 +28,7 @@ templ SymbolDetail(view *SymbolView) {
 			{ view.Symbol.Name }
 		</nav>
 		<h1 class="symbol-name">{ view.Symbol.Name }</h1>
+		<p class="summary">{ SummarizeSymbol(view.Symbol) }</p>
 		<div class="oid-row">
 			<span class="oid">{ view.Symbol.OID }</span>
 		</div>
@@ -103,6 +107,17 @@ templ SymbolDetail(view *SymbolView) {
 					</tbody>
 				</table>
 			</section>
+		}
+		if view.SourceText != "" {
+			<details class="disclosure">
+				<summary>Show full SMI source</summary>
+				<pre class="disclosure-body">{ view.SourceText }</pre>
+				if view.SourcePath != "" {
+					<p class="see-more">
+						<a href={ moduleSourceURL(view.Symbol.ModuleName) }>View entire MIB source →</a>
+					</p>
+				}
+			</details>
 		}
 	}
 }

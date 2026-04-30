@@ -6,12 +6,21 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/store"
 )
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -593,6 +602,204 @@ func TestTreeAssetServed(t *testing.T) {
 	for _, marker := range []string{"data-tree", "/api/v1/tree"} {
 		if !strings.Contains(js, marker) {
 			t.Errorf("tree.js missing marker %q", marker)
+		}
+	}
+}
+
+func TestSymbolPlainLanguageSummary(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/s/IF-MIB::ifInOctets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	// summary is rendered between name and OID
+	if !strings.Contains(html, `class="summary"`) {
+		t.Error("symbol page missing class=summary")
+	}
+	// fixture description starts with "The total number of octets..."
+	// expect that as the first sentence (or part of it)
+	if !strings.Contains(html, "The total number of octets") {
+		t.Error("summary missing description content")
+	}
+}
+
+func TestSymbolPlainLanguageSummaryFallback(t *testing.T) {
+	// Symbol with no description → "{Kind} in {Module}" fallback.
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: "MM", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{ModuleName: "MM", Name: "noDesc", OID: "1.2", Kind: model.KindObjectType,
+				Status: model.StatusCurrent},
+		}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, _ := http.Get(ts.URL + "/s/MM::noDesc")
+	html := body(t, resp)
+	if !strings.Contains(html, "object-type in MM") {
+		t.Errorf("fallback summary missing; got: %s", html[:min(2000, len(html))])
+	}
+}
+
+func TestSymbolDisambiguationRedirectsSingleMatch(t *testing.T) {
+	ts := newTestServer(t)
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Get(ts.URL + "/s/ifInOctets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("status = %d, want 302", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/s/IF-MIB::ifInOctets" {
+		t.Errorf("location = %q", loc)
+	}
+}
+
+func TestSymbolDisambiguationChooser(t *testing.T) {
+	// Seed two modules that both export "common" — multiple matches.
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	for _, m := range []string{"A-MIB", "B-MIB"} {
+		if err := st.ReplaceModule(context.Background(),
+			&model.Module{Name: m, ParseStatus: model.ParseStatusClean},
+			[]model.Symbol{{ModuleName: m, Name: "common", OID: "1." + m,
+				Kind: model.KindObjectType, Status: model.StatusCurrent}},
+			nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/s/common")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	html := body(t, resp)
+	for _, want := range []string{"Multiple modules", "A-MIB::common", "B-MIB::common"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("disambiguation page missing %q", want)
+		}
+	}
+}
+
+func TestSymbolNoQualifierEmpty404(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/s/doesNotExistAnywhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestModuleSourceRoute(t *testing.T) {
+	// Seed a module with a real source file on disk so the route
+	// can stream it.
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "TEST-MIB.txt")
+	srcContent := "TEST-MIB DEFINITIONS ::= BEGIN\nimports SNMPv2-SMI;\nEND\n"
+	if err := os.WriteFile(srcPath, []byte(srcContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: "TEST-MIB", SourcePath: srcPath, ParseStatus: model.ParseStatusClean},
+		nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/m/TEST-MIB/source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("content-type = %q", ct)
+	}
+	if got := body(t, resp); got != srcContent {
+		t.Errorf("body = %q", got)
+	}
+}
+
+func TestModuleSourceRouteNoSourcePath(t *testing.T) {
+	// Module exists but has no source path recorded → 404.
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/IF-MIB/source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestAPIErrorSanitization(t *testing.T) {
+	// Bad symbol path → public message only, no internal error leak.
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/api/v1/symbol/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	// Public message should be the canned form, not contain the URL
+	// path or a raw Go error string.
+	if got["error"] != "expected /api/v1/symbol/{module}/{name}" {
+		t.Errorf("error = %q", got["error"])
+	}
+}
+
+func TestPaletteFocusTrap(t *testing.T) {
+	// Source-level check that the palette JS contains a focus-trap
+	// implementation. We can't drive a browser from Go tests, so we
+	// assert the load-bearing strings instead — same pattern as
+	// TestIslandsRebindOnHTMXSwap from Phase 5 review.
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/palette.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := body(t, resp)
+	for _, marker := range []string{"returnFocusTo", "Focus trap"} {
+		if !strings.Contains(js, marker) {
+			t.Errorf("palette.js missing focus-trap marker %q", marker)
 		}
 	}
 }
