@@ -43,6 +43,10 @@ CREATE INDEX IF NOT EXISTS symbol_oid_idx        ON symbol(oid);
 CREATE INDEX IF NOT EXISTS symbol_parent_oid_idx ON symbol(parent_oid);
 CREATE INDEX IF NOT EXISTS symbol_kind_idx       ON symbol(kind);
 CREATE INDEX IF NOT EXISTS symbol_status_idx     ON symbol(status);
+-- Powers store.LookupByName, which is hit on every /s/{name}
+-- disambiguation request. Without this, every bare-name lookup
+-- is a full table scan over `symbol`.
+CREATE INDEX IF NOT EXISTS symbol_name_idx       ON symbol(name);
 
 -- Cross-references are keyed by qualified Module::Name pair, not row id.
 -- This makes hot-reload trivial: dropping a module's outgoing refs is a
