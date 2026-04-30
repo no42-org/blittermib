@@ -47,8 +47,8 @@ fetch-fonts:
 		curl -fL --silent --show-error -o internal/server/assets/fonts/JetBrainsMono-$$w.woff2 \
 			https://cdn.jsdelivr.net/fontsource/fonts/jetbrains-mono@latest/latin-$$w-normal.woff2; \
 	done
+	@rm -f internal/server/assets/fonts/Geist*.woff2 internal/server/assets/fonts/GeistMono*.woff2
 	@echo "fetched Inter + JetBrains Mono -> internal/server/assets/fonts/"
-	@echo "remove old Geist*.woff2 files manually if still present"
 
 # Fetch IETF/IANA standard MIBs from libsmi's source distribution
 # into internal/mibsbundle/bundle/. The next `go build` embeds them

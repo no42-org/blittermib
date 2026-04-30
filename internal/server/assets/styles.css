@@ -127,6 +127,8 @@
 
   --accent:        oklch(0.5 0.18 50);
   --accent-fg:     oklch(0.985 0.006 75);
+  --accent-soft:   color-mix(in oklch, var(--accent) 10%, transparent);
+  --accent-strong: color-mix(in oklch, var(--accent) 32%, transparent);
 
   --c-counter: oklch(0.55 0.18 65);
   --c-gauge:   oklch(0.5 0.16 220);
