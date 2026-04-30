@@ -32,16 +32,18 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 		}
 	}
 
+	identityName := ""
 	if smi.Module.Identity != nil {
-		for _, n := range smi.Module.Nodes {
-			if n.Name == smi.Module.Identity.Name {
-				mod.OIDRoot = n.OID
-				break
-			}
-		}
+		identityName = smi.Module.Identity.Node
 	}
 
-	for _, imp := range smi.Module.Imports.Imports {
+	// MODULE-IDENTITY usually appears as a plain <node> in <nodes>;
+	// resolve OIDRoot by name match across the heterogeneous node tags.
+	if identityName != "" {
+		mod.OIDRoot = findOIDByName(smi, identityName)
+	}
+
+	for _, imp := range smi.Imports.Imports {
 		mod.Imports = append(mod.Imports, model.Import{
 			FromModule: imp.Module,
 			Symbol:     imp.Name,
@@ -50,7 +52,7 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 
 	var syms []model.Symbol
 
-	for _, t := range smi.Module.Typedefs {
+	for _, t := range smi.Typedefs {
 		syms = append(syms, model.Symbol{
 			ModuleName:   smi.Module.Name,
 			Name:         t.Name,
@@ -64,42 +66,66 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 		})
 	}
 
-	for _, n := range smi.Module.Nodes {
-		kind := nodeKind(n.NodeType)
-		if smi.Module.Identity != nil && n.Name == smi.Module.Identity.Name {
+	for _, n := range smi.Nodes.Plain {
+		kind := model.KindObjectIdentity
+		if n.Name == identityName {
 			kind = model.KindModuleIdentity
 		}
-		sym := model.Symbol{
-			ModuleName:   smi.Module.Name,
-			Name:         n.Name,
-			OID:          n.OID,
-			ParentOID:    parentOID(n.OID),
-			Kind:         kind,
-			Access:       model.Access(n.Access),
-			Status:       model.Status(n.Status),
-			Units:        n.Units,
-			Reference:    strings.TrimSpace(n.Reference),
-			Description:  strings.TrimSpace(n.Description),
-			DefaultValue: n.Default,
-			SourceLine:   n.Line,
-			IsTable:      n.NodeType == "table",
-			IsTableEntry: n.NodeType == "row",
-		}
-		if n.Syntax != nil {
-			sym.Syntax = renderSyntax(n.Syntax)
-		}
-		if n.Linkage != nil {
-			if n.Linkage.Augments != nil {
-				sym.Augments = qualified(n.Linkage.Augments.Module, n.Linkage.Augments.Name)
-			}
-			for _, idx := range n.Linkage.Index {
-				sym.IndexColumns = append(sym.IndexColumns, idx.Name)
-			}
-		}
-		syms = append(syms, sym)
+		syms = append(syms, nodeToSymbol(smi.Module.Name, n, kind, false, false))
 	}
 
-	for _, nt := range smi.Module.Notifications {
+	for _, n := range smi.Nodes.Scalars {
+		kind := model.KindObjectType
+		if n.Name == identityName {
+			kind = model.KindModuleIdentity
+		}
+		syms = append(syms, nodeToSymbol(smi.Module.Name, n, kind, false, false))
+	}
+
+	for _, tbl := range smi.Nodes.Tables {
+		syms = append(syms, model.Symbol{
+			ModuleName:  smi.Module.Name,
+			Name:        tbl.Name,
+			OID:         tbl.OID,
+			ParentOID:   parentOID(tbl.OID),
+			Kind:        model.KindObjectType,
+			Status:      model.Status(tbl.Status),
+			Description: strings.TrimSpace(tbl.Description),
+			Reference:   strings.TrimSpace(tbl.Reference),
+			SourceLine:  tbl.Line,
+			IsTable:     true,
+		})
+		if tbl.Row == nil {
+			continue
+		}
+		row := tbl.Row
+		rowSym := model.Symbol{
+			ModuleName:   smi.Module.Name,
+			Name:         row.Name,
+			OID:          row.OID,
+			ParentOID:    parentOID(row.OID),
+			Kind:         model.KindObjectType,
+			Status:       model.Status(row.Status),
+			Description:  strings.TrimSpace(row.Description),
+			Reference:    strings.TrimSpace(row.Reference),
+			SourceLine:   row.Line,
+			IsTableEntry: true,
+		}
+		if row.Linkage != nil {
+			if row.Linkage.Augments != nil {
+				rowSym.Augments = qualified(row.Linkage.Augments.Module, row.Linkage.Augments.Name)
+			}
+			for _, idx := range row.Linkage.Index {
+				rowSym.IndexColumns = append(rowSym.IndexColumns, idx.Name)
+			}
+		}
+		syms = append(syms, rowSym)
+		for _, c := range row.Columns {
+			syms = append(syms, nodeToSymbol(smi.Module.Name, c, model.KindObjectType, false, false))
+		}
+	}
+
+	for _, nt := range smi.Notifications {
 		syms = append(syms, model.Symbol{
 			ModuleName:  smi.Module.Name,
 			Name:        nt.Name,
@@ -113,7 +139,7 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 		})
 	}
 
-	for _, g := range smi.Module.Groups {
+	for _, g := range smi.Groups {
 		kind := model.KindObjectGroup
 		if g.GroupType == "notification" {
 			kind = model.KindNotificationGroup
@@ -131,7 +157,7 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 		})
 	}
 
-	for _, c := range smi.Module.Compliances {
+	for _, c := range smi.Compliances {
 		syms = append(syms, model.Symbol{
 			ModuleName:  smi.Module.Name,
 			Name:        c.Name,
@@ -148,15 +174,54 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 	return mod, syms
 }
 
-func nodeKind(nodeType string) model.SymbolKind {
-	switch nodeType {
-	case "node":
-		return model.KindObjectIdentity
-	case "scalar", "column", "table", "row":
-		return model.KindObjectType
-	default:
-		return model.KindObjectType
+func nodeToSymbol(moduleName string, n XMLNode, kind model.SymbolKind, isTable, isTableEntry bool) model.Symbol {
+	sym := model.Symbol{
+		ModuleName:   moduleName,
+		Name:         n.Name,
+		OID:          n.OID,
+		ParentOID:    parentOID(n.OID),
+		Kind:         kind,
+		Access:       normalizeAccess(n.Access),
+		Status:       model.Status(n.Status),
+		Units:        n.Units,
+		Reference:    strings.TrimSpace(n.Reference),
+		Description:  strings.TrimSpace(n.Description),
+		DefaultValue: n.Default,
+		SourceLine:   n.Line,
+		IsTable:      isTable,
+		IsTableEntry: isTableEntry,
 	}
+	if n.Syntax != nil {
+		sym.Syntax = renderSyntax(n.Syntax)
+	}
+	if n.Linkage != nil {
+		if n.Linkage.Augments != nil {
+			sym.Augments = qualified(n.Linkage.Augments.Module, n.Linkage.Augments.Name)
+		}
+		for _, idx := range n.Linkage.Index {
+			sym.IndexColumns = append(sym.IndexColumns, idx.Name)
+		}
+	}
+	return sym
+}
+
+func findOIDByName(smi *SMI, name string) string {
+	for _, n := range smi.Nodes.Plain {
+		if n.Name == name {
+			return n.OID
+		}
+	}
+	for _, n := range smi.Nodes.Scalars {
+		if n.Name == name {
+			return n.OID
+		}
+	}
+	for _, t := range smi.Nodes.Tables {
+		if t.Name == name {
+			return t.OID
+		}
+	}
+	return ""
 }
 
 func parentOID(oid string) string {
@@ -188,14 +253,36 @@ func renderSyntax(s *XMLSyntax) string {
 		return s.Type.Name
 	}
 	if s.Typedef != nil {
-		return s.Typedef.Name
+		if s.Typedef.Name != "" {
+			return s.Typedef.Name
+		}
+		return s.Typedef.BaseType
 	}
 	return ""
 }
 
 func renderTypedefSyntax(t XMLTypedef) string {
-	if t.Syntax.Type != nil {
-		return t.Syntax.Type.Name
-	}
 	return t.BaseType
+}
+
+// normalizeAccess maps smidump's compact MAX-ACCESS tokens to the
+// hyphenated SMIv2 spelling that the model.Access constants use.
+// smidump emits readonly/readwrite/readcreate/noaccess/notifyonly;
+// SMIv2 surfaces them as read-only/read-write/read-create/not-accessible/
+// accessible-for-notify. Unknown values pass through unchanged.
+func normalizeAccess(s string) model.Access {
+	switch s {
+	case "readonly":
+		return model.AccessReadOnly
+	case "readwrite":
+		return model.AccessReadWrite
+	case "readcreate":
+		return model.AccessReadCreate
+	case "noaccess":
+		return model.AccessNotAccessible
+	case "notifyonly":
+		return model.AccessAccessibleNotify
+	default:
+		return model.Access(s)
+	}
 }

@@ -18,28 +18,30 @@ func BuildReferences(parsed []*SMI) []model.Reference {
 	for _, smi := range parsed {
 		mod := smi.Module.Name
 
-		for _, n := range smi.Module.Nodes {
-			if n.Linkage == nil {
+		// INDEX / AUGMENTS only appear on table rows in smidump's output.
+		for _, tbl := range smi.Nodes.Tables {
+			if tbl.Row == nil || tbl.Row.Linkage == nil {
 				continue
 			}
-			if n.Linkage.Augments != nil {
+			row := tbl.Row
+			if row.Linkage.Augments != nil {
 				refs = append(refs, model.Reference{
-					SourceModule: mod, SourceName: n.Name,
-					TargetModule: n.Linkage.Augments.Module,
-					TargetName:   n.Linkage.Augments.Name,
+					SourceModule: mod, SourceName: row.Name,
+					TargetModule: row.Linkage.Augments.Module,
+					TargetName:   row.Linkage.Augments.Name,
 					Kind:         model.RefAugments,
 				})
 			}
-			for _, idx := range n.Linkage.Index {
+			for _, idx := range row.Linkage.Index {
 				refs = append(refs, model.Reference{
-					SourceModule: mod, SourceName: n.Name,
+					SourceModule: mod, SourceName: row.Name,
 					TargetModule: idx.Module, TargetName: idx.Name,
 					Kind: model.RefIndex,
 				})
 			}
 		}
 
-		for _, nt := range smi.Module.Notifications {
+		for _, nt := range smi.Notifications {
 			for _, obj := range nt.Objects {
 				refs = append(refs, model.Reference{
 					SourceModule: mod, SourceName: nt.Name,
@@ -49,7 +51,7 @@ func BuildReferences(parsed []*SMI) []model.Reference {
 			}
 		}
 
-		for _, g := range smi.Module.Groups {
+		for _, g := range smi.Groups {
 			for _, m := range g.Members {
 				refs = append(refs, model.Reference{
 					SourceModule: mod, SourceName: g.Name,
@@ -59,7 +61,7 @@ func BuildReferences(parsed []*SMI) []model.Reference {
 			}
 		}
 
-		for _, c := range smi.Module.Compliances {
+		for _, c := range smi.Compliances {
 			for _, m := range c.Mandatory {
 				refs = append(refs, model.Reference{
 					SourceModule: mod, SourceName: c.Name,

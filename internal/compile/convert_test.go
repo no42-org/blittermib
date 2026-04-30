@@ -7,6 +7,12 @@ import (
 	"github.com/no42-org/blittermib/internal/model"
 )
 
+// fixtureXML mirrors the structure smidump 0.5.0 actually emits:
+// `<imports>`, `<typedefs>`, `<nodes>`, `<notifications>`, `<groups>`,
+// `<compliances>` are siblings of `<module>` (under `<smi>`), the
+// module-identity is `<identity node="X"/>`, and `<nodes>` is a
+// heterogeneous container of `<node>`/`<scalar>`/`<table>` (with
+// `<row>`/`<column>` nested in tables).
 const fixtureXML = `<?xml version="1.0"?>
 <smi version="2.0">
   <module name="IF-MIB" language="SMIv2">
@@ -16,65 +22,72 @@ const fixtureXML = `<?xml version="1.0"?>
     <revision date="2007-09-29 00:00">
       <description>Updated to incorporate clarifications.</description>
     </revision>
-    <identity-node name="ifMIB"/>
-    <imports>
-      <import module="SNMPv2-SMI" name="MODULE-IDENTITY"/>
-      <import module="SNMPv2-SMI" name="OBJECT-TYPE"/>
-      <import module="SNMPv2-SMI" name="Counter32"/>
-    </imports>
-    <typedefs>
-      <typedef name="OwnerString" basetype="OctetString" status="current">
-        <syntax><type module="SNMPv2-SMI" name="OCTET STRING"/></syntax>
-        <description>An owner string.</description>
-      </typedef>
-    </typedefs>
-    <nodes>
-      <node name="ifMIB" oid="1.3.6.1.2.1.31" status="current"/>
-      <node name="ifTable" oid="1.3.6.1.2.1.2.2" status="current" nodetype="table">
-        <syntax><type module="IF-MIB" name="IfEntry"/></syntax>
-        <access>not-accessible</access>
-        <description>A list of interface entries.</description>
-      </node>
-      <node name="ifEntry" oid="1.3.6.1.2.1.2.2.1" status="current" nodetype="row">
-        <syntax><type module="IF-MIB" name="IfEntry"/></syntax>
-        <access>not-accessible</access>
+    <identity node="ifMIB"/>
+  </module>
+
+  <imports>
+    <import module="SNMPv2-SMI" name="MODULE-IDENTITY"/>
+    <import module="SNMPv2-SMI" name="OBJECT-TYPE"/>
+    <import module="SNMPv2-SMI" name="Counter32"/>
+  </imports>
+
+  <typedefs>
+    <typedef name="OwnerString" basetype="OctetString" status="current">
+      <range min="0" max="255"/>
+      <description>An owner string.</description>
+    </typedef>
+  </typedefs>
+
+  <nodes>
+    <node name="ifMIB" oid="1.3.6.1.2.1.31" status="current"/>
+    <table name="ifTable" oid="1.3.6.1.2.1.2.2" status="current">
+      <description>A list of interface entries.</description>
+      <row name="ifEntry" oid="1.3.6.1.2.1.2.2.1" status="current">
         <linkage>
           <index module="IF-MIB" name="ifIndex"/>
         </linkage>
         <description>An entry containing interface information.</description>
-      </node>
-      <node name="ifInOctets" oid="1.3.6.1.2.1.2.2.1.10" status="current" nodetype="column">
-        <syntax><type module="SNMPv2-SMI" name="Counter32"/></syntax>
-        <access>read-only</access>
-        <units>octets</units>
-        <description>The total number of octets received on the interface.</description>
-      </node>
-    </nodes>
-    <notifications>
-      <notification name="linkUp" oid="1.3.6.1.6.3.1.1.5.4" status="current">
-        <objects>
-          <object module="IF-MIB" name="ifIndex"/>
-        </objects>
-        <description>A linkUp trap signifies that the SNMP entity has detected an interface coming up.</description>
-      </notification>
-    </notifications>
-    <groups>
-      <group name="ifPacketGroup" oid="1.3.6.1.2.1.31.3" status="current" type="object">
-        <members>
-          <member module="IF-MIB" name="ifInOctets"/>
-        </members>
-        <description>The collection of objects providing packet statistics.</description>
-      </group>
-    </groups>
-    <compliances>
-      <compliance name="ifCompliance3" oid="1.3.6.1.2.1.31.4" status="current">
-        <description>The compliance statement for SNMP entities supporting IF-MIB.</description>
-        <requires>
-          <mandatory module="IF-MIB" name="ifPacketGroup"/>
-        </requires>
-      </compliance>
-    </compliances>
-  </module>
+        <column name="ifIndex" oid="1.3.6.1.2.1.2.2.1.1" status="current">
+          <syntax><type module="IF-MIB" name="InterfaceIndex"/></syntax>
+          <access>readonly</access>
+          <description>A unique value for each interface.</description>
+        </column>
+        <column name="ifInOctets" oid="1.3.6.1.2.1.2.2.1.10" status="current">
+          <syntax><type module="SNMPv2-SMI" name="Counter32"/></syntax>
+          <access>readonly</access>
+          <units>octets</units>
+          <description>The total number of octets received on the interface.</description>
+        </column>
+      </row>
+    </table>
+  </nodes>
+
+  <notifications>
+    <notification name="linkUp" oid="1.3.6.1.6.3.1.1.5.4" status="current">
+      <objects>
+        <object module="IF-MIB" name="ifIndex"/>
+      </objects>
+      <description>A linkUp trap signifies that the SNMP entity has detected an interface coming up.</description>
+    </notification>
+  </notifications>
+
+  <groups>
+    <group name="ifPacketGroup" oid="1.3.6.1.2.1.31.3" status="current" type="object">
+      <members>
+        <member module="IF-MIB" name="ifInOctets"/>
+      </members>
+      <description>The collection of objects providing packet statistics.</description>
+    </group>
+  </groups>
+
+  <compliances>
+    <compliance name="ifCompliance3" oid="1.3.6.1.2.1.31.4" status="current">
+      <description>The compliance statement for SNMP entities supporting IF-MIB.</description>
+      <requires>
+        <mandatory module="IF-MIB" name="ifPacketGroup"/>
+      </requires>
+    </compliance>
+  </compliances>
 </smi>`
 
 func TestParseAndConvert(t *testing.T) {
