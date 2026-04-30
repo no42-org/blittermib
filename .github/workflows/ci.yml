@@ -33,3 +33,47 @@ jobs:
 
       - name: Build
         run: make build
+
+  cross-build:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: amd64
+          - os: darwin
+            arch: arm64
+          - os: windows
+            arch: amd64
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b  # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: Build for ${{ matrix.os }}/${{ matrix.arch }}
+        run: make build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+
+  docker:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
+
+      - name: Build Docker image
+        run: make docker-build TAG=blittermib:ci

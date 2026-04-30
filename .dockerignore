@@ -1,0 +1,43 @@
+# Keep the build context small and reproducible.
+
+# Git history isn't needed inside the image.
+.git
+.gitignore
+.gitattributes
+
+# Editor / IDE / OS junk
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+*~
+
+# AI tool working dirs (matches .gitignore)
+.claude
+.codex
+.gemini
+_bmad
+_bmad-output
+openspec
+
+# Build artifacts (regenerated inside the container)
+/blittermib
+/blittermib.exe
+/dist
+*.test
+*.out
+*.prof
+
+# Local data
+/data
+/var
+
+# Pre-existing internal/server/assets/styles.css gets regenerated
+# from prototype/styles.css by `make prepare-assets` in the build
+# stage — keeping it out of the build context avoids stale copies.
+internal/server/assets/styles.css
+
+# Coverage
+coverage.out
+coverage.html

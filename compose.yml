@@ -1,0 +1,32 @@
+# compose.yml — example self-host configuration.
+#
+# Mount your MIB directory at /var/lib/blittermib/mibs (read-only is
+# fine; blittermib only reads from this directory). The data volume
+# holds the SQLite database and the staged standard MIB bundle.
+#
+#   docker compose up
+#
+# then open http://localhost:8080.
+
+services:
+  blittermib:
+    image: ghcr.io/no42-org/blittermib:latest
+    build:
+      context: .
+      args:
+        VERSION: ${BLITTERMIB_VERSION:-dev}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./mibs:/var/lib/blittermib/mibs:ro
+      - blittermib-data:/var/lib/blittermib/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  blittermib-data:

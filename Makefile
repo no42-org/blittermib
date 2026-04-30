@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs
+.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs dist docker-build
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -88,8 +88,20 @@ lint:
 	golangci-lint run
 
 clean:
-	rm -f $(BIN)
+	rm -f $(BIN) $(BIN).exe
 	rm -rf dist/
+
+# Cross-build release archives for every supported platform into
+# dist/ plus a SHA256SUMS file. Invoked by the release CI job.
+dist: prepare-assets generate
+	./scripts/dist.sh
+
+# Build the production Docker image locally. Same Dockerfile the
+# release pipeline uses; tag is overridable via TAG=...
+TAG ?= blittermib:dev
+docker-build:
+	docker build --build-arg VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
+		-t $(TAG) .
 
 help:
 	@echo "make build       compile the binary"
@@ -105,3 +117,7 @@ help:
 	@echo "make check-tools verify libsmi (smidump/smilint) is installed"
 	@echo "make hooks       install pre-commit git hooks"
 	@echo "make generate    regenerate templ-generated _templ.go files"
+	@echo "make dist        cross-build release archives into dist/"
+	@echo "make docker-build build the production Docker image (TAG=...)"
+	@echo "make fetch-htmx  re-vendor htmx.min.js"
+	@echo "make fetch-standard-mibs  populate the embedded standard MIB bundle"
