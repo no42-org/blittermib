@@ -148,7 +148,8 @@ Whenever you:
 
 ## Closed gaps
 
-- **OID separator-dot highlighting** — landed in
-  `feat(server): byte-for-byte prototype OID rendering`. Symbol pages
-  now wrap each `.` in `<span class="dot">` so the design system's
-  accent rule paints the separators in sienna, matching the prototype.
+- **OID separator-dot highlighting** — symbol pages and module
+  pages now wrap each `.` in `<span class="dot">` (via
+  `web.FormatOIDHTML` + `templ.Raw`) so the design system's
+  accent rule paints the separators in sienna, matching the
+  prototype.

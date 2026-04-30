@@ -143,7 +143,10 @@ func TestModuleDetail(t *testing.T) {
 		t.Errorf("status = %d", resp.StatusCode)
 	}
 	html := body(t, resp)
-	for _, want := range []string{"IF-MIB", "ifInOctets", "1.3.6.1.2.1.31"} {
+	// The OID 1.3.6.1.2.1.31 no longer appears as a literal substring
+	// because FormatOIDHTML wraps each `.` in a span. Assert on the
+	// dot-styled fragment instead.
+	for _, want := range []string{"IF-MIB", "ifInOctets", `class="oid"`, `<span class="dot">.</span>`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("module page missing %q", want)
 		}

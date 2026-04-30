@@ -32,7 +32,9 @@ templ ModuleDetail(mod *model.Module, symbols []model.Symbol) {
 		if mod.Description != "" {
 			<p class="summary">{ mod.Description }</p>
 		}
-		<div class="oid">{ mod.OIDRoot }</div>
+		<div class="oid">
+			@templ.Raw(FormatOIDHTML(mod.OIDRoot))
+		</div>
 		<h2 class="section-label">Symbols</h2>
 		<table class="refs">
 			<tbody>
