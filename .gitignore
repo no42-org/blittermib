@@ -33,6 +33,7 @@ go.work.sum
 # Local data
 /data/
 /var/
+/mibs/
 
 # Coverage
 coverage.out

@@ -124,6 +124,7 @@ func assertGolden(t *testing.T, name, got string) {
 		if len(g) < max {
 			max = len(g)
 		}
+		diverged := false
 		for i := 0; i < max; i++ {
 			if w[i] != g[i] {
 				start := i - 80
@@ -141,8 +142,16 @@ func assertGolden(t *testing.T, name, got string) {
 				t.Logf("first divergence at byte %d", i)
 				t.Logf("expected: …%s…", strings.ReplaceAll(w[start:endW], "\n", "⏎"))
 				t.Logf("actual:   …%s…", strings.ReplaceAll(g[start:endG], "\n", "⏎"))
+				diverged = true
 				break
 			}
+		}
+		// One string is a strict prefix of the other — the loop
+		// found no in-range divergence but lengths differ. Surface
+		// the truncation point so the test log isn't silent on what
+		// actually went wrong.
+		if !diverged && len(w) != len(g) {
+			t.Logf("matched as prefix through byte %d; lengths differ — expected %d, got %d", max, len(w), len(g))
 		}
 	}
 }
