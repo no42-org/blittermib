@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -131,6 +132,23 @@ func (w *Watcher) flush(ctx context.Context) {
 
 	slog.Info("mib watcher firing", "files", len(files))
 	if w.cb != nil {
-		w.cb(ctx, files)
+		w.invokeCallback(ctx, files)
 	}
+}
+
+// invokeCallback runs the user callback with a recover, so a panic
+// inside the loader (or anything it calls) doesn't take the binary
+// down — the watcher catches it, logs the stack, drops the batch,
+// and remains ready for the next event.
+func (w *Watcher) invokeCallback(ctx context.Context, files []string) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("mib watcher callback panicked",
+				"err", r,
+				"files", len(files),
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+	w.cb(ctx, files)
 }

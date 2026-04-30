@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -75,6 +76,48 @@ func TestWatcherIgnoresNonMIBFiles(t *testing.T) {
 
 	if calls != 0 {
 		t.Errorf("callback fired %d times for non-MIB files; expected 0", calls)
+	}
+}
+
+// TestWatcherSurvivesCallbackPanic verifies that a panic in the cb
+// (e.g. an unexpected loader bug) is recovered, the batch is dropped,
+// and the watcher remains live to fire on subsequent events.
+//
+// Without the recover, a single panic would take the whole binary
+// down — the cb runs in a time.AfterFunc goroutine that the Go
+// runtime can't recover for us.
+func TestWatcherSurvivesCallbackPanic(t *testing.T) {
+	dir := t.TempDir()
+
+	var fired int32
+	cb := func(_ context.Context, _ []string) {
+		atomic.AddInt32(&fired, 1)
+		panic("intentional test panic")
+	}
+	w := New(dir, 40*time.Millisecond, cb)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = w.Run(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// First event → cb panics, watcher recovers.
+	if err := os.WriteFile(filepath.Join(dir, "a.mib"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	if got := atomic.LoadInt32(&fired); got != 1 {
+		t.Fatalf("first cb didn't fire: count=%d", got)
+	}
+
+	// Second event → if recover worked, cb fires again.
+	if err := os.WriteFile(filepath.Join(dir, "b.mib"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	if got := atomic.LoadInt32(&fired); got != 2 {
+		t.Errorf("watcher did not survive cb panic: count=%d, want 2", got)
 	}
 }
 

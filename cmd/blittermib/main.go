@@ -127,11 +127,24 @@ func run(cfg config) error {
 		slog.Info("staged standard MIBs", "count", len(staged), "dir", standardDir)
 	}
 
-	smidumpPaths := []string{standardDir, cfg.mibsDir}
+	// Two intentionally different orderings:
+	//
+	//   importPaths  — passed to libsmi via -p. libsmi searches in
+	//                  order and uses the FIRST match for IMPORTS,
+	//                  so the user dir comes first: a user-supplied
+	//                  SNMPv2-SMI is preferred over the bundled one.
+	//
+	//   loadDirs     — passed to loader.loadAll. Modules are
+	//                  ReplaceModule'd in compile order, so standard
+	//                  comes first and user comes last; the user's
+	//                  compile run wins on filename collision.
+	importPaths := []string{cfg.mibsDir, standardDir}
+	loadDirs := []string{standardDir, cfg.mibsDir}
+
 	loader := &loader{
 		compiler: &compile.Compiler{
-			Smidump: &compile.Smidump{Path: "smidump", Paths: smidumpPaths},
-			Smilint: &compile.Smilint{Path: "smilint", Paths: smidumpPaths},
+			Smidump: &compile.Smidump{Path: "smidump", Paths: importPaths},
+			Smilint: &compile.Smilint{Path: "smilint", Paths: importPaths},
 		},
 		store: st,
 	}
@@ -139,7 +152,7 @@ func run(cfg config) error {
 	// Initial scan: parse and ingest everything currently in the
 	// standard bundle and the user's MIB directory. Failures are
 	// logged per-module; a busted MIB doesn't abort startup.
-	if err := loader.loadAll(ctx, standardDir, cfg.mibsDir); err != nil {
+	if err := loader.loadAll(ctx, loadDirs...); err != nil {
 		slog.Warn("initial mib load encountered errors", "err", err)
 	}
 
