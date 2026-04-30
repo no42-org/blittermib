@@ -19,7 +19,7 @@ templ SymbolDisambiguation(name string, matches []model.Symbol) {
 			<tbody>
 				for _, s := range matches {
 					<tr>
-						<td><a href={ symbolURL(s.ModuleName, s.Name) }>{ s.QualifiedName() }</a></td>
+						<td><a href={ workspaceSymbolURL(s.ModuleName, s.Name, s.OID) }>{ s.QualifiedName() }</a></td>
 						<td class="kind">{ string(s.Kind) }</td>
 						<td class="module">{ s.OID }</td>
 					</tr>

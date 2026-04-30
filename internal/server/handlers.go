@@ -134,19 +134,45 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		return
 	}
 
-	// Top-level tree rows: children of the module's identity OID
-	// (or, if the module never declared one, the symbols whose
-	// parent_oid is empty).
-	root := mod.OIDRoot
-	treeChildren, err := s.store.ListChildren(ctx, root)
+	// Top-level tree rows are the module's "entry points into the OID
+	// space" — symbols whose parent OID is NOT itself a symbol of
+	// this module. The simpler `ListChildren(mod.OIDRoot)` strategy
+	// fails the common case where MODULE-IDENTITY anchors as a
+	// sysObjectID-style sentinel (e.g. ifMIB at 1.3.6.1.2.1.31.1)
+	// while the actual symbols hang off mib-2 children (interfaces
+	// at 1.3.6.1.2.1.2). Computing the orphan set in Go over the
+	// already-loaded `syms` slice keeps this on the per-page hot
+	// path without a second SQL round trip.
+	moduleOIDs := make(map[string]struct{}, len(syms))
+	for i := range syms {
+		moduleOIDs[syms[i].OID] = struct{}{}
+	}
+	var topLevel []model.Symbol
+	for i := range syms {
+		if _, internal := moduleOIDs[syms[i].ParentOID]; internal {
+			continue
+		}
+		topLevel = append(topLevel, syms[i])
+	}
+
+	// Single batched HasChildren query — replaces an N+1 round-trip
+	// (with MaxOpenConns=1, those serialize and added up on wide
+	// modules).
+	parentOIDs := make([]string, 0, len(topLevel))
+	for i := range topLevel {
+		parentOIDs = append(parentOIDs, topLevel[i].OID)
+	}
+	hasChildren, err := s.store.HasChildrenBatch(ctx, parentOIDs)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
-	treeRows := make([]web.TreeRow, 0, len(treeChildren))
-	for _, c := range treeChildren {
-		hc, _ := s.store.HasChildren(ctx, c.OID)
-		treeRows = append(treeRows, web.TreeRow{Symbol: c, HasChildren: hc})
+	treeRows := make([]web.TreeRow, 0, len(topLevel))
+	for i := range topLevel {
+		treeRows = append(treeRows, web.TreeRow{
+			Symbol:      topLevel[i],
+			HasChildren: hasChildren[topLevel[i].OID],
+		})
 	}
 
 	counts, err := s.store.CountByFamily(ctx, name)
@@ -267,7 +293,11 @@ func (s *Server) handleSymbolDisambiguation(w http.ResponseWriter, r *http.Reque
 	case 0:
 		s.notFound(w, r)
 	case 1:
-		http.Redirect(w, r, "/s/"+matches[0].QualifiedName(), http.StatusFound)
+		// Single-match redirect lands in the workspace selection so
+		// `/s/{name}` is consistent with the other Phase-3 nav
+		// surfaces (search hits, ⌘K palette, /o/{oid}). Symbols
+		// without an OID still resolve to /s/... via the helper.
+		http.Redirect(w, r, string(web.WorkspaceSymbolURL(matches[0].ModuleName, matches[0].Name, matches[0].OID)), http.StatusFound)
 	default:
 		render(w, r, http.StatusOK, web.SymbolDisambiguation(name, matches))
 	}
@@ -481,10 +511,21 @@ func (s *Server) handleAPITreeFragment(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	parentOIDs := make([]string, 0, len(children))
+	for i := range children {
+		parentOIDs = append(parentOIDs, children[i].OID)
+	}
+	hasChildren, err := s.store.HasChildrenBatch(ctx, parentOIDs)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
 	rows := make([]web.TreeRow, 0, len(children))
-	for _, c := range children {
-		hc, _ := s.store.HasChildren(ctx, c.OID)
-		rows = append(rows, web.TreeRow{Symbol: c, HasChildren: hc})
+	for i := range children {
+		rows = append(rows, web.TreeRow{
+			Symbol:      children[i],
+			HasChildren: hasChildren[children[i].OID],
+		})
 	}
 	render(w, r, http.StatusOK, web.WorkspaceTreeFragment(rows))
 }

@@ -172,6 +172,49 @@ func (s *Store) HasChildren(ctx context.Context, parentOID string) (bool, error)
 	return n > 0, nil
 }
 
+// HasChildrenBatch returns a map keyed by OID indicating whether
+// each parent has at least one direct child in the symbol table.
+// One DB query total instead of len(parents) round-trips — the
+// workspace handler and the tree-fragment endpoint both need this
+// for every row at a level, and `MaxOpenConns(1)` makes serial
+// per-row queries measurable on wide modules.
+//
+// OIDs not in the input slice are absent from the result map; OIDs
+// in the input but with no children appear with a `false` value.
+func (s *Store) HasChildrenBatch(ctx context.Context, parents []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(parents))
+	if len(parents) == 0 {
+		return out, nil
+	}
+	for _, p := range parents {
+		out[p] = false
+	}
+	args := make([]any, 0, len(parents))
+	placeholders := make([]byte, 0, 2*len(parents))
+	for i, p := range parents {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, p)
+	}
+	q := `SELECT parent_oid FROM symbol WHERE parent_oid IN (` +
+		string(placeholders) + `) GROUP BY parent_oid`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("has-children batch: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out[p] = true
+	}
+	return out, rows.Err()
+}
+
 // CountSymbols returns the total number of symbols across all modules.
 func (s *Store) CountSymbols(ctx context.Context) (int, error) {
 	var n int
@@ -244,11 +287,17 @@ func (s *Store) CountByFamily(ctx context.Context, moduleName string) (*model.Fa
 // `WHERE oid IN (?, …)` query. Multi-match on the same prefix is
 // resolved deterministically by ascending module_name, then name.
 //
-// Returned slice is empty when oid is empty.
+// Returned slice is empty when oid is empty. OIDs deeper than
+// maxOIDDepth segments are rejected with an error so a pathological
+// URL can't trip SQLite's parameter-count limit.
 func (s *Store) OIDPath(ctx context.Context, oid string) ([]model.OIDStep, error) {
 	prefixes := oidPrefixes(oid)
 	if len(prefixes) == 0 {
 		return nil, nil
+	}
+	if len(prefixes) > maxOIDDepth {
+		return nil, fmt.Errorf("oid path %s: depth %d exceeds cap %d",
+			oid, len(prefixes), maxOIDDepth)
 	}
 
 	args := make([]any, 0, len(prefixes))

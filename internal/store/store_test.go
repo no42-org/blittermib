@@ -511,7 +511,7 @@ func TestOIDPath(t *testing.T) {
 	}
 	wantNames := []string{
 		"iso", "org", "dod", "internet", "mgmt", "mib-2",
-		"", "ifTable", "ifEntry", "ifInOctets",
+		"interfaces", "ifTable", "ifEntry", "ifInOctets",
 	}
 	for i, want := range wantNames {
 		if steps[i].Name != want {

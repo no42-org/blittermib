@@ -160,6 +160,13 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+
+/* Alpine x-cloak: hide elements that have not been processed by
+ * Alpine yet. Without this rule the workspace's module-picker
+ * modal flashes visible during the brief window before Alpine
+ * evaluates `x-show="open"`, and stays visible permanently if
+ * Alpine fails to load (CDN block, CSP failure). */
+[x-cloak] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);

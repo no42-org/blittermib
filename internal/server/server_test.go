@@ -463,7 +463,12 @@ func TestPaletteCSSLoaded(t *testing.T) {
 // re-binding code path.
 func TestIslandsRebindOnHTMXSwap(t *testing.T) {
 	ts := newTestServer(t)
-	for _, asset := range []string{"/static/palette.js", "/static/glossary.js"} {
+	for _, asset := range []string{
+		"/static/palette.js",
+		"/static/glossary.js",
+		"/static/workspace.js",
+		"/static/picker.js",
+	} {
 		t.Run(asset, func(t *testing.T) {
 			resp, err := http.Get(ts.URL + asset)
 			if err != nil {
@@ -763,7 +768,11 @@ func TestSymbolDisambiguationRedirectsSingleMatch(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Errorf("status = %d, want 302", resp.StatusCode)
 	}
-	if loc := resp.Header.Get("Location"); loc != "/s/IF-MIB::ifInOctets" {
+	// Phase 3: single-match disambiguation now redirects into the
+	// workspace selection so `/s/{name}` is consistent with /o/{oid}
+	// and search-hit retargets. Symbols without an OID still fall
+	// back to /s/... via web.WorkspaceSymbolURL.
+	if loc := resp.Header.Get("Location"); loc != "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10" {
 		t.Errorf("location = %q", loc)
 	}
 }
@@ -1046,6 +1055,33 @@ func TestFontAssetServed(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("%s: status = %d (fonts not vendored? run `make fetch-fonts`)", name, resp.StatusCode)
 		}
+	}
+}
+
+func TestWorkspaceAssetsServed(t *testing.T) {
+	// Phase 3 vendored Alpine.js + shipped two new island scripts.
+	// A missing or empty file (forgotten `make fetch-alpine`,
+	// stripped embed) would silently degrade the workspace; this
+	// test catches that at build time.
+	ts := newTestServer(t)
+	for _, asset := range []string{
+		"/static/alpine.min.js",
+		"/static/workspace.js",
+		"/static/picker.js",
+	} {
+		t.Run(asset, func(t *testing.T) {
+			resp, err := http.Get(ts.URL + asset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("%s: status = %d", asset, resp.StatusCode)
+			}
+			js := body(t, resp)
+			if len(js) == 0 {
+				t.Errorf("%s: empty body — asset not vendored?", asset)
+			}
+		})
 	}
 }
 

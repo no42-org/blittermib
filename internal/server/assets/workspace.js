@@ -32,3 +32,17 @@ window.workspace = function () {
 		},
 	};
 };
+
+// Alpine 3 already attaches a MutationObserver that initializes
+// new x-data roots inserted via hx-boost body swaps; the explicit
+// htmx:afterSwap hook below is a defensive belt-and-suspenders
+// re-init in case Alpine's observer ever misses a swap (state on
+// the previous workspace instance is intentionally lost on
+// navigation; selection lives in the URL).
+if (typeof document !== 'undefined') {
+	document.body.addEventListener('htmx:afterSwap', function () {
+		if (window.Alpine && typeof window.Alpine.initTree === 'function') {
+			window.Alpine.initTree(document.body);
+		}
+	});
+}

@@ -182,6 +182,10 @@ templ workspaceDetail(view *WorkspaceView) {
 // oidDecode renders the breadcrumb-style decoded OID path above the
 // detail body. Each step is a link to that step's workspace URL,
 // so the user can navigate up/across the hierarchy.
+//
+// When a step has no name (neither a loaded MIB symbol nor a
+// canonical-table entry covers the prefix), the step renders as
+// just the bare numeric segment — no duplicated text.
 templ oidDecode(steps []model.OIDStep) {
 	if len(steps) > 0 {
 		<nav class="oid-decode" aria-label="OID path">
@@ -191,12 +195,16 @@ templ oidDecode(steps []model.OIDStep) {
 				}
 				if st.Module != "" {
 					<a class="oid-step" href={ workspaceURL(st.Module, st.Prefix) }>
-						<span class="oid-step-name">{ stepDisplayName(st) }</span>
+						<span class="oid-step-name">{ st.Name }</span>
 						<span class="oid-step-num">{ lastSegment(st.Prefix) }</span>
 					</a>
+				} else if st.Name != "" {
+					<span class="oid-step">
+						<span class="oid-step-name">{ st.Name }</span>
+						<span class="oid-step-num">{ lastSegment(st.Prefix) }</span>
+					</span>
 				} else {
 					<span class="oid-step">
-						<span class="oid-step-name">{ stepDisplayName(st) }</span>
 						<span class="oid-step-num">{ lastSegment(st.Prefix) }</span>
 					</span>
 				}

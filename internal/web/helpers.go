@@ -34,11 +34,33 @@ func moduleSourceURL(module string) templ.SafeURL {
 // workspaceURL returns the URL for a workspace selection. SMI
 // module names are alphanumeric + dash and OIDs are digits + dot,
 // so neither input needs URL escaping.
+//
+// Symbols with no OID (textual conventions, some object groups)
+// can't deep-link via /m/{name}/{oid}; for those we fall back to
+// the canonical /s/{module}::{name} so detail still renders. The
+// alternative — landing on the empty workspace — silently drops
+// the user's selection.
 func workspaceURL(module, oid string) templ.SafeURL {
 	if oid == "" {
-		return templ.SafeURL("/m/" + module)
+		return symbolURL(module, "")
 	}
 	return templ.SafeURL("/m/" + module + "/" + oid)
+}
+
+// workspaceSymbolURL is `workspaceURL` with the name available so the
+// fall-back to /s/{module}::{name} can be properly qualified when
+// the symbol has no OID.
+func workspaceSymbolURL(module, name, oid string) templ.SafeURL {
+	if oid == "" {
+		return symbolURL(module, name)
+	}
+	return templ.SafeURL("/m/" + module + "/" + oid)
+}
+
+// WorkspaceSymbolURL is the exported form of workspaceSymbolURL,
+// used by handlers (which sit outside the package's templ files).
+func WorkspaceSymbolURL(module, name, oid string) templ.SafeURL {
+	return workspaceSymbolURL(module, name, oid)
 }
 
 // treeFragmentURL is the HTMX target that returns the children of
