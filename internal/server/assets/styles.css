@@ -777,7 +777,7 @@ button { font-family: inherit; }
 /* --- detail-page content (symbol/table) ------------------------------ */
 
 .content { grid-area: content; padding: 32px var(--gutter) 64px; }
-.content-inner { max-width: var(--content-max); }
+.content-inner { max-width: var(--content-max); margin: 0 auto; }
 .content-inner.wide { max-width: 96ch; }
 
 .breadcrumb {
