@@ -1217,10 +1217,12 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   padding: 14px 18px;
+  font-family: inherit;
   font-size: 15px;
   color: var(--muted);
   cursor: pointer;
@@ -1228,6 +1230,8 @@ button { font-family: inherit; }
   margin: 0 auto 28px;
   transition: border-color 100ms ease;
   text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
 }
 .hero-search:hover { border-color: var(--muted); }
 .hero-search .placeholder { flex: 1; }

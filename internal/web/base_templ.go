@@ -58,7 +58,7 @@ func Base(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div></main><footer class=\"footer\"><span><a href=\"https://github.com/no42-org/blittermib\" target=\"_blank\" rel=\"noopener noreferrer\">blittermib</a> · runs entirely on your server</span> <span>Made with AI for Open Source in Europe</span></footer></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div></main><footer class=\"footer\"><span><a href=\"https://github.com/no42-org/blittermib\" target=\"_blank\" rel=\"noopener noreferrer\">blittermib</a> · runs entirely on your server</span> <span>Made with AI and ❤️ for Open Source in Europe · <a href=\"https://blog.no42.org/page/about/\" target=\"_blank\" rel=\"noopener noreferrer\">About Me</a></span></footer></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

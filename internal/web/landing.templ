@@ -6,12 +6,19 @@ import "fmt"
 templ Landing(modules, symbols int) {
 	@Base("blittermib") {
 		<div class="hero">
-			<h1 class="hero-brand">blittermib<span class="brand-dot">.</span></h1>
+			<h1 class="hero-brand">
+				<span class="brand-mark" aria-hidden="true">
+					<span class="bar bar-1"></span>
+					<span class="bar bar-2"></span>
+					<span class="bar bar-3"></span>
+				</span>
+				<span class="brand-text">blittermib<span class="brand-dot">.</span></span>
+			</h1>
 			<p class="hero-tagline">Browse SNMP MIBs, beautifully.</p>
-			<a class="search-large" href="/search">
+			<button type="button" class="hero-search" data-palette-toggle aria-label="Open search">
 				<span class="placeholder">Search symbols, OIDs, modules, descriptions&hellip;</span>
 				<span class="kbd">⌘K</span>
-			</a>
+			</button>
 			<div class="hero-stats">
 				<strong>{ fmt.Sprintf("%d", modules) }</strong> modules
 				<span class="sep">·</span>
