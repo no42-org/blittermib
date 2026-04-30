@@ -443,7 +443,22 @@ func (s *Server) handleAPISymbol(w http.ResponseWriter, r *http.Request) {
 // prepended to the FTS5 results so the user always sees their typed
 // symbol on top. FTS5 BM25 alone doesn't guarantee exact-match-first
 // ranking — see spec R5 scenario "Search by exact symbol".
+//
+// Queries that look like an OID prefix (digits and dots, optionally
+// led by a single dot) bypass FTS5 entirely — FTS5's tokenizer
+// strips dots, so an OID-shaped query against the inverted index
+// would either match nothing or wildly over-match. The store's
+// SearchByOIDPrefix uses LIKE on the indexed `oid` column instead.
 func (s *Server) searchWithExactMatch(ctx context.Context, q string, limit int) []store.SearchHit {
+	if prefix, ok := oidPrefixQuery(q); ok {
+		hits, err := s.store.SearchByOIDPrefix(ctx, prefix, limit)
+		if err != nil {
+			slog.Warn("oid prefix search failed", "q", q, "err", err)
+			return nil
+		}
+		return hits
+	}
+
 	hits, err := s.store.Search(ctx, q, limit)
 	if err != nil {
 		slog.Warn("search failed", "q", q, "err", err)
@@ -539,6 +554,33 @@ func splitQualified(s string) (module, name string, ok bool) {
 		return "", s, false
 	}
 	return s[:i], s[i+2:], true
+}
+
+// oidPrefixQuery returns (prefix, true) when q looks like a numeric
+// OID — bare digits like "1.3.6.1" or with a leading dot like ".1".
+// The store's SearchByOIDPrefix expects the leading dot stripped.
+//
+// Returning false here means the query goes through FTS5; an empty
+// or single-dot input is rejected so we don't widen the search to
+// every symbol in the database.
+func oidPrefixQuery(q string) (string, bool) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return "", false
+	}
+	q = strings.TrimPrefix(q, ".")
+	if q == "" {
+		return "", false
+	}
+	for _, r := range q {
+		if !(r >= '0' && r <= '9') && r != '.' {
+			return "", false
+		}
+	}
+	if strings.HasPrefix(q, ".") || strings.HasSuffix(q, ".") || strings.Contains(q, "..") {
+		return "", false
+	}
+	return q, true
 }
 
 // lastOIDSegment returns the trailing dot-separated component of an
