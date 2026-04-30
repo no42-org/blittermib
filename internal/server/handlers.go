@@ -316,7 +316,19 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		render(w, r, http.StatusOK, web.SearchEmpty())
 		return
 	}
-	hits := s.searchWithExactMatch(r.Context(), q, 50)
+	ctx := r.Context()
+	hits := s.searchWithExactMatch(ctx, q, 50)
+	if len(hits) == 0 {
+		// Fall through to "did you mean": Levenshtein-against-name
+		// candidates. Errors here are non-fatal — the no-results
+		// page is still useful without suggestions.
+		suggestions, err := s.store.DidYouMean(ctx, q, 5)
+		if err != nil {
+			slog.Warn("did-you-mean failed", "q", q, "err", err)
+		}
+		render(w, r, http.StatusOK, web.SearchNoResults(q, toWebHits(suggestions)))
+		return
+	}
 	render(w, r, http.StatusOK, web.SearchResults(q, toWebHits(hits)))
 }
 
@@ -504,11 +516,15 @@ func toWebHits(hits []store.SearchHit) []web.SearchHit {
 	out := make([]web.SearchHit, len(hits))
 	for i, h := range hits {
 		out[i] = web.SearchHit{
-			Module:  h.Module,
-			Name:    h.Name,
-			OID:     h.OID,
-			Kind:    h.Kind,
-			Snippet: h.Snippet,
+			Module: h.Module,
+			Name:   h.Name,
+			OID:    h.OID,
+			Kind:   h.Kind,
+			// Sanitise the FTS5 snippet — preserves <mark>...</mark>
+			// markers, escapes everything else. Rendered via
+			// templ.Raw in SearchResults, so without this the
+			// description text would XSS.
+			Snippet: web.SanitizeSnippet(h.Snippet),
 		}
 	}
 	return out

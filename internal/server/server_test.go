@@ -765,6 +765,59 @@ func TestModuleSourceRouteNoSourcePath(t *testing.T) {
 	}
 }
 
+func TestSearchDidYouMean(t *testing.T) {
+	ts := newTestServer(t)
+	// "ifInOctts" — typo of "ifInOctets" (distance 1)
+	resp, err := http.Get(ts.URL + "/search?q=ifInOctts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	html := body(t, resp)
+	for _, want := range []string{
+		`No matches for`,
+		`Did you mean`,
+		`ifInOctets`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("no-results page missing %q", want)
+		}
+	}
+}
+
+func TestSearchNoResultsZeroSuggestions(t *testing.T) {
+	// Query with no plausible suggestion — page should still render
+	// the "Other places to look" panel.
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/search?q=zzzqqqxxx9999")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	if !strings.Contains(html, "Other places to look") {
+		t.Error("no-results page missing fallback nav block")
+	}
+}
+
+func TestSearchSnippetRendered(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/search?q=octets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	// FTS5 snippet wraps the matched terms in <mark> markers; our
+	// SanitizeSnippet preserves them while escaping everything else.
+	if !strings.Contains(html, `<mark>`) {
+		t.Error("search results missing <mark> highlights — snippet not rendered as raw HTML?")
+	}
+	if !strings.Contains(html, `class="search-snippet"`) {
+		t.Error("search results missing snippet row")
+	}
+}
+
 func TestAPIErrorSanitization(t *testing.T) {
 	// Bad symbol path → public message only, no internal error leak.
 	ts := newTestServer(t)

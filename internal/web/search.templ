@@ -8,7 +8,7 @@ type SearchHit struct {
 	Name    string
 	OID     string
 	Kind    string
-	Snippet string
+	Snippet string // already-sanitised; rendered via templ.Raw
 }
 
 // SearchResults shows a list of FTS5 hits with their snippets.
@@ -29,6 +29,13 @@ templ SearchResults(query string, hits []SearchHit) {
 							<td class="kind">{ h.Kind }</td>
 							<td class="module">{ h.Module }</td>
 						</tr>
+						if h.Snippet != "" {
+							<tr>
+								<td colspan="3" class="search-snippet">
+									@templ.Raw(h.Snippet)
+								</td>
+							</tr>
+						}
 					}
 				</tbody>
 			</table>
@@ -36,10 +43,48 @@ templ SearchResults(query string, hits []SearchHit) {
 	}
 }
 
+// SearchNoResults is shown when an FTS5 query came back empty. If
+// suggestions are available, render them; otherwise nudge the user
+// toward the module index.
+templ SearchNoResults(query string, suggestions []SearchHit) {
+	@Base("Search · blittermib") {
+		<h1 class="symbol-name">Search</h1>
+		<p class="summary">
+			No matches for <code>{ query }</code>.
+		</p>
+		if len(suggestions) > 0 {
+			<section class="section">
+				<h2 class="section-label">Did you mean</h2>
+				<table class="refs">
+					<tbody>
+						for _, s := range suggestions {
+							<tr>
+								<td><a href={ symbolURL(s.Module, s.Name) }><code>{ s.Name }</code></a></td>
+								<td class="kind">{ s.Kind }</td>
+								<td class="module">{ s.Module }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</section>
+		}
+		<section class="section">
+			<h2 class="section-label">Other places to look</h2>
+			<p>
+				<a href="/m">Browse modules</a>
+				<span class="sep">·</span>
+				<a href="/tree">Browse the OID tree</a>
+				<span class="sep">·</span>
+				<a href="/diagnostics">View parse diagnostics</a>
+			</p>
+		</section>
+	}
+}
+
 // SearchEmpty is shown when a user lands on /search with no query.
 templ SearchEmpty() {
 	@Base("Search · blittermib") {
 		<h1 class="symbol-name">Search</h1>
-		<p class="summary muted">Enter a query in the URL: <code>/search?q=…</code></p>
+		<p class="summary muted">Enter a query in the URL: <code>/search?q=…</code> — or hit <kbd>⌘K</kbd> from any page.</p>
 	}
 }
