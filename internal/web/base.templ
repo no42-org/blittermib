@@ -1,8 +1,13 @@
 package web
 
-// Base is the shared HTML shell: topbar with brand mark and tagline,
-// content area, footer mirroring blitsbom. The page-specific content
-// is supplied via templ children.
+// Base is the shared HTML shell: topbar with brand mark, wordmark,
+// tagline, privacy notice and theme toggle; content area; footer
+// mirroring blitsbom. The page-specific content is supplied via
+// templ children.
+//
+// The inline theme-init <script> in <head> applies the saved theme
+// before paint to avoid a flash of the wrong palette. It mirrors
+// what blitsbom does (see CLAUDE.md sister-product alignment).
 templ Base(title string) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -10,11 +15,18 @@ templ Base(title string) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
+			<script>
+				// Pre-paint theme application — keep this tight and inline.
+				try {
+					var t = localStorage.getItem('blittermib-theme');
+					if (t === 'light' || t === 'dark') {
+						document.documentElement.dataset.theme = t;
+					}
+				} catch (e) {}
+			</script>
 			<link rel="stylesheet" href="/static/styles.css"/>
-			<link rel="preconnect" href="https://fonts.googleapis.com"/>
-			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-			<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 			<script src="/static/htmx.min.js" defer></script>
+			<script src="/static/theme.js" defer></script>
 			<script src="/static/palette.js" defer></script>
 			<script src="/static/glossary.js" defer></script>
 			<script src="/static/tree.js" defer></script>
@@ -22,12 +34,21 @@ templ Base(title string) {
 		<body hx-boost="true" hx-target="body" hx-swap="outerHTML">
 			<header class="topbar">
 				<a href="/" class="brand">
-					blittermib<span class="brand-dot">.</span>
+					<span class="brand-mark" aria-hidden="true">
+						<span class="bar bar-1"></span>
+						<span class="bar bar-2"></span>
+						<span class="bar bar-3"></span>
+					</span>
+					<span class="brand-text">blittermib<span class="brand-dot">.</span></span>
 				</a>
 				<span class="brand-tagline">Pixelperfect MIB browser</span>
 				<div class="topbar-spacer"></div>
 				<div class="topbar-end">
 					<span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
+					<button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle theme">
+						<span class="moon" aria-hidden="true">☾</span>
+						<span class="sun" aria-hidden="true">☀</span>
+					</button>
 				</div>
 			</header>
 			<main class="page">

@@ -597,6 +597,70 @@ func TestTreeAssetServed(t *testing.T) {
 	}
 }
 
+func TestThemeToggleAndBrandMark(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+
+	for _, want := range []string{
+		`data-theme-toggle`,
+		`class="brand-mark"`,
+		`bar bar-1`,
+		`bar bar-2`,
+		`bar bar-3`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("layout missing %q", want)
+		}
+	}
+}
+
+func TestThemeAssetServed(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/theme.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	js := body(t, resp)
+	for _, marker := range []string{"blittermib-theme", "data-theme-toggle"} {
+		if !strings.Contains(js, marker) {
+			t.Errorf("theme.js missing marker %q", marker)
+		}
+	}
+}
+
+func TestNoGoogleFontsCDN(t *testing.T) {
+	// Phase 2.3: fonts must be self-hosted, no third-party CDN refs.
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	for _, banned := range []string{"fonts.googleapis.com", "fonts.gstatic.com"} {
+		if strings.Contains(html, banned) {
+			t.Errorf("layout still references %q — Phase 2.3 says fonts must be self-hosted", banned)
+		}
+	}
+}
+
+func TestFontAssetServed(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/fonts/Geist-400.woff2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d (fonts not vendored? run `make fetch-fonts`)", resp.StatusCode)
+	}
+}
+
 func TestSplitQualified(t *testing.T) {
 	cases := []struct {
 		in   string
