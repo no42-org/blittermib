@@ -95,10 +95,14 @@ func (s *Store) ListChildren(ctx context.Context, parentOID string) ([]model.Sym
 }
 
 // ListReferencesFrom returns references whose source matches.
+//
+// Ordered for deterministic rendering — golden-HTML snapshot tests
+// rely on stable iteration.
 func (s *Store) ListReferencesFrom(ctx context.Context, module, name string) ([]model.Reference, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT source_module, source_name, target_module, target_name, kind
-		FROM reference WHERE source_module = ? AND source_name = ?`, module, name)
+		FROM reference WHERE source_module = ? AND source_name = ?
+		ORDER BY target_module, target_name, kind`, module, name)
 	if err != nil {
 		return nil, err
 	}
@@ -106,10 +110,13 @@ func (s *Store) ListReferencesFrom(ctx context.Context, module, name string) ([]
 }
 
 // ListReferencesTo returns references whose target matches.
+//
+// Ordered for deterministic rendering (see ListReferencesFrom).
 func (s *Store) ListReferencesTo(ctx context.Context, module, name string) ([]model.Reference, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT source_module, source_name, target_module, target_name, kind
-		FROM reference WHERE target_module = ? AND target_name = ?`, module, name)
+		FROM reference WHERE target_module = ? AND target_name = ?
+		ORDER BY source_module, source_name, kind`, module, name)
 	if err != nil {
 		return nil, err
 	}
