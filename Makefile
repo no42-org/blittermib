@@ -31,22 +31,24 @@ fetch-htmx:
 		https://unpkg.com/htmx.org@$(HTMX_VERSION)/dist/htmx.min.js
 	@echo "fetched htmx $(HTMX_VERSION) -> internal/server/assets/htmx.min.js"
 
-# Fetch self-hosted Geist Sans + Geist Mono woff2 files from Fontsource
+# Fetch self-hosted Inter + JetBrains Mono woff2 files from Fontsource
 # (CDN-mirrored open-source fonts via jsdelivr). Vendored into
-# internal/server/assets/fonts/ and embedded at build time.
+# internal/server/assets/fonts/ and embedded at build time. Both
+# families are SIL OFL 1.1 licensed.
 fetch-fonts:
 	@mkdir -p internal/server/assets/fonts
 	@for w in 400 500 600; do \
-		echo ">> Geist-$$w"; \
-		curl -fL --silent --show-error -o internal/server/assets/fonts/Geist-$$w.woff2 \
-			https://cdn.jsdelivr.net/fontsource/fonts/geist@latest/latin-$$w-normal.woff2; \
+		echo ">> Inter-$$w"; \
+		curl -fL --silent --show-error -o internal/server/assets/fonts/Inter-$$w.woff2 \
+			https://cdn.jsdelivr.net/fontsource/fonts/inter@latest/latin-$$w-normal.woff2; \
 	done
 	@for w in 400 500; do \
-		echo ">> GeistMono-$$w"; \
-		curl -fL --silent --show-error -o internal/server/assets/fonts/GeistMono-$$w.woff2 \
-			https://cdn.jsdelivr.net/fontsource/fonts/geist-mono@latest/latin-$$w-normal.woff2; \
+		echo ">> JetBrainsMono-$$w"; \
+		curl -fL --silent --show-error -o internal/server/assets/fonts/JetBrainsMono-$$w.woff2 \
+			https://cdn.jsdelivr.net/fontsource/fonts/jetbrains-mono@latest/latin-$$w-normal.woff2; \
 	done
-	@echo "fetched Geist Sans + Mono -> internal/server/assets/fonts/"
+	@echo "fetched Inter + JetBrains Mono -> internal/server/assets/fonts/"
+	@echo "remove old Geist*.woff2 files manually if still present"
 
 # Fetch IETF/IANA standard MIBs from libsmi's source distribution
 # into internal/mibsbundle/bundle/. The next `go build` embeds them

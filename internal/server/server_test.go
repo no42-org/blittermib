@@ -915,12 +915,14 @@ func TestNoGoogleFontsCDN(t *testing.T) {
 
 func TestFontAssetServed(t *testing.T) {
 	ts := newTestServer(t)
-	resp, err := http.Get(ts.URL + "/static/fonts/Geist-400.woff2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d (fonts not vendored? run `make fetch-fonts`)", resp.StatusCode)
+	for _, name := range []string{"Inter-400.woff2", "JetBrainsMono-400.woff2"} {
+		resp, err := http.Get(ts.URL + "/static/fonts/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: status = %d (fonts not vendored? run `make fetch-fonts`)", name, resp.StatusCode)
+		}
 	}
 }
 
