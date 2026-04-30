@@ -66,9 +66,9 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleModuleSource serves the raw MIB source file for a module as
-// text/plain. Useful for users who want to see the verbatim SMI
-// alongside the rendered symbol page, and for the
-// "View entire MIB source" link from the symbol-page disclosure.
+// text/plain. http.ServeFile streams the file (handles range,
+// etag, and if-modified-since for free) — better than reading
+// the whole MIB into memory before writing.
 func (s *Server) handleModuleSource(w http.ResponseWriter, r *http.Request, name string) {
 	mod, err := s.store.GetModule(r.Context(), name)
 	if errors.Is(err, store.ErrNotFound) {
@@ -79,19 +79,18 @@ func (s *Server) handleModuleSource(w http.ResponseWriter, r *http.Request, name
 		s.internalError(w, r, err)
 		return
 	}
-	data, err := source.ReadAll(mod.SourcePath)
-	if errors.Is(err, source.ErrNotFound) {
-		// The module is loaded but no source path was recorded.
+	if mod.SourcePath == "" {
+		// Module is loaded but libsmi resolved it without a file
+		// path (e.g. embedded module).
 		s.notFound(w, r)
 		return
 	}
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
+	// Pre-set the headers — http.ServeFile leaves them alone if
+	// they're already populated. .mib files would otherwise default
+	// to application/octet-stream which would prompt downloads.
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(data)
+	http.ServeFile(w, r, mod.SourcePath)
 }
 
 func (s *Server) handleModuleIndex(w http.ResponseWriter, r *http.Request) {

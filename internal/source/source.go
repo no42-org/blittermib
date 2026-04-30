@@ -1,12 +1,12 @@
 // Package source extracts slices of MIB source files for the
-// symbol page's "Show full SMI source" disclosure and for the
-// /m/{module}/source raw-source route.
+// symbol page's "Show full SMI source" disclosure.
 //
 // The slice extraction is heuristic: we read N lines starting at the
 // SMI definition's source_line. SMIv2 definitions commonly span
 // 5-30 lines, so a default window of 40 lines covers nearly every
 // real-world case. If the heuristic ever miscalibrates, the user
-// can follow the link to the full source page.
+// can follow the disclosure's link to /m/{module}/source for the
+// full file (served via http.ServeFile, not this package).
 package source
 
 import (
@@ -26,15 +26,6 @@ var ErrNotFound = errors.New("source not available for this module")
 // majority of OBJECT-TYPE / TC / NOTIFICATION-TYPE definitions
 // without bleeding into the next definition.
 const DefaultWindow = 40
-
-// ReadAll returns the raw contents of the source file. Used by the
-// /m/{module}/source route which serves the entire MIB.
-func ReadAll(path string) ([]byte, error) {
-	if path == "" {
-		return nil, ErrNotFound
-	}
-	return os.ReadFile(path)
-}
 
 // Slice returns up to lines lines from path beginning at startLine
 // (1-based). Returns an empty slice with no error when path is
