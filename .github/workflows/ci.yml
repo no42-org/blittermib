@@ -25,6 +25,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsmi2-dev
 
+      - name: Generate (templ)
+        run: make generate
+
       - name: Verify
         run: make verify
 

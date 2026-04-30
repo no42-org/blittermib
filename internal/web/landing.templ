@@ -1,0 +1,22 @@
+package web
+
+import "fmt"
+
+// Landing renders the search-first home page with module/symbol counts.
+templ Landing(modules, symbols int) {
+	@Base("blittermib") {
+		<div class="hero">
+			<h1 class="hero-brand">blittermib<span class="brand-dot">.</span></h1>
+			<p class="hero-tagline">Browse SNMP MIBs, beautifully.</p>
+			<a class="search-large" href="/search">
+				<span class="placeholder">Search symbols, OIDs, modules, descriptions&hellip;</span>
+				<span class="kbd">⌘K</span>
+			</a>
+			<div class="hero-stats">
+				<strong>{ fmt.Sprintf("%d", modules) }</strong> modules
+				<span class="sep">·</span>
+				<strong>{ fmt.Sprintf("%d", symbols) }</strong> symbols
+			</div>
+		</div>
+	}
+}

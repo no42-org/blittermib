@@ -1,0 +1,42 @@
+package web
+
+// Base is the shared HTML shell: topbar with brand mark and tagline,
+// content area, footer mirroring blitsbom. The page-specific content
+// is supplied via templ children.
+templ Base(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title }</title>
+			<link rel="stylesheet" href="/static/styles.css"/>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+			<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+			<script src="/static/htmx.min.js" defer></script>
+		</head>
+		<body hx-boost="true" hx-target="body" hx-swap="outerHTML">
+			<header class="topbar">
+				<a href="/" class="brand">
+					blittermib<span class="brand-dot">.</span>
+				</a>
+				<span class="brand-tagline">Pixelperfect MIB browser</span>
+				<div class="topbar-spacer"></div>
+			</header>
+			<main class="page">
+				<div class="content-inner">
+					{ children... }
+				</div>
+			</main>
+			<footer class="footer">
+				<span>
+					<a href="https://github.com/no42-org/blittermib" target="_blank" rel="noopener noreferrer">blittermib</a> · runs entirely on your server
+				</span>
+				<span>
+					Made with AI for Open Source in Europe
+				</span>
+			</footer>
+		</body>
+	</html>
+}

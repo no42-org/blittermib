@@ -1,0 +1,61 @@
+package web
+
+import "github.com/no42-org/blittermib/internal/model"
+
+// SymbolDetail renders the canonical reference page for a symbol,
+// following the page rhythm defined in design.md (breadcrumb → name
+// → OID → type-line → description → used-by).
+templ SymbolDetail(sym *model.Symbol, usedBy []model.Reference) {
+	@Base(sym.QualifiedName() + " · blittermib") {
+		<nav class="breadcrumb">
+			<a href={ moduleURL(sym.ModuleName) }>{ sym.ModuleName }</a>
+			<span class="sep">›</span>
+			{ sym.Name }
+		</nav>
+		<h1 class="symbol-name">{ sym.Name }</h1>
+		<div class="oid-row">
+			<span class="oid">{ sym.OID }</span>
+		</div>
+		<div class="type-line">
+			if sym.Syntax != "" {
+				<span class="syntax">{ sym.Syntax }</span>
+			}
+			if sym.Access != "" {
+				<span class="sep">·</span>
+				{ string(sym.Access) }
+			}
+			if sym.Status != "" {
+				<span class="sep">·</span>
+				{ string(sym.Status) }
+			}
+			if sym.Units != "" {
+				<span class="sep">·</span>
+				units: { sym.Units }
+			}
+		</div>
+		if sym.Description != "" {
+			<section class="section">
+				<h2 class="section-label">Description</h2>
+				<div class="prose">
+					<p>{ sym.Description }</p>
+				</div>
+			</section>
+		}
+		if len(usedBy) > 0 {
+			<section class="section">
+				<h2 class="section-label">Used by</h2>
+				<table class="refs">
+					<tbody>
+						for _, ref := range usedBy {
+							<tr>
+								<td><a href={ symbolURL(ref.SourceModule, ref.SourceName) }><code>{ ref.SourceName }</code></a></td>
+								<td class="kind">{ string(ref.Kind) }</td>
+								<td class="module">{ ref.SourceModule }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</section>
+		}
+	}
+}

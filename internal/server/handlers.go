@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/a-h/templ"
+
+	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/store"
+	"github.com/no42-org/blittermib/internal/web"
 )
 
 // --- ops endpoints ---------------------------------------------------
@@ -28,82 +33,61 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(s.version + "\n"))
 }
 
-// --- page handlers (placeholder HTML — templ replaces these) --------
+// --- page handlers ---------------------------------------------------
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+		s.notFound(w, r)
 		return
 	}
 	ctx := r.Context()
 	modCount, _ := s.store.CountModules(ctx)
 	symCount, _ := s.store.CountSymbols(ctx)
-	renderPage(w, http.StatusOK, "blittermib", fmt.Sprintf(
-		`<h1 class="hero-brand">blittermib<span class="brand-dot">.</span></h1>
-<p class="hero-tagline">Browse SNMP MIBs, beautifully.</p>
-<p class="hero-stats"><strong>%d</strong> modules · <strong>%d</strong> symbols</p>`,
-		modCount, symCount))
+	render(w, r, http.StatusOK, web.Landing(modCount, symCount))
 }
 
 func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/m")
 	rest = strings.TrimPrefix(rest, "/")
-	switch {
-	case rest == "":
+	if rest == "" {
 		s.handleModuleIndex(w, r)
-	default:
-		s.handleModuleDetail(w, r, rest)
+		return
 	}
+	s.handleModuleDetail(w, r, rest)
 }
 
 func (s *Server) handleModuleIndex(w http.ResponseWriter, r *http.Request) {
 	mods, err := s.store.ListModules(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.internalError(w, r, err)
 		return
 	}
-	var b strings.Builder
-	b.WriteString(`<h1>Modules</h1><ul>`)
-	for _, m := range mods {
-		fmt.Fprintf(&b, `<li><a href="/m/%s">%s</a> <span class="muted">%s</span></li>`,
-			m.Name, m.Name, m.ParseStatus)
-	}
-	b.WriteString(`</ul>`)
-	renderPage(w, http.StatusOK, "Modules · blittermib", b.String())
+	render(w, r, http.StatusOK, web.ModuleIndex(mods))
 }
 
 func (s *Server) handleModuleDetail(w http.ResponseWriter, r *http.Request, name string) {
-	mod, err := s.store.GetModule(r.Context(), name)
+	ctx := r.Context()
+	mod, err := s.store.GetModule(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		s.notFound(w, r)
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.internalError(w, r, err)
 		return
 	}
-	syms, _ := s.store.ListSymbolsByModule(r.Context(), name)
-
-	var b strings.Builder
-	fmt.Fprintf(&b, `<nav class="breadcrumb"><a href="/m">Modules</a> › %s</nav>`, mod.Name)
-	fmt.Fprintf(&b, `<h1 class="symbol-name">%s</h1>`, mod.Name)
-	if mod.Description != "" {
-		fmt.Fprintf(&b, `<p class="summary">%s</p>`, htmlEscape(mod.Description))
+	syms, err := s.store.ListSymbolsByModule(ctx, name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
 	}
-	fmt.Fprintf(&b, `<p class="oid">%s</p>`, mod.OIDRoot)
-	fmt.Fprintf(&b, `<h2 class="section-label">Symbols (%d)</h2><ul>`, len(syms))
-	for _, sy := range syms {
-		fmt.Fprintf(&b, `<li><a href="/s/%s::%s"><code>%s</code></a> <span class="muted">%s</span></li>`,
-			sy.ModuleName, sy.Name, sy.Name, sy.Kind)
-	}
-	b.WriteString(`</ul>`)
-	renderPage(w, http.StatusOK, mod.Name+" · blittermib", b.String())
+	render(w, r, http.StatusOK, web.ModuleDetail(mod, syms))
 }
 
 func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/s/")
 	if rest == "" {
-		http.NotFound(w, r)
+		s.notFound(w, r)
 		return
 	}
 	module, name, ok := splitQualified(rest)
@@ -111,53 +95,37 @@ func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ambiguous name; use /s/Module::Name", http.StatusBadRequest)
 		return
 	}
-	sym, err := s.store.GetSymbol(r.Context(), module, name)
+	ctx := r.Context()
+	sym, err := s.store.GetSymbol(ctx, module, name)
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		s.notFound(w, r)
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.internalError(w, r, err)
 		return
 	}
-	usedBy, _ := s.store.ListReferencesTo(r.Context(), module, name)
-
-	var b strings.Builder
-	fmt.Fprintf(&b, `<nav class="breadcrumb"><a href="/m/%s">%s</a> › %s</nav>`, sym.ModuleName, sym.ModuleName, sym.Name)
-	fmt.Fprintf(&b, `<h1 class="symbol-name">%s</h1>`, sym.Name)
-	fmt.Fprintf(&b, `<div class="oid">%s</div>`, sym.OID)
-	fmt.Fprintf(&b, `<div class="type-line">%s · %s · %s`, sym.Syntax, sym.Access, sym.Status)
-	if sym.Units != "" {
-		fmt.Fprintf(&b, ` · units: %s`, sym.Units)
+	usedBy, err := s.store.ListReferencesTo(ctx, module, name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
 	}
-	b.WriteString(`</div>`)
-	if sym.Description != "" {
-		fmt.Fprintf(&b, `<h2 class="section-label">Description</h2><div class="prose"><p>%s</p></div>`, htmlEscape(sym.Description))
-	}
-	if len(usedBy) > 0 {
-		b.WriteString(`<h2 class="section-label">Used by</h2><table class="refs"><tbody>`)
-		for _, ref := range usedBy {
-			fmt.Fprintf(&b, `<tr><td><a href="/s/%s::%s"><code>%s</code></a></td><td class="kind">%s</td><td class="module">%s</td></tr>`,
-				ref.SourceModule, ref.SourceName, ref.SourceName, ref.Kind, ref.SourceModule)
-		}
-		b.WriteString(`</tbody></table>`)
-	}
-	renderPage(w, http.StatusOK, sym.QualifiedName()+" · blittermib", b.String())
+	render(w, r, http.StatusOK, web.SymbolDetail(sym, usedBy))
 }
 
 func (s *Server) handleOID(w http.ResponseWriter, r *http.Request) {
 	oid := strings.TrimPrefix(r.URL.Path, "/o/")
 	if oid == "" {
-		http.NotFound(w, r)
+		s.notFound(w, r)
 		return
 	}
 	sym, err := s.store.GetSymbolByOID(r.Context(), oid)
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		s.notFound(w, r)
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.internalError(w, r, err)
 		return
 	}
 	http.Redirect(w, r, "/s/"+sym.QualifiedName(), http.StatusFound)
@@ -166,58 +134,37 @@ func (s *Server) handleOID(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		renderPage(w, http.StatusOK, "Search · blittermib",
-			`<h1>Search</h1><p class="muted">Enter a query in the URL ?q=…</p>`)
+		render(w, r, http.StatusOK, web.SearchEmpty())
 		return
 	}
 	hits, err := s.store.Search(r.Context(), q, 50)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.internalError(w, r, err)
 		return
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, `<h1>Search results for <code>%s</code></h1>`, htmlEscape(q))
-	if len(hits) == 0 {
-		b.WriteString(`<p class="muted">No matches.</p>`)
-	} else {
-		b.WriteString(`<ul>`)
-		for _, h := range hits {
-			fmt.Fprintf(&b, `<li><a href="/s/%s::%s"><code>%s</code></a> <span class="muted">%s · %s</span><br>%s</li>`,
-				h.Module, h.Name, h.Name, h.Module, h.Kind, h.Snippet)
-		}
-		b.WriteString(`</ul>`)
-	}
-	renderPage(w, http.StatusOK, "Search · blittermib", b.String())
+	render(w, r, http.StatusOK, web.SearchResults(q, toWebHits(hits)))
 }
 
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
-	// For v1: list modules and surface those with non-clean parse status.
-	mods, err := s.store.ListModules(r.Context())
+	ctx := r.Context()
+	mods, err := s.store.ListModules(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.internalError(w, r, err)
 		return
 	}
-	var b strings.Builder
-	b.WriteString(`<h1>Diagnostics</h1>`)
-	hasIssues := false
+	var groups []web.ModuleDiagnostics
 	for _, m := range mods {
-		if m.ParseStatus == "clean" {
+		if m.ParseStatus == model.ParseStatusClean {
 			continue
 		}
-		hasIssues = true
-		diags, _ := s.store.ListDiagnosticsByModule(r.Context(), m.Name)
-		fmt.Fprintf(&b, `<h2><a href="/m/%s">%s</a> <span class="muted">%s</span></h2>`, m.Name, m.Name, m.ParseStatus)
-		b.WriteString(`<ul>`)
-		for _, d := range diags {
-			fmt.Fprintf(&b, `<li><code>%s:%d</code> %s: %s</li>`,
-				d.File, d.Line, d.Severity, htmlEscape(d.Message))
+		diags, err := s.store.ListDiagnosticsByModule(ctx, m.Name)
+		if err != nil {
+			s.internalError(w, r, err)
+			return
 		}
-		b.WriteString(`</ul>`)
+		groups = append(groups, web.ModuleDiagnostics{Module: m, Diagnostics: diags})
 	}
-	if !hasIssues {
-		b.WriteString(`<p class="muted">All modules parsed cleanly.</p>`)
-	}
-	renderPage(w, http.StatusOK, "Diagnostics · blittermib", b.String())
+	render(w, r, http.StatusOK, web.Diagnostics(groups))
 }
 
 // --- JSON API --------------------------------------------------------
@@ -255,6 +202,17 @@ func (s *Server) handleAPISymbol(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sym)
 }
 
+// --- error pages -----------------------------------------------------
+
+func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
+	render(w, r, http.StatusNotFound, web.NotFound())
+}
+
+func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.Error("handler failed", "path", r.URL.Path, "err", err)
+	render(w, r, http.StatusInternalServerError, web.InternalError(err.Error()))
+}
+
 // --- helpers ---------------------------------------------------------
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -263,45 +221,33 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// renderPage wraps body content in a minimal HTML shell that matches
-// the prototype's CSS hooks. templ templates will replace this once
-// generation is wired up; until then it lets the routes return real
-// pages backed by store data.
-func renderPage(w http.ResponseWriter, status int, title, body string) {
+// render writes a templ component to w with the right Content-Type and
+// status. Any rendering error is logged but cannot be reported to the
+// client because headers and partial body have already been written.
+func render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>%s</title>
-<link rel="stylesheet" href="/static/styles.css">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-</head><body>
-<header class="topbar">
-  <a href="/" class="brand">blittermib<span class="brand-dot">.</span></a>
-  <span class="brand-tagline">Pixelperfect MIB browser</span>
-  <div class="topbar-spacer"></div>
-</header>
-<main class="page"><div class="content-inner">%s</div></main>
-<footer class="footer">
-  <span><a href="https://github.com/no42-org/blittermib" target="_blank" rel="noopener noreferrer">blittermib</a> · runs entirely on your server</span>
-  <span>Made with AI for Open Source in Europe</span>
-</footer>
-</body></html>`, htmlEscape(title), body)
+	if err := c.Render(r.Context(), w); err != nil {
+		slog.Error("render failed", "path", r.URL.Path, "err", err)
+	}
 }
 
-func htmlEscape(s string) string {
-	r := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&#39;",
-	)
-	return r.Replace(s)
+// toWebHits converts store.SearchHit (which carries DB-shape rank /
+// snippet types) to the web.SearchHit shape the template expects.
+// Keeping the two types separate avoids leaking DB types into the
+// rendering layer.
+func toWebHits(hits []store.SearchHit) []web.SearchHit {
+	out := make([]web.SearchHit, len(hits))
+	for i, h := range hits {
+		out[i] = web.SearchHit{
+			Module:  h.Module,
+			Name:    h.Name,
+			OID:     h.OID,
+			Kind:    h.Kind,
+			Snippet: h.Snippet,
+		}
+	}
+	return out
 }
 
 // splitQualified parses "Module::Name" into its parts. If only a bare
@@ -314,3 +260,7 @@ func splitQualified(s string) (module, name string, ok bool) {
 	}
 	return s[:i], s[i+2:], true
 }
+
+// _ keeps context import in use even when no template currently
+// constructs a context-derived value directly in handlers.
+var _ = context.Background

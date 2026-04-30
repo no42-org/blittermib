@@ -226,6 +226,39 @@ func TestStaticAsset(t *testing.T) {
 	}
 }
 
+func TestHTMXLoadedOnEveryPage(t *testing.T) {
+	ts := newTestServer(t)
+	for _, path := range []string{"/", "/m/IF-MIB", "/s/IF-MIB::ifInOctets", "/diagnostics"} {
+		t.Run(path, func(t *testing.T) {
+			resp, err := http.Get(ts.URL + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			html := body(t, resp)
+			for _, want := range []string{`/static/htmx.min.js`, `hx-boost="true"`} {
+				if !strings.Contains(html, want) {
+					t.Errorf("page missing %q", want)
+				}
+			}
+		})
+	}
+}
+
+func TestHTMXAssetServed(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/htmx.min.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/javascript") && !strings.HasPrefix(ct, "application/javascript") {
+		t.Errorf("content-type = %q", ct)
+	}
+}
+
 func TestSplitQualified(t *testing.T) {
 	cases := []struct {
 		in   string
