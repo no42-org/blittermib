@@ -8,9 +8,14 @@ package web
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-// Base is the shared HTML shell: topbar with brand mark and tagline,
-// content area, footer mirroring blitsbom. The page-specific content
-// is supplied via templ children.
+// Base is the shared HTML shell: topbar with brand mark, wordmark,
+// tagline, privacy notice and theme toggle; content area; footer
+// mirroring blitsbom. The page-specific content is supplied via
+// templ children.
+//
+// The inline theme-init <script> in <head> applies the saved theme
+// before paint to avoid a flash of the wrong palette. It mirrors
+// what blitsbom does (see CLAUDE.md sister-product alignment).
 func Base(title string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -39,13 +44,13 @@ func Base(title string) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 12, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 17, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><link rel=\"stylesheet\" href=\"/static/styles.css\"><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin><link href=\"https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap\" rel=\"stylesheet\"><script src=\"/static/htmx.min.js\" defer></script><script src=\"/static/palette.js\" defer></script><script src=\"/static/glossary.js\" defer></script><script src=\"/static/tree.js\" defer></script></head><body hx-boost=\"true\" hx-target=\"body\" hx-swap=\"outerHTML\"><header class=\"topbar\"><a href=\"/\" class=\"brand\">blittermib<span class=\"brand-dot\">.</span></a> <span class=\"brand-tagline\">Pixelperfect MIB browser</span><div class=\"topbar-spacer\"></div><div class=\"topbar-end\"><span class=\"privacy-notice\">Self-hosted — your MIBs never leave your server.</span></div></header><main class=\"page\"><div class=\"content-inner\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><script>\n\t\t\t\t// Pre-paint theme application — keep this tight and inline.\n\t\t\t\ttry {\n\t\t\t\t\tvar t = localStorage.getItem('blittermib-theme');\n\t\t\t\t\tif (t === 'light' || t === 'dark') {\n\t\t\t\t\t\tdocument.documentElement.dataset.theme = t;\n\t\t\t\t\t}\n\t\t\t\t} catch (e) {}\n\t\t\t</script><link rel=\"stylesheet\" href=\"/static/styles.css\"><script src=\"/static/htmx.min.js\" defer></script><script src=\"/static/theme.js\" defer></script><script src=\"/static/palette.js\" defer></script><script src=\"/static/glossary.js\" defer></script><script src=\"/static/tree.js\" defer></script></head><body hx-boost=\"true\" hx-target=\"body\" hx-swap=\"outerHTML\"><header class=\"topbar\"><a href=\"/\" class=\"brand\"><span class=\"brand-mark\" aria-hidden=\"true\"><span class=\"bar bar-1\"></span> <span class=\"bar bar-2\"></span> <span class=\"bar bar-3\"></span></span> <span class=\"brand-text\">blittermib<span class=\"brand-dot\">.</span></span></a> <span class=\"brand-tagline\">Pixelperfect MIB browser</span><div class=\"topbar-spacer\"></div><div class=\"topbar-end\"><span class=\"privacy-notice\">Self-hosted — your MIBs never leave your server.</span> <button class=\"theme-toggle\" type=\"button\" data-theme-toggle aria-label=\"Toggle theme\"><span class=\"moon\" aria-hidden=\"true\">☾</span> <span class=\"sun\" aria-hidden=\"true\">☀</span></button></div></header><main class=\"page\"><div class=\"content-inner\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

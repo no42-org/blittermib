@@ -26,7 +26,14 @@ templ Landing(modules, symbols int) {
 templ LandingEmpty(mibsDir string) {
 	@Base("blittermib") {
 		<div class="empty">
-			<div class="brand-large">blittermib<span class="brand-dot">.</span></div>
+			<div class="brand-large">
+				<span class="brand-mark" aria-hidden="true">
+					<span class="bar bar-1"></span>
+					<span class="bar bar-2"></span>
+					<span class="bar bar-3"></span>
+				</span>
+				<span>blittermib<span class="brand-dot">.</span></span>
+			</div>
 			<p class="tagline">Browse SNMP MIBs, beautifully.</p>
 			<h1 class="heading">Drop your MIB files here:</h1>
 			<div class="path">

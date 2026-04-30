@@ -1,3 +1,45 @@
+/* --- self-hosted fonts ---------------------------------------------- *
+ * Geist Sans + Geist Mono shipped under /static/fonts/ so the app
+ * has no third-party font CDN dependency. Both families are SIL OFL
+ * 1.1 licensed; populated by `make fetch-fonts`.
+ */
+
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/Geist-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/static/fonts/Geist-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/static/fonts/Geist-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/GeistMono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/static/fonts/GeistMono-500.woff2') format('woff2');
+}
+
 /* blittermib — visual prototype
  * Aligned with blitsbom: dark default, card-based, multi-color severity system,
  * sienna primary accent. Geist Sans + Geist Mono with ligatures off.
@@ -130,21 +172,13 @@ button { font-family: inherit; }
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   color: var(--ink);
-}
-.brand:hover { text-decoration: none; }
-
-.brand {
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
   font-weight: 500;
   font-size: 17px;
   letter-spacing: -0.02em;
-  color: var(--ink);
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
 }
 .brand:hover { text-decoration: none; }
 
@@ -167,6 +201,35 @@ button { font-family: inherit; }
 .brand-mark .bar-3 { width: 40%;  background: var(--accent); opacity: 0.3; }
 
 .brand-dot { color: var(--accent); margin-left: -0.15em; }
+
+/* Three-bar brand mark — decreasing widths and opacities, all sienna,
+   doubles as a typographic nod to OID-tree depth. CSS-only. */
+.brand-mark {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.brand-mark .bar {
+  display: block;
+  height: 3px;
+  border-radius: 1px;
+}
+.brand-mark .bar-1 { width: 100%; background: var(--accent); }
+.brand-mark .bar-2 { width: 70%;  background: var(--accent); opacity: 0.65; }
+.brand-mark .bar-3 { width: 40%;  background: var(--accent); opacity: 0.35; }
+
+/* Larger variant for the empty-state hero. */
+.brand-large .brand-mark {
+  width: 28px;
+  height: 28px;
+  gap: 4px;
+  margin-right: 14px;
+}
+.brand-large .brand-mark .bar { height: 4px; }
 
 .brand-tagline {
   margin-left: 12px;
