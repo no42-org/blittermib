@@ -11,6 +11,7 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/no42-org/blittermib/internal/model"
+	"github.com/no42-org/blittermib/internal/source"
 	"github.com/no42-org/blittermib/internal/store"
 	"github.com/no42-org/blittermib/internal/web"
 )
@@ -57,7 +58,40 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 		s.handleModuleIndex(w, r)
 		return
 	}
+	if strings.HasSuffix(rest, "/source") {
+		s.handleModuleSource(w, r, strings.TrimSuffix(rest, "/source"))
+		return
+	}
 	s.handleModuleDetail(w, r, rest)
+}
+
+// handleModuleSource serves the raw MIB source file for a module as
+// text/plain. Useful for users who want to see the verbatim SMI
+// alongside the rendered symbol page, and for the
+// "View entire MIB source" link from the symbol-page disclosure.
+func (s *Server) handleModuleSource(w http.ResponseWriter, r *http.Request, name string) {
+	mod, err := s.store.GetModule(r.Context(), name)
+	if errors.Is(err, store.ErrNotFound) {
+		s.notFound(w, r)
+		return
+	}
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	data, err := source.ReadAll(mod.SourcePath)
+	if errors.Is(err, source.ErrNotFound) {
+		// The module is loaded but no source path was recorded.
+		s.notFound(w, r)
+		return
+	}
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(data)
 }
 
 func (s *Server) handleModuleIndex(w http.ResponseWriter, r *http.Request) {
@@ -94,12 +128,12 @@ func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
+	ctx := r.Context()
 	module, name, ok := splitQualified(rest)
 	if !ok {
-		http.Error(w, "ambiguous name; use /s/Module::Name", http.StatusBadRequest)
+		s.handleSymbolDisambiguation(w, r, rest)
 		return
 	}
-	ctx := r.Context()
 	sym, err := s.store.GetSymbol(ctx, module, name)
 	if errors.Is(err, store.ErrNotFound) {
 		s.notFound(w, r)
@@ -122,7 +156,35 @@ func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {
 	}
 	view.UsedBy = usedBy
 
+	// Source slice for the "Show full SMI source" disclosure.
+	if mod, err := s.store.GetModule(ctx, module); err == nil && mod.SourcePath != "" && sym.SourceLine > 0 {
+		if slice, err := source.Slice(mod.SourcePath, sym.SourceLine, source.DefaultWindow); err == nil && slice != "" {
+			view.SourceText = slice
+			view.SourcePath = mod.SourcePath
+		}
+	}
+
 	render(w, r, http.StatusOK, web.SymbolDetail(view))
+}
+
+// handleSymbolDisambiguation handles the `/s/{name}` form (no
+// `Module::` prefix). One match → 302 to the canonical URL; multiple
+// matches → chooser page; zero → 404. Spec R5 / spec scenario
+// "Search by exact symbol".
+func (s *Server) handleSymbolDisambiguation(w http.ResponseWriter, r *http.Request, name string) {
+	matches, err := s.store.LookupByName(r.Context(), name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	switch len(matches) {
+	case 0:
+		s.notFound(w, r)
+	case 1:
+		http.Redirect(w, r, "/s/"+matches[0].QualifiedName(), http.StatusFound)
+	default:
+		render(w, r, http.StatusOK, web.SymbolDisambiguation(name, matches))
+	}
 }
 
 // buildSymbolContext computes the in-context block for a symbol —
@@ -316,7 +378,7 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 
 	children, err := s.store.ListChildren(ctx, parent)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		s.apiError(w, r, http.StatusInternalServerError, "internal error", err)
 		return
 	}
 
@@ -350,16 +412,16 @@ func (s *Server) handleAPISymbol(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/symbol/")
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "expected /api/v1/symbol/{module}/{name}"})
+		s.apiError(w, r, http.StatusBadRequest, "expected /api/v1/symbol/{module}/{name}", nil)
 		return
 	}
 	sym, err := s.store.GetSymbol(r.Context(), parts[0], parts[1])
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "symbol not found"})
+		s.apiError(w, r, http.StatusNotFound, "symbol not found", nil)
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		s.apiError(w, r, http.StatusInternalServerError, "internal error", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sym)
@@ -414,6 +476,21 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// apiError writes a sanitised JSON error body. The public message is
+// what the API client sees; if err is non-nil it goes to slog only —
+// preventing internal paths, identifiers, or query fragments from
+// leaking through `/api/v1/*`.
+func (s *Server) apiError(w http.ResponseWriter, r *http.Request, status int, public string, err error) {
+	if err != nil {
+		slog.Error("api error",
+			"path", r.URL.Path,
+			"status", status,
+			"err", err,
+		)
+	}
+	writeJSON(w, status, map[string]any{"error": public})
 }
 
 func render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
