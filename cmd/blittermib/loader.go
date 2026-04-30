@@ -73,8 +73,10 @@ func (l *loader) loadFiles(ctx context.Context, files []string) error {
 			slog.Warn("compile failed", "target", r.Target, "err", r.Err)
 			continue
 		}
-		if r.Module == nil {
+		if reason, ok := rejectReason(r); !ok {
 			failed++
+			slog.Warn("compile result rejected; skipping",
+				"target", r.Target, "reason", reason)
 			continue
 		}
 		modRefs := refsByModule[r.Module.Name]
@@ -91,6 +93,36 @@ func (l *loader) loadFiles(ctx context.Context, files []string) error {
 		"files", len(files), "duration", time.Since(start),
 	)
 	return nil
+}
+
+// rejectReason returns ("", true) when a compile result is fit to
+// persist, or (reason, false) when it should be skipped before
+// reaching the store.
+//
+// Two failure modes need filtering:
+//
+//   - empty module name: smidump-with-`-k` can emit a stub `<smi>`
+//     with no `<module>` element on truly unparseable input; the
+//     resulting model.Module has Name="" which would poison
+//     refsByModule keys and the module index.
+//
+//   - 0 symbols AND 0 imports: signature of a non-MIB file (e.g.
+//     README, Makefile) that smidump happily fed through `-k` to
+//     produce a phantom `<module name="…">`. Real macro-only
+//     modules (RFC-1212, SNMPv2-CONF, vendor wrappers) legitimately
+//     have 0 symbols but always declare IMPORTS, so this combination
+//     is reliably "junk" rather than valid SMI.
+func rejectReason(r compile.Result) (string, bool) {
+	if r.Module == nil {
+		return "nil module", false
+	}
+	if r.Module.Name == "" {
+		return "empty module name", false
+	}
+	if len(r.Symbols) == 0 && len(r.Module.Imports) == 0 {
+		return "phantom module (no symbols, no imports)", false
+	}
+	return "", true
 }
 
 // walkMIBFiles returns absolute paths of MIB-shaped files in dir.
