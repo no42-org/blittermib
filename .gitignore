@@ -37,3 +37,6 @@ go.work.sum
 # Coverage
 coverage.out
 coverage.html
+
+# Golden-test inspection output (written on mismatch by golden_test.go)
+**/testdata/golden/*.got.html
