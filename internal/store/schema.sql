@@ -54,6 +54,22 @@ CREATE INDEX IF NOT EXISTS symbol_status_idx     ON symbol(status);
 -- is a full table scan over `symbol`.
 CREATE INDEX IF NOT EXISTS symbol_name_idx       ON symbol(name);
 
+-- IMPORTS clause — flat (module, from_module, symbol) tuples per
+-- module. `position` preserves the source order so the module
+-- overview's Imports section reads in the same order as the IMPORTS
+-- clause at the top of the MIB. Keyed by (module_name, from_module,
+-- symbol) so a single import is unique even if listed twice in the
+-- source (rare; defensive against malformed input).
+CREATE TABLE IF NOT EXISTS module_import (
+    module_name  TEXT    NOT NULL,
+    from_module  TEXT    NOT NULL,
+    symbol       TEXT    NOT NULL,
+    position     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (module_name, from_module, symbol)
+);
+
+CREATE INDEX IF NOT EXISTS module_import_idx ON module_import(module_name);
+
 -- Cross-references are keyed by qualified Module::Name pair, not row id.
 -- This makes hot-reload trivial: dropping a module's outgoing refs is a
 -- single DELETE; refs INTO the module from other modules stay valid

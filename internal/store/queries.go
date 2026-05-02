@@ -12,7 +12,9 @@ import (
 // ErrNotFound is returned when a lookup matches no rows.
 var ErrNotFound = errors.New("not found")
 
-// GetModule returns a single module by name.
+// GetModule returns a single module by name. The IMPORTS clause is
+// loaded into `m.Imports` so the workspace overview can render it
+// without a second round-trip.
 func (s *Store) GetModule(ctx context.Context, name string) (*model.Module, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT name, oid_root, organization, contact_info, description,
@@ -28,7 +30,36 @@ func (s *Store) GetModule(ctx context.Context, name string) (*model.Module, erro
 		return nil, fmt.Errorf("get module %s: %w", name, err)
 	}
 	m.ParseStatus = model.ParseStatus(status)
+
+	imports, err := s.listImportsByModule(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("get module %s imports: %w", name, err)
+	}
+	m.Imports = imports
 	return &m, nil
+}
+
+// listImportsByModule returns the IMPORTS clause for a module,
+// ordered by source position so the rendered list matches the order
+// of the IMPORTS at the top of the MIB file.
+func (s *Store) listImportsByModule(ctx context.Context, module string) ([]model.Import, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT from_module, symbol
+		FROM module_import WHERE module_name = ?
+		ORDER BY position, from_module, symbol`, module)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Import
+	for rows.Next() {
+		var imp model.Import
+		if err := rows.Scan(&imp.FromModule, &imp.Symbol); err != nil {
+			return nil, err
+		}
+		out = append(out, imp)
+	}
+	return out, rows.Err()
 }
 
 // ListModules returns all modules ordered by name.

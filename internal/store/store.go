@@ -168,6 +168,11 @@ func (s *Store) ReplaceModule(
 		return fmt.Errorf("delete old module: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM module_import WHERE module_name = ?`, mod.Name,
+	); err != nil {
+		return fmt.Errorf("delete old imports: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM reference WHERE source_module = ?`, mod.Name,
 	); err != nil {
 		return fmt.Errorf("delete old refs: %w", err)
@@ -186,6 +191,22 @@ func (s *Store) ReplaceModule(
 		mod.Description, mod.LastUpdated, mod.SourcePath, string(mod.ParseStatus),
 	); err != nil {
 		return fmt.Errorf("insert module: %w", err)
+	}
+
+	if len(mod.Imports) > 0 {
+		insImp, err := tx.PrepareContext(ctx, `
+			INSERT OR IGNORE INTO module_import
+			    (module_name, from_module, symbol, position)
+			VALUES (?, ?, ?, ?)`)
+		if err != nil {
+			return fmt.Errorf("prepare insert import: %w", err)
+		}
+		defer insImp.Close()
+		for i, imp := range mod.Imports {
+			if _, err := insImp.ExecContext(ctx, mod.Name, imp.FromModule, imp.Symbol, i); err != nil {
+				return fmt.Errorf("insert import %s.%s: %w", imp.FromModule, imp.Symbol, err)
+			}
+		}
 	}
 
 	insSym, err := tx.PrepareContext(ctx, `
