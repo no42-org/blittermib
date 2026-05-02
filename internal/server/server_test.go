@@ -199,7 +199,12 @@ func TestWorkspaceRoute(t *testing.T) {
 			"IF-MIB",
 			`class="status-bar-module"`,
 			`class="workspace-grid"`,
-			"Pick a symbol",
+			// The unscoped landing now renders a module overview
+			// (description + imports) in the right pane instead
+			// of the legacy "Pick a symbol" empty state. Asserting
+			// on the detail-name code wrapper confirms the
+			// overview body painted.
+			`<h2 class="detail-name">`,
 		}},
 		{"with selection", "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10", 200, []string{
 			"ifInOctets",

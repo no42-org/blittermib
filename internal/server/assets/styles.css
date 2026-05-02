@@ -2644,6 +2644,69 @@ main.page:has(.workspace-grid) .content-inner,
   font-variant-numeric: tabular-nums;
 }
 
+/* Module imports — shown in the right pane's module-overview
+ * (the unscoped workspace landing replaces the "Pick a symbol"
+ * empty state with this). Each row groups the symbols imported
+ * from a single source module: clickable header on the left
+ * (jumps to that module's workspace), clickable symbol pills on
+ * the right. The visual cadence matches the kvbox / enum-tbl
+ * pattern used elsewhere in the right pane (1px border, soft
+ * row separators, same typography). */
+.workspace-detail .imports {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.workspace-detail .imports-group {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px 10px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.workspace-detail .imports-group:last-child { border-bottom: 0; }
+.workspace-detail .imports-source {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 1px 4px;
+  border-radius: 3px;
+  align-self: start;
+  word-break: break-word;
+}
+.workspace-detail .imports-source:hover {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  text-decoration: none;
+}
+.workspace-detail .imports-symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.workspace-detail .imports-symbol {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  color: var(--fg-2);
+  text-decoration: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg-elev);
+}
+.workspace-detail .imports-symbol code { font-family: inherit; }
+.workspace-detail .imports-symbol:hover {
+  color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent) 40%, transparent);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  text-decoration: none;
+}
+
 /* Notification objects — the SMIv2 NOTIFICATION-TYPE OBJECTS
  * clause, surfaced as a clickable list in the right pane so a
  * reader can jump from "what does linkDown carry?" to the

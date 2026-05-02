@@ -147,6 +147,38 @@ func SelectorLooksLikeOID(s string) bool {
 	return s[0] >= '0' && s[0] <= '9'
 }
 
+// ImportGroup is one source-module entry in the module overview's
+// Imports section. The flat `[]model.Import` from the parser is
+// aggregated by source module so the renderer can show "SNMPv2-SMI:
+// Counter32, Gauge32, ..." as a single row instead of N near-
+// duplicate rows.
+type ImportGroup struct {
+	Module  string
+	Symbols []string
+}
+
+// GroupImports collapses a flat `[]model.Import` into one row per
+// source module. Order is preserved by first occurrence so the
+// rendered list reflects the import order at the top of the MIB
+// source — readable to anyone who knows the file.
+func GroupImports(imports []model.Import) []ImportGroup {
+	if len(imports) == 0 {
+		return nil
+	}
+	idx := make(map[string]int, len(imports))
+	out := make([]ImportGroup, 0, len(imports))
+	for _, imp := range imports {
+		i, ok := idx[imp.FromModule]
+		if !ok {
+			idx[imp.FromModule] = len(out)
+			out = append(out, ImportGroup{Module: imp.FromModule, Symbols: []string{imp.Symbol}})
+			continue
+		}
+		out[i].Symbols = append(out[i].Symbols, imp.Symbol)
+	}
+	return out
+}
+
 // NotifyObjectURL builds the URL for a notification's OBJECTS-clause
 // entry — `linkDown`'s `ifIndex` / `ifAdminStatus` / `ifOperStatus`
 // each become clickable links into that object's workspace page.

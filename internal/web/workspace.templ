@@ -345,11 +345,17 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 // selected, the compact `workspaceDetailBody` paints the
 // kind+name header, the type/access/status pills, the action
 // buttons (Copy OID / Copy name / Close), the description block,
-// the OID decode and the properties grid — matching the handoff
-// design's right-pane anatomy. The canonical `symbolDetailBody`
-// is intentionally NOT used here; it carries page-level chrome
+// and the properties grid — matching the handoff design's
+// right-pane anatomy. The canonical `symbolDetailBody` is
+// intentionally NOT used here; it carries page-level chrome
 // (full description prose, columns, used-by, source) too tall
 // for the 380px right pane.
+//
+// When NO symbol is selected, the pane shows a module overview
+// (description, organization, last-updated, imported objects
+// grouped by source module). The "Pick a symbol" pure-empty
+// state is reserved for the missing-OID branch where there's
+// no module context worth showing.
 templ workspaceDetail(view *WorkspaceView) {
 	if view.Selected != nil {
 		@workspaceDetailBody(view, view.Selected)
@@ -359,11 +365,63 @@ templ workspaceDetail(view *WorkspaceView) {
 			<p class="empty-hint">This module doesn't cover that OID. Pick a symbol from the tree or list.</p>
 		</div>
 	} else {
-		<div class="empty-state">
-			<p class="empty-title">Pick a symbol</p>
-			<p class="empty-hint">Open the tree on the left, or filter the list in the center, to drill in.</p>
-		</div>
+		@moduleOverview(view.Module)
 	}
+}
+
+// moduleOverview is the right-pane content for an unscoped
+// workspace landing — replaces the "Pick a symbol" empty state
+// with module description + imports + metadata so the user has
+// somewhere to read about the module before drilling into a
+// specific symbol. Each imported source module is a clickable
+// link to that module's workspace; each imported symbol links
+// to `/m/{module}?sel={name}` so a click jumps straight to the
+// symbol's detail in its own module's context.
+templ moduleOverview(mod *model.Module) {
+	<div class="detail-head">
+		<div class="detail-kind t-struct">
+			<span class="kdot" aria-hidden="true"></span>
+			module
+		</div>
+		<h2 class="detail-name"><code>{ mod.Name }</code></h2>
+		if mod.OIDRoot != "" {
+			<div class="detail-meta">
+				<span class="pill">{ mod.OIDRoot }</span>
+				if mod.LastUpdated != "" {
+					<span class="pill">{ mod.LastUpdated }</span>
+				}
+			</div>
+		}
+	</div>
+	<div class="detail-body">
+		if mod.Description != "" {
+			<div class="section-title">Description</div>
+			<div class="desc">{ collapseWhitespace(mod.Description) }</div>
+		}
+		if mod.Organization != "" {
+			<div class="section-title">Organization</div>
+			<div class="desc">{ collapseWhitespace(mod.Organization) }</div>
+		}
+		if len(mod.Imports) > 0 {
+			<div class="section-title">Imported objects</div>
+			<div class="imports">
+				for _, group := range GroupImports(mod.Imports) {
+					<div class="imports-group">
+						<a class="imports-source" href={ moduleURL(group.Module) }>
+							{ group.Module }
+						</a>
+						<div class="imports-symbols">
+							for _, sym := range group.Symbols {
+								<a class="imports-symbol" href={ NotifyObjectURL(group.Module, sym) }>
+									<code>{ sym }</code>
+								</a>
+							}
+						</div>
+					</div>
+				}
+			</div>
+		}
+	</div>
 }
 
 // workspaceDetailBody is the compact, right-pane variant of the
