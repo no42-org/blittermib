@@ -273,6 +273,27 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 				return
 			}
 			selected.UsedBy = usedBy
+			// NOTIFICATION-TYPE / TRAP-TYPE OBJECTS clause —
+			// outbound references of kind RefNotificationObject.
+			// Surfaced in the workspace right pane as clickable
+			// links so a reader can jump from "what does linkDown
+			// carry?" straight to ifAdminStatus's detail.
+			if sym.Kind == model.KindNotificationType || sym.Kind == model.KindTrapType {
+				outRefs, err := s.store.ListReferencesFrom(ctx, sym.ModuleName, sym.Name)
+				if err != nil {
+					s.internalError(w, r, err)
+					return
+				}
+				for _, ref := range outRefs {
+					if ref.Kind != model.RefNotificationObject {
+						continue
+					}
+					selected.NotifyObjects = append(selected.NotifyObjects, web.SymbolRef{
+						Module: ref.TargetModule,
+						Name:   ref.TargetName,
+					})
+				}
+			}
 			if symMod, err := s.store.GetModule(ctx, sym.ModuleName); err == nil && symMod.SourcePath != "" && sym.SourceLine > 0 {
 				if slice, err := source.Slice(symMod.SourcePath, sym.SourceLine, source.DefaultWindow); err == nil && slice != "" {
 					selected.SourceText = slice
@@ -280,13 +301,10 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 				}
 			}
 			view.Selected = selected
-			// OIDPath decodes the SELECTION path so the detail
-			// pane's "OID decode" section walks all the way down
-			// to the selected symbol; the scope breadcrumb is
-			// derived by `web.ScopeBreadcrumb` truncating that
-			// same path at `view.ScopeOID`. Skipped for symbols
-			// without an OID (textual conventions etc.) — the
-			// detail pane simply omits the OID-decode section.
+			// view.OIDPath is still decoded (the scope breadcrumb
+			// derives from it via `web.ScopeBreadcrumb`); the
+			// right-pane no longer renders an "OID decode"
+			// section, but the breadcrumb still needs the chain.
 			if sym.OID != "" {
 				path, err := s.store.OIDPath(ctx, sym.OID)
 				if err != nil {

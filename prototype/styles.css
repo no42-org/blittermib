@@ -2644,6 +2644,59 @@ main.page:has(.workspace-grid) .content-inner,
   font-variant-numeric: tabular-nums;
 }
 
+/* Notification objects — the SMIv2 NOTIFICATION-TYPE OBJECTS
+ * clause, surfaced as a clickable list in the right pane so a
+ * reader can jump from "what does linkDown carry?" to the
+ * variable-binding's detail. Visually a stack of pill-style
+ * links with the cross-module hint right-aligned. */
+.workspace-detail .notify-objects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.workspace-detail .notify-objects li { margin: 0; }
+.workspace-detail .notify-object {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  text-decoration: none;
+  color: var(--fg);
+  border-bottom: 1px solid var(--line-soft);
+  transition: background 50ms ease;
+}
+.workspace-detail .notify-objects li:last-child .notify-object {
+  border-bottom: 0;
+}
+.workspace-detail .notify-object:hover {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  color: var(--accent);
+  text-decoration: none;
+}
+.workspace-detail .notify-object code {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 12px;
+}
+.workspace-detail .notify-object-module {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 10px;
+  color: var(--fg-4);
+}
+.workspace-detail .notify-object:hover .notify-object-module {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
 /* --- module picker overlay ------------------------------------------ *
  * Body-mounted Alpine overlay triggered by clicking the module name in
  * the status bar. Centered card on a translucent backdrop; the search

@@ -412,9 +412,18 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 			<div class="section-title">Description</div>
 			<div class="desc">{ collapseWhitespace(s.Description) }</div>
 		}
-		if len(view.OIDPath) > 0 {
-			<div class="section-title">OID decode</div>
-			@oidDecodeSteps(view.OIDPath)
+		if len(sv.NotifyObjects) > 0 {
+			<div class="section-title">Notification objects</div>
+			<ul class="notify-objects">
+				for _, obj := range sv.NotifyObjects {
+					<li>
+						<a class="notify-object" href={ NotifyObjectURL(obj.Module, obj.Name) }>
+							<code>{ obj.Name }</code>
+							<span class="notify-object-module">{ obj.Module }</span>
+						</a>
+					</li>
+				}
+			</ul>
 		}
 		<div class="section-title">Properties</div>
 		<div class="kvbox">
@@ -449,22 +458,6 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 					}
 				</tbody>
 			</table>
-		}
-	</div>
-}
-
-// oidDecodeSteps renders one row per dotted OID segment in the
-// detail pane's "OID decode" section. Each row shows the numeric
-// segment right-aligned in a fixed gutter, then the resolved name
-// (or empty when the path stops mapping to known symbols). The
-// last segment's number is accent-colored and the label is bold.
-templ oidDecodeSteps(steps []model.OIDStep) {
-	<div class="oid-decode">
-		for i, st := range steps {
-			<div class={ "step", templ.KV("last", i == len(steps)-1) }>
-				<span class="n">{ lastSegment(st.Prefix) }</span>
-				<span class="lbl">{ st.Name }</span>
-			</div>
 		}
 	</div>
 }

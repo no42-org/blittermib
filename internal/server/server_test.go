@@ -205,7 +205,12 @@ func TestWorkspaceRoute(t *testing.T) {
 			"ifInOctets",
 			"Counter32",
 			"octets",
-			`class="oid-decode"`,
+			// Right pane no longer renders an "OID decode"
+			// section — the scope breadcrumb above the list pane
+			// already shows the path. Asserting on the kvbox
+			// (Properties grid) confirms the compact detail
+			// body still painted.
+			`class="kvbox"`,
 		}},
 		{"missing OID", "/m/IF-MIB/9.9.9", 200, []string{
 			`No symbol at`,

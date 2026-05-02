@@ -135,6 +135,18 @@ func SelectorLooksLikeOID(s string) bool {
 	return s[0] >= '0' && s[0] <= '9'
 }
 
+// NotifyObjectURL builds the URL for a notification's OBJECTS-clause
+// entry — `linkDown`'s `ifIndex` / `ifAdminStatus` / `ifOperStatus`
+// each become clickable links into that object's workspace page.
+// Uses the name-based selector so the click works regardless of
+// whether the target object's OID is loaded as a separate row in
+// the same module (it usually isn't — `linkDown` lives in IF-MIB
+// alongside `ifAdminStatus`, but the notification-objects pattern
+// often crosses module boundaries).
+func NotifyObjectURL(module, name string) templ.SafeURL {
+	return templ.SafeURL("/m/" + module + "?sel=" + name)
+}
+
 // treeFragmentURL is the HTMX target that returns the children of
 // an OID rendered as workspace tree-rows. The `module` + `scope`
 // query params let the fragment handler rebuild a synthetic

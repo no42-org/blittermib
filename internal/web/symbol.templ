@@ -7,13 +7,22 @@ import "github.com/no42-org/blittermib/internal/model"
 // SMI tree), the columns of a table when applicable, inbound
 // references for the Used-by panel, and the SMI source slice for
 // the Show-full-SMI-source disclosure.
+//
+// `NotifyObjects` is the SMIv2 NOTIFICATION-TYPE OBJECTS clause —
+// the variable-bindings a trap receiver should expect alongside the
+// notification. Only populated for `KindNotificationType` /
+// `KindTrapType` symbols; the workspace right pane renders each
+// entry as a clickable link to that object's workspace page so a
+// reader can jump straight from "what does linkDown carry?" to the
+// detail of `ifAdminStatus`.
 type SymbolView struct {
-	Symbol     *model.Symbol
-	Context    *SymbolContext
-	Columns    []TableColumn
-	UsedBy     []model.Reference
-	SourceText string // raw SMI lines from the module's source file
-	SourcePath string // module.source_path; empty if no source available
+	Symbol        *model.Symbol
+	Context       *SymbolContext
+	Columns       []TableColumn
+	UsedBy        []model.Reference
+	NotifyObjects []SymbolRef
+	SourceText    string // raw SMI lines from the module's source file
+	SourcePath    string // module.source_path; empty if no source available
 }
 
 // SymbolDetail renders the canonical reference page for a symbol
