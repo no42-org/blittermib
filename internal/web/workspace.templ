@@ -16,7 +16,7 @@ templ Workspace(view *WorkspaceView) {
 		@workspaceStatusBar(view)
 		<div class="workspace-grid" x-data="workspace()">
 			<aside class="workspace-tree">
-				@workspaceTree(view.TreeRows)
+				@workspaceTree(view, view.TreeRows)
 			</aside>
 			<section class="workspace-list">
 				@workspaceList(view, view.ListRows, selectedOID(view))
@@ -117,7 +117,7 @@ templ statusCount(family string, n int, label string) {
 // `tree:expand-all` / `tree:collapse-all` Alpine events that the
 // row's x-data scope listens to so future expansion work plays
 // nicely with already-rendered subtrees.
-templ workspaceTree(rows []TreeRow) {
+templ workspaceTree(view *WorkspaceView, rows []TreeRow) {
 	<div class="tree-head">
 		<span class="tree-head-title">TREE</span>
 		<button type="button" class="tree-head-btn"
@@ -129,7 +129,7 @@ templ workspaceTree(rows []TreeRow) {
 	</div>
 	<ul class="tree-list" role="tree">
 		for _, r := range rows {
-			@treeRow(r)
+			@treeRow(view, r)
 		}
 	</ul>
 }
@@ -141,9 +141,14 @@ templ workspaceTree(rows []TreeRow) {
 // so each call appends children to the existing list. No
 // surrounding `<ul>` here — the container element already exists
 // in the DOM.
-templ WorkspaceTreeFragment(rows []TreeRow) {
+//
+// `view` carries the URL scope so leaf clicks emit `?sel=…` URLs
+// that preserve the scope (matching list-row behavior). Fragment
+// requests carry the scope as a `?scope=…` query param so the
+// server can rebuild a synthetic view for URL generation.
+templ WorkspaceTreeFragment(view *WorkspaceView, rows []TreeRow) {
 	for _, r := range rows {
-		@treeRow(r)
+		@treeRow(view, r)
 	}
 }
 
@@ -163,7 +168,7 @@ templ WorkspaceTreeFragment(rows []TreeRow) {
 // prefix (e.g. `ax`) and a brighter PascalCase tail (`SysCpu`) so
 // the eye lands on the distinguishing portion of long, prefix-
 // heavy SMI names.
-templ treeRow(r TreeRow) {
+templ treeRow(view *WorkspaceView, r TreeRow) {
 	if r.HasChildren {
 		<li class={ "tree-row " + FamilyClass(&r.Symbol), templ.KV("selected", r.Selected) } role="treeitem"
 			data-name={ r.Symbol.Name }
@@ -177,10 +182,10 @@ templ treeRow(r TreeRow) {
 					x-bind:class="{ expanded: expanded }"
 					x-bind:aria-expanded="expanded"
 					aria-expanded={ fmt.Sprintf("%t", r.Expanded) }
-					data-fragment-url={ string(treeFragmentURL(r.Symbol.OID)) }
+					data-fragment-url={ string(treeFragmentURL(viewModuleName(view), viewScopeOID(view), r.Symbol.OID)) }
 					x-on:click.stop="if (loaded) { expanded = !expanded; } else if (!fetching) { fetching = true; expanded = true; htmx.ajax('GET', $el.dataset.fragmentUrl, { target: $el.closest('.tree-row').querySelector(':scope > .tree-children-container'), swap: 'beforeend' }).then(() => { loaded = true; fetching = false; }, () => { fetching = false; expanded = false; }); }"
 					aria-label="Expand">▸</button>
-				<a class="tree-row-link" href={ workspaceURL(r.Symbol.ModuleName, r.Symbol.OID) }>
+				<a class="tree-row-link" href={ WorkspaceRowURL(view, &r.Symbol) }>
 					<code class="tree-row-name">
 						@templ.Raw(SplitNameHTML(r.Symbol.Name))
 					</code>
@@ -189,7 +194,7 @@ templ treeRow(r TreeRow) {
 			<ul class="tree-children-container" role="group" x-show="expanded" x-cloak>
 				<li class="tree-loading" x-show="fetching" x-cloak>loading…</li>
 				for _, kid := range r.PreloadedKids {
-					@treeRow(kid)
+					@treeRow(view, kid)
 				}
 			</ul>
 		</li>
@@ -199,7 +204,7 @@ templ treeRow(r TreeRow) {
 			data-oid={ r.Symbol.OID }>
 			<div class="tree-row-head">
 				<span class="tree-leaf-bullet" aria-hidden="true">·</span>
-				<a class="tree-row-link" href={ workspaceURL(r.Symbol.ModuleName, r.Symbol.OID) }>
+				<a class="tree-row-link" href={ WorkspaceRowURL(view, &r.Symbol) }>
 					<code class="tree-row-name">
 						@templ.Raw(SplitNameHTML(r.Symbol.Name))
 					</code>

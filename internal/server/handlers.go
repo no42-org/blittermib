@@ -660,12 +660,20 @@ func (s *Server) expandTreeRow(ctx context.Context, row *web.TreeRow, expandSet 
 // Order is preserved from the SQL `ORDER BY oid, name` so the
 // retained row is the alphabetically-first module's definition —
 // stable across requests and across reloads.
+//
+// The `?module=…&scope=…` query params let the templ rebuild
+// `WorkspaceRowURL` for each child so leaf clicks inside a
+// fragment preserve the URL scope, matching the list-row workflow
+// (clicking a leaf updates only `?sel=…`, never narrows the list
+// to a single OID).
 func (s *Server) handleAPITreeFragment(w http.ResponseWriter, r *http.Request) {
 	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
 	if parent == "" {
 		s.notFound(w, r)
 		return
 	}
+	module := strings.TrimSpace(r.URL.Query().Get("module"))
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	ctx := r.Context()
 	children, err := s.store.ListChildren(ctx, parent)
 	if err != nil {
@@ -698,7 +706,16 @@ func (s *Server) handleAPITreeFragment(w http.ResponseWriter, r *http.Request) {
 			HasChildren: hasChildren[children[i].OID],
 		})
 	}
-	render(w, r, http.StatusOK, web.WorkspaceTreeFragment(rows))
+	// Synthetic view threads the URL scope through the templ so
+	// `WorkspaceRowURL` builds the same leaf-vs-container URLs the
+	// main render uses. Module is required for the URL builder;
+	// scope is optional (empty when the caller didn't pass it,
+	// which falls back to scope-change on leaf click).
+	view := &web.WorkspaceView{
+		Module:   &model.Module{Name: module},
+		ScopeOID: scope,
+	}
+	render(w, r, http.StatusOK, web.WorkspaceTreeFragment(view, rows))
 }
 
 // handleAPITree returns the immediate children of an OID as JSON,

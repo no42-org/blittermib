@@ -136,9 +136,40 @@ func SelectorLooksLikeOID(s string) bool {
 }
 
 // treeFragmentURL is the HTMX target that returns the children of
-// an OID rendered as workspace tree-rows.
-func treeFragmentURL(parentOID string) templ.SafeURL {
-	return templ.SafeURL("/api/v1/tree/fragment?parent=" + parentOID)
+// an OID rendered as workspace tree-rows. The `module` + `scope`
+// query params let the fragment handler rebuild a synthetic
+// `*WorkspaceView` for `WorkspaceRowURL` so leaf clicks inside a
+// freshly-expanded subtree preserve the URL scope (matching list-
+// row behavior). Both are URL-safe (alphanumeric + dash for module
+// names, digits + dots for OIDs) so no escaping is needed.
+func treeFragmentURL(module, scope, parentOID string) templ.SafeURL {
+	u := "/api/v1/tree/fragment?parent=" + parentOID
+	if module != "" {
+		u += "&module=" + module
+	}
+	if scope != "" {
+		u += "&scope=" + scope
+	}
+	return templ.SafeURL(u)
+}
+
+// viewModuleName / viewScopeOID are nil-safe accessors used by the
+// templ when rendering a tree-row outside a full workspace render
+// (e.g. WorkspaceTreeFragment with view==nil during early callers
+// — left over for safety, but every fragment now constructs a
+// synthetic view).
+func viewModuleName(v *WorkspaceView) string {
+	if v == nil || v.Module == nil {
+		return ""
+	}
+	return v.Module.Name
+}
+
+func viewScopeOID(v *WorkspaceView) string {
+	if v == nil {
+		return ""
+	}
+	return v.ScopeOID
 }
 
 // stepDisplayName picks the readable label for an OID-decode step.
