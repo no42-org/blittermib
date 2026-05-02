@@ -146,6 +146,22 @@ func WorkspaceRowURL(view *WorkspaceView, s *model.Symbol) templ.SafeURL {
 	return templ.SafeURL("/m/" + url.PathEscape(s.ModuleName) + "/" + url.PathEscape(s.OID))
 }
 
+// SyntaxShort returns the short display form of a symbol's
+// Syntax for the list pane's narrow SYNTAX column. The compile
+// layer expands `Enumeration` TCs to inline their named-number
+// list (`Enumeration { up(1), down(2), … }`) so the right pane's
+// type pill carries the full detail at a glance — but in the
+// 110px column that string truncates to "Enumeration { o" with
+// the rest of the type unreadable. Strip inline `{…}` bodies for
+// the column; the full string still ships in `s.Syntax` and the
+// EnumValues section renders the same named numbers as a table.
+func SyntaxShort(s string) string {
+	if i := strings.IndexByte(s, '{'); i > 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
 // SelectorLooksLikeOID reports whether the `sel=` query value is
 // an OID (digits + dots) rather than an SMI symbol name. SMI names
 // must start with a letter per RFC 1212 §4.1.6 / RFC 2578 §3.1.

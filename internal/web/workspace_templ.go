@@ -1215,9 +1215,9 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var53 string
-			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(s.Syntax)
+			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(SyntaxShort(s.Syntax))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 388, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 388, Col: 57}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {

@@ -385,7 +385,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 							</code>
 						</a>
 					</td>
-					<td class="list-cell-syntax">{ s.Syntax }</td>
+					<td class="list-cell-syntax">{ SyntaxShort(s.Syntax) }</td>
 					<td class={ "list-cell-access " + AccessClass(s.Access) }>{ AccessLabel(s.Access) }</td>
 					<td class="list-cell-oid">
 						if s.OID != "" {
