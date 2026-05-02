@@ -112,15 +112,27 @@ func WorkspaceRowURL(view *WorkspaceView, s *model.Symbol) templ.SafeURL {
 	if s == nil {
 		return moduleURL(view.Module.Name)
 	}
+	// Leaves (and no-OID symbols) NEVER scope-change. They preserve
+	// the current scope and ride in via `?sel=…`; if no scope is
+	// set, they navigate to the module root with the symbol selected.
+	// Setting scope to a leaf would narrow the list to either
+	// just-itself (an OID match) or an empty set, breaking the
+	// "browse onward" workflow — clicking a column / notification /
+	// textual convention should never strand the user on an empty
+	// list pane.
 	if s.OID == "" {
 		if view != nil && view.ScopeOID != "" {
 			return templ.SafeURL("/m/" + view.Module.Name + "/" + view.ScopeOID + "?sel=" + s.Name)
 		}
 		return templ.SafeURL("/m/" + view.Module.Name + "?sel=" + s.Name)
 	}
-	if view != nil && view.ScopeOID != "" && !KindHasChildren(s.Kind) {
-		return templ.SafeURL("/m/" + view.Module.Name + "/" + view.ScopeOID + "?sel=" + s.OID)
+	if !KindHasChildren(s.Kind) {
+		if view != nil && view.ScopeOID != "" {
+			return templ.SafeURL("/m/" + view.Module.Name + "/" + view.ScopeOID + "?sel=" + s.OID)
+		}
+		return templ.SafeURL("/m/" + view.Module.Name + "?sel=" + s.OID)
 	}
+	// Container — drill in (scope change).
 	return workspaceSymbolURL(s.ModuleName, s.Name, s.OID)
 }
 
