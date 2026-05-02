@@ -15,10 +15,17 @@ templ Landing(modules, symbols int) {
 				<span class="brand-text">blittermib<span class="brand-dot">.</span></span>
 			</h1>
 			<p class="hero-tagline">Browse SNMP MIBs, beautifully.</p>
-			<button type="button" class="hero-search" data-palette-toggle aria-label="Open search">
-				<span class="placeholder">Search symbols, OIDs, modules, descriptions&hellip;</span>
-				<span class="kbd">⌘K</span>
-			</button>
+			<form class="hero-search" action="/search" method="get" role="search">
+				<span class="prompt" aria-hidden="true">›</span>
+				<input type="search"
+					name="q"
+					class="hero-search-input"
+					placeholder="Search symbols, OIDs, modules, descriptions&hellip;"
+					autocomplete="off"
+					autofocus
+					aria-label="Search"/>
+				<span class="kbd" aria-hidden="true">⌘K</span>
+			</form>
 			<div class="hero-stats">
 				<strong>{ fmt.Sprintf("%d", modules) }</strong> modules
 				<span class="sep">·</span>

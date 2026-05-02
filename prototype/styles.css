@@ -1303,6 +1303,13 @@ button { font-family: inherit; }
   color: var(--fg-3);
   margin: 0 0 56px;
 }
+/* Hero search — landing-page form input that submits to
+ * /search?q=…. Pre-Phase-5 this was a `<button>` that just
+ * popped open the ⌘K palette modal; clicking what looked like
+ * an input only to get a SECOND input on top read as broken.
+ * The hero now is a real `<form>` with a real `<input>`; the
+ * `⌘K` kbd hint stays as a discoverability cue for the palette
+ * shortcut, which still fires from any page. */
 .hero-search {
   display: flex;
   align-items: center;
@@ -1311,20 +1318,34 @@ button { font-family: inherit; }
   background: var(--bg-elev);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
-  padding: 14px 18px;
-  font-family: inherit;
-  font-size: 15px;
-  color: var(--fg-3);
-  cursor: pointer;
+  padding: 12px 16px;
   max-width: 520px;
   margin: 0 auto 28px;
   transition: border-color 100ms ease;
-  text-align: left;
-  appearance: none;
-  -webkit-appearance: none;
 }
+.hero-search:focus-within { border-color: var(--accent); }
 .hero-search:hover { border-color: var(--line-strong); }
-.hero-search .placeholder { flex: 1; }
+.hero-search .prompt {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-weight: 700;
+  font-size: 16px;
+  user-select: none;
+  flex-shrink: 0;
+}
+.hero-search-input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 15px;
+  min-width: 0;
+  padding: 0;
+}
+.hero-search-input::placeholder { color: var(--fg-3); }
 .hero-search .kbd {
   margin-left: auto;
   padding: 2px 8px;
@@ -1333,6 +1354,7 @@ button { font-family: inherit; }
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   color: var(--fg-3);
+  flex-shrink: 0;
 }
 .hero-stats {
   font-family: var(--font-mono);
