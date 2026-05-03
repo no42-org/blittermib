@@ -709,15 +709,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 					s.internalError(w, r, err)
 					return
 				}
-				for _, ref := range outRefs {
-					if ref.Kind != model.RefNotificationObject {
-						continue
-					}
-					selected.NotifyObjects = append(selected.NotifyObjects, web.SymbolRef{
-						Module: ref.TargetModule,
-						Name:   ref.TargetName,
-					})
-				}
+				selected.NotifyObjects, selected.TrapIndex = s.buildNotifyVarbinds(ctx, outRefs)
 			}
 			if symMod, err := s.store.GetModule(ctx, sym.ModuleName); err == nil && symMod.SourcePath != "" && sym.SourceLine > 0 {
 				if slice, err := source.Slice(symMod.SourcePath, sym.SourceLine, source.DefaultWindow); err == nil && slice != "" {
@@ -899,6 +891,143 @@ func (s *Server) buildSymbolContext(ctx context.Context, sym *model.Symbol) *web
 		return nil
 	}
 	return out
+}
+
+// buildNotifyVarbinds resolves each RefNotificationObject reference
+// into the rich shape the trap-simulator modal needs: the
+// varbind's OID, syntax, snmptrap type letter, JSON-encoded enum
+// values (when the syntax is enumerated), and a column-vs-scalar
+// flag. Also derives the row-identity strategy across all
+// resolved varbinds — when every column varbind shares a parent
+// table-entry whose INDEX clause is a single INTEGER column, the
+// modal renders one labeled input; otherwise it falls back to a
+// raw-suffix text input.
+//
+// References to symbols that aren't loaded are skipped (the
+// reference still rendered in earlier UIs as a clickable link
+// even when the target wasn't loaded; here we drop them, since
+// the modal needs the syntax to know what type letter to use,
+// and the link rendering happens via the existing notify-object
+// templ markup).
+func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference) ([]web.NotifyVarbind, web.TrapIndexStrategy) {
+	out := make([]web.NotifyVarbind, 0, len(refs))
+	var sharedEntryOID string
+	allColumns := true
+	allScalar := true
+	conflictingEntries := false
+
+	for _, ref := range refs {
+		if ref.Kind != model.RefNotificationObject {
+			continue
+		}
+		target, err := s.store.GetSymbol(ctx, ref.TargetModule, ref.TargetName)
+		if err != nil {
+			// Unloaded varbind target — render a placeholder entry so
+			// the modal can still emit something sensible (with
+			// snmptrap letter "s") and the user knows what's
+			// missing.
+			out = append(out, web.NotifyVarbind{
+				Module: ref.TargetModule,
+				Name:   ref.TargetName,
+			})
+			allColumns = false
+			allScalar = false
+			continue
+		}
+		vb := web.NotifyVarbind{
+			Module:         target.ModuleName,
+			Name:           target.Name,
+			OID:            target.OID,
+			Syntax:         target.Syntax,
+			TrapTypeLetter: web.TrapTypeLetter(target.Syntax),
+			IsColumn:       target.Kind == model.KindColumn,
+		}
+		if len(target.EnumValues) > 0 {
+			if buf, err := json.Marshal(target.EnumValues); err == nil {
+				vb.EnumValuesJSON = string(buf)
+			}
+			// Enum-valued symbols are always INTEGER subtypes per
+			// SMI; force the trap type letter even if the syntax
+			// is something `TrapTypeLetter` doesn't recognise (a
+			// vendor-named TC, an obscure subtype, etc.).
+			vb.TrapTypeLetter = "i"
+		}
+		out = append(out, vb)
+
+		if target.Kind == model.KindColumn {
+			allScalar = false
+			// Walk one parent — should be the table-entry — and
+			// pin the entry's OID for the shared-parent check.
+			if target.ParentOID != "" {
+				if sharedEntryOID == "" {
+					sharedEntryOID = target.ParentOID
+				} else if sharedEntryOID != target.ParentOID {
+					conflictingEntries = true
+				}
+			} else {
+				conflictingEntries = true
+			}
+		} else {
+			allColumns = false
+		}
+	}
+
+	// Decide the index strategy.
+	if len(out) == 0 {
+		return out, web.TrapIndexStrategy{Mode: "raw-suffix"}
+	}
+	if allScalar {
+		return out, web.TrapIndexStrategy{Mode: "scalar-only"}
+	}
+	if allColumns && !conflictingEntries && sharedEntryOID != "" {
+		entry, err := s.store.GetSymbolByOID(ctx, sharedEntryOID)
+		if err == nil && len(entry.IndexColumns) == 1 {
+			// Look up the index column's syntax to confirm it's
+			// INTEGER / Integer32.
+			if idx, err := s.store.GetSymbol(ctx, entry.ModuleName, entry.IndexColumns[0]); err == nil {
+				if isIntegerSyntax(idx.Syntax) {
+					return out, web.TrapIndexStrategy{
+						Mode:       "single-int",
+						IndexLabel: entry.IndexColumns[0],
+					}
+				}
+			}
+		}
+	}
+	return out, web.TrapIndexStrategy{Mode: "raw-suffix"}
+}
+
+// isIntegerSyntax reports whether `s` resolves to an INTEGER /
+// Integer32 base type, ignoring inline enum bodies and range
+// constraints. Mirrors the integer-side of `web.TrapTypeLetter`
+// but stays in the server package to avoid an unnecessary export.
+//
+// Recognises common integer-subtype Textual Conventions
+// (`InterfaceIndex`, etc.) verbatim — the compile layer emits
+// the TC name as the symbol's syntax rather than chasing through
+// to the underlying base type, so the helper has to know the
+// well-known names. Unknown integer TCs fall through to false
+// and the trap-simulator modal degrades to its raw-suffix mode
+// for that table.
+func isIntegerSyntax(s string) bool {
+	t := strings.TrimSpace(s)
+	if i := strings.IndexByte(t, '{'); i > 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	if i := strings.IndexByte(t, '('); i > 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	switch t {
+	case "INTEGER", "Integer32",
+		"Enumeration",
+		"InterfaceIndex",
+		"InterfaceIndexOrZero",
+		"InetPortNumber",
+		"InetVersion",
+		"IANAifType":
+		return true
+	}
+	return false
 }
 
 // buildTableColumns returns the column rows for a SMIv2 table's

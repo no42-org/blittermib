@@ -27,7 +27,228 @@ templ Workspace(view *WorkspaceView) {
 			</section>
 		</div>
 		@modulePicker(view.Modules)
+		@trapSimulatorModal()
 	}
+}
+
+// trapSimulatorModal is the page-level modal overlay for the trap
+// simulator. Mounted once at the workspace shell level (sibling of
+// modulePicker) and listens for `simulate:open` events dispatched
+// from the right pane's "Simulate" button. State and command
+// generation live in trap-simulator.js (Alpine controller); the
+// templ here just lays out the form skeleton so server-rendered
+// HTML carries the structure without any per-notification metadata
+// — that's read at open time from the workspace's notify-objects
+// list data-* attributes.
+//
+// Privacy posture (per spec):
+//   - All form values stay client-side; nothing is POSTed.
+//   - Password fields use type="password" (auto-clear on close).
+//   - No localStorage of credentials.
+//   - The user copies the generated command and runs it
+//     themselves — the simulator never fires a real trap.
+templ trapSimulatorModal() {
+	<div class="simulate-overlay"
+		x-data="trapSimulator()"
+		x-on:simulate:open.window="open()"
+		x-show="isOpen"
+		x-cloak
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="simulate-title"
+		x-on:keydown.escape.window="close()">
+		<div class="simulate-backdrop" x-on:click="close()"></div>
+		<div class="simulate-modal">
+			<header class="simulate-head">
+				<h2 id="simulate-title" class="simulate-title">
+					Simulate trap
+					<span class="simulate-title-name" x-text="notif.name"></span>
+				</h2>
+				<button type="button" class="simulate-close"
+					x-on:click="close()"
+					aria-label="Close">✕</button>
+			</header>
+
+			<p class="simulate-disclaimer">
+				This generates a real <code>snmptrap</code> command.
+				Verify the host before running it on a production network.
+			</p>
+
+			<div class="simulate-section">
+				<label class="simulate-label">Version</label>
+				<div class="simulate-radio-row">
+					<label><input type="radio" x-model="version" value="v1"/> v1</label>
+					<label><input type="radio" x-model="version" value="v2c"/> v2c</label>
+					<label><input type="radio" x-model="version" value="v3"/> v3</label>
+				</div>
+			</div>
+
+			<div class="simulate-section">
+				<label class="simulate-label">Target</label>
+				<div class="simulate-field-row">
+					<label>Host
+						<input type="text" x-model="host" placeholder="localhost:162"/>
+					</label>
+				</div>
+				<template x-if="version === 'v2c' || version === 'v1'">
+					<div class="simulate-field-row">
+						<label>Community
+							<input type="text" x-model="community" placeholder="public"/>
+						</label>
+					</div>
+				</template>
+
+				<template x-if="version === 'v1'">
+					<div class="simulate-v1-fields">
+						<div class="simulate-field-row">
+							<label>Agent address
+								<input type="text" x-model="agentAddr" placeholder="0.0.0.0"/>
+							</label>
+						</div>
+						<div class="simulate-field-row">
+							<label>Generic
+								<select x-model.number="genericTrap">
+									<option value="0">0 — coldStart</option>
+									<option value="1">1 — warmStart</option>
+									<option value="2">2 — linkDown</option>
+									<option value="3">3 — linkUp</option>
+									<option value="4">4 — authenticationFailure</option>
+									<option value="5">5 — egpNeighborLoss</option>
+									<option value="6">6 — enterpriseSpecific</option>
+								</select>
+							</label>
+							<template x-if="genericTrap === 6">
+								<label>Specific
+									<input type="number" x-model.number="specificTrap"/>
+								</label>
+							</template>
+						</div>
+						<div class="simulate-field-row">
+							<label>Uptime (timeticks)
+								<input type="number" x-model.number="uptime"/>
+							</label>
+						</div>
+					</div>
+				</template>
+
+				<template x-if="version === 'v3'">
+					<div class="simulate-v3-fields">
+						<div class="simulate-field-row">
+							<label>User
+								<input type="text" x-model="v3User" autocomplete="off"/>
+							</label>
+						</div>
+						<div class="simulate-field-row">
+							<label>Security level
+								<select x-model="v3Level">
+									<option value="noAuthNoPriv">noAuthNoPriv</option>
+									<option value="authNoPriv">authNoPriv</option>
+									<option value="authPriv">authPriv</option>
+								</select>
+							</label>
+						</div>
+						<template x-if="v3Level !== 'noAuthNoPriv'">
+							<div class="simulate-field-row">
+								<label>Auth protocol
+									<select x-model="v3AuthProto">
+										<option value="MD5">MD5</option>
+										<option value="SHA">SHA</option>
+										<option value="SHA-224">SHA-224</option>
+										<option value="SHA-256">SHA-256</option>
+										<option value="SHA-384">SHA-384</option>
+										<option value="SHA-512">SHA-512</option>
+									</select>
+								</label>
+								<label>Auth password
+									<input type="password" x-model="v3AuthPass" autocomplete="off"/>
+								</label>
+							</div>
+						</template>
+						<template x-if="v3Level === 'authPriv'">
+							<div class="simulate-field-row">
+								<label>Privacy protocol
+									<select x-model="v3PrivProto">
+										<option value="DES">DES</option>
+										<option value="AES">AES (AES-128)</option>
+										<option value="AES-128">AES-128</option>
+										<option value="AES-192">AES-192</option>
+										<option value="AES-256">AES-256</option>
+									</select>
+								</label>
+								<label>Privacy password
+									<input type="password" x-model="v3PrivPass" autocomplete="off"/>
+								</label>
+							</div>
+						</template>
+						<div class="simulate-field-row">
+							<label>Engine ID (optional)
+								<input type="text" x-model="v3EngineID"
+									placeholder="leave blank for auto-discovery"
+									x-on:input="validateEngineID()"/>
+							</label>
+							<span class="simulate-error" x-show="engineIDError" x-text="engineIDError"></span>
+						</div>
+					</div>
+				</template>
+			</div>
+
+			<div class="simulate-section" x-show="indexMode === 'single-int'">
+				<label class="simulate-label">Row identity</label>
+				<div class="simulate-field-row">
+					<label x-text="indexLabel"></label>
+					<input type="number" x-model.number="rowIndex"/>
+				</div>
+			</div>
+
+			<div class="simulate-section" x-show="indexMode === 'raw-suffix'">
+				<label class="simulate-label">Row identity (raw suffix)</label>
+				<div class="simulate-field-row">
+					<input type="text" x-model="rawSuffix" placeholder=".10.0.0.1"/>
+				</div>
+				<p class="simulate-hint">
+					Composite-index decoding is coming in v1.1.
+					Until then, type the dotted suffix yourself
+					(e.g. <code>.10.0.0.1</code> as an IpAddress
+					index).
+				</p>
+			</div>
+
+			<div class="simulate-section" x-show="varbinds.length > 0">
+				<label class="simulate-label">Varbinds</label>
+				<template x-for="vb in varbinds" :key="vb.oid">
+					<div class="simulate-varbind">
+						<span class="simulate-varbind-name" x-text="vb.name"></span>
+						<span class="simulate-varbind-syntax" x-text="vb.syntax"></span>
+						<template x-if="vb.enumValues && vb.enumValues.length > 0">
+							<select x-model.number="vb.value">
+								<template x-for="ev in vb.enumValues" :key="ev.number">
+									<option :value="ev.number" x-text="ev.name + '(' + ev.number + ')'"></option>
+								</template>
+							</select>
+						</template>
+						<template x-if="!vb.enumValues || vb.enumValues.length === 0">
+							<input type="text" x-model="vb.value"/>
+						</template>
+					</div>
+				</template>
+			</div>
+
+			<div class="simulate-section">
+				<label class="simulate-label">Generated command</label>
+				<pre class="simulate-command" x-text="generated()"></pre>
+				<button type="button" class="btn primary"
+					x-on:click="copyToClipboard()">
+					<span x-show="!copied">Copy</span>
+					<span x-show="copied">Copied ✓</span>
+				</button>
+			</div>
+
+			<p class="simulate-footer">
+				Credentials live in this browser tab only. Don't share
+				screenshots of generated commands containing passwords.
+			</p>
+		</div>
+	</div>
 }
 
 // moduleInfoBar is a collapsible row between the status bar and
@@ -564,6 +785,12 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 				x-on:click="if (navigator.clipboard) { navigator.clipboard.writeText($el.dataset.clipboardText); }">
 				Copy name
 			</button>
+			if s.Kind == model.KindNotificationType || s.Kind == model.KindTrapType {
+				<button type="button" class="btn"
+					x-on:click="$dispatch('simulate:open')">
+					Simulate
+				</button>
+			}
 			<a class="btn" href={ moduleURL(s.ModuleName) }>Close</a>
 		</div>
 	</div>
@@ -574,9 +801,21 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 		}
 		if len(sv.NotifyObjects) > 0 {
 			<div class="section-title">Notification objects</div>
-			<ul class="notify-objects">
+			<ul class="notify-objects"
+				data-notification-oid={ s.OID }
+				data-notification-name={ s.Name }
+				data-notification-module={ s.ModuleName }
+				data-trap-index-mode={ sv.TrapIndex.Mode }
+				data-trap-index-label={ sv.TrapIndex.IndexLabel }>
 				for _, obj := range sv.NotifyObjects {
-					<li>
+					<li class="notify-object-row"
+						data-name={ obj.Name }
+						data-module={ obj.Module }
+						data-oid={ obj.OID }
+						data-syntax={ obj.Syntax }
+						data-trap-type-letter={ obj.TrapTypeLetter }
+						data-is-column={ fmt.Sprintf("%t", obj.IsColumn) }
+						data-enum-values={ obj.EnumValuesJSON }>
 						<a class="notify-object" href={ NotifyObjectURL(obj.Module, obj.Name) }>
 							<code>{ obj.Name }</code>
 							<span class="notify-object-module">{ obj.Module }</span>

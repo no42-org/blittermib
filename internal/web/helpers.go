@@ -520,6 +520,94 @@ func TypeLetter(s *model.Symbol) string {
 	return "·"
 }
 
+// TrapTypeLetter returns the snmptrap CLI type letter for a given
+// SMI syntax string. snmptrap takes varbinds as triples
+// `<oid> <type-letter> <value>` where the letter encodes the
+// runtime type:
+//
+//	i  INTEGER / Integer32
+//	u  Unsigned32 / Gauge32
+//	c  Counter32
+//	C  Counter64
+//	t  TimeTicks
+//	s  OCTET STRING (and most string-shaped TCs)
+//	o  OBJECT IDENTIFIER
+//	a  IpAddress
+//	b  BITS
+//	x  Hex string (used here for MacAddress / PhysAddress)
+//
+// Detection is by syntax-string match. The compile layer expands
+// some Textual Conventions to inline their underlying type
+// (`Counter32` syntax → "Counter32"; `IpAddress` syntax →
+// "IpAddress" because the IpAddress TC is base-resolved during
+// parse), but a few common TCs survive as their TC name and the
+// helper recognises those by name.
+//
+// Unknown syntaxes default to "s" (string). The user can edit the
+// generated command if they need a different letter — better to
+// surface a guess than to fail.
+func TrapTypeLetter(syntax string) string {
+	s := strings.TrimSpace(syntax)
+	// Strip any inline `{…}` body — `INTEGER {up(1), down(2)}` is
+	// still an INTEGER for snmptrap purposes.
+	if i := strings.IndexByte(s, '{'); i > 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	// Strip subrange / size constraints — `Integer32 (1..2147483647)`
+	// or `OCTET STRING (SIZE(0..255))` are the base types for our
+	// purposes.
+	if i := strings.IndexByte(s, '('); i > 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	switch s {
+	case "INTEGER", "Integer32",
+		// `Enumeration` is what the compile layer emits as the
+		// syntax of an INTEGER-subtype Textual Convention with a
+		// named-number list (e.g. `IfAdminStatus`, `IfOperStatus`).
+		// Treat it as INTEGER for snmptrap purposes.
+		"Enumeration",
+		// Common integer-subtype TCs that appear as a varbind
+		// syntax verbatim. The list is best-effort; unknown
+		// integer TCs fall through to the default `s` and the
+		// user can override.
+		"InterfaceIndex",
+		"InterfaceIndexOrZero",
+		"InetPortNumber",
+		"InetVersion",
+		"IANAifType":
+		return "i"
+	case "Unsigned32", "Gauge32":
+		return "u"
+	case "Counter32":
+		return "c"
+	case "Counter64":
+		return "C"
+	case "TimeTicks", "TimeStamp":
+		return "t"
+	case "OCTET STRING",
+		"DisplayString",
+		"SnmpAdminString",
+		"DateAndTime",
+		"TruthValue", // INTEGER (1..2) but commonly stringy in user-facing forms
+		"RowStatus":  // INTEGER but often pasted as the named status
+		return "s"
+	case "OBJECT IDENTIFIER":
+		return "o"
+	case "IpAddress":
+		return "a"
+	case "BITS":
+		return "b"
+	case "MacAddress", "PhysAddress":
+		return "x"
+	}
+	// TruthValue and RowStatus are technically INTEGER subtypes —
+	// users typically want to type "true" or "createAndGo" not the
+	// number, so we prefer "s" and let the user override. If the
+	// caller wants strict INTEGER semantics they can pass "INTEGER"
+	// instead of the TC name.
+	return "s"
+}
+
 // AccessClass returns the abbreviated CSS class used in the
 // workspace list-pane access column: "ro" (read-only / cyan), "rw"
 // (read-write / read-create / amber), or "na" (not-accessible /
@@ -656,6 +744,47 @@ func fmtInt64(n int64) string {
 type SymbolRef struct {
 	Module string
 	Name   string
+}
+
+// NotifyVarbind carries the per-varbind metadata the trap simulator
+// modal needs at render time, baked into the workspace page as
+// data-* attributes. Built by the handler from each
+// `RefNotificationObject` reference: the linked symbol's OID,
+// syntax, kind (column vs scalar), and any enumerated values from
+// its underlying type.
+//
+// `EnumValuesJSON` is pre-rendered to JSON in the handler so the
+// templ doesn't need to encode at render time. Empty string
+// indicates a non-enum varbind.
+type NotifyVarbind struct {
+	Module         string
+	Name           string
+	OID            string
+	Syntax         string
+	TrapTypeLetter string
+	EnumValuesJSON string
+	IsColumn       bool
+}
+
+// TrapIndexStrategy describes how the trap simulator modal should
+// prompt the user for the row identity that's appended to each
+// column varbind's OID.
+//
+// `Mode = "single-int"` means every column varbind shares a parent
+// table-entry whose INDEX clause is exactly one INTEGER column —
+// the modal renders one labeled input (e.g. "ifIndex") that's
+// appended as `.{value}` to each column OID.
+//
+// `Mode = "scalar-only"` means every varbind is a scalar — `.0` is
+// appended silently, no row-identity input is shown.
+//
+// `Mode = "raw-suffix"` is the v1.0 fallback for everything else
+// (composite indexes, IpAddress, OCTET STRING, multi-parent
+// notifications). The modal renders a freeform text input where
+// the user types the dotted suffix themselves.
+type TrapIndexStrategy struct {
+	Mode       string // "single-int" | "scalar-only" | "raw-suffix"
+	IndexLabel string // e.g. "ifIndex" — populated when Mode = "single-int"
 }
 
 // SymbolContext captures "where in the SMI tree does this symbol sit"

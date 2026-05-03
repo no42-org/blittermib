@@ -15,12 +15,22 @@ import "github.com/no42-org/blittermib/internal/model"
 // entry as a clickable link to that object's workspace page so a
 // reader can jump straight from "what does linkDown carry?" to the
 // detail of `ifAdminStatus`.
+//
+// `TrapIndex` describes how the trap-simulator modal should prompt
+// for the row identity when composing the OIDs for those varbinds:
+// `single-int` for the common case (all column varbinds share an
+// entry whose INDEX is one INTEGER column), `scalar-only` for
+// notifications whose objects are all scalars, and `raw-suffix`
+// for everything else (composite indexes, IpAddress, OCTET STRING,
+// multi-parent notifications) — those degrade to a free-form text
+// input where the user types the dotted suffix themselves.
 type SymbolView struct {
 	Symbol        *model.Symbol
 	Context       *SymbolContext
 	Columns       []TableColumn
 	UsedBy        []model.Reference
-	NotifyObjects []SymbolRef
+	NotifyObjects []NotifyVarbind
+	TrapIndex     TrapIndexStrategy
 	SourceText    string // raw SMI lines from the module's source file
 	SourcePath    string // module.source_path; empty if no source available
 }

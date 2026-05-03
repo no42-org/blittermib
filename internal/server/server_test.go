@@ -1732,6 +1732,7 @@ func TestWorkspaceAssetsServed(t *testing.T) {
 		"/static/alpine.min.js",
 		"/static/workspace.js",
 		"/static/picker.js",
+		"/static/trap-simulator.js",
 	} {
 		t.Run(asset, func(t *testing.T) {
 			resp, err := http.Get(ts.URL + asset)
@@ -1767,4 +1768,247 @@ func TestSplitQualified(t *testing.T) {
 				c.in, mod, name, ok, c.mod, c.name, c.ok)
 		}
 	}
+}
+
+// TestTrapSimulatorAddsNoServerRoutes pins the privacy invariant
+// from spec § "Trap simulator privacy invariants": the trap
+// simulator is implemented entirely client-side, so no handler
+// code in `internal/server/` should mention `simulate` or
+// `snmptrap` (test files may, this test scans non-test files
+// only). Catches regressions where a future PR adds an
+// `/api/simulate` endpoint or similar.
+func TestTrapSimulatorAddsNoServerRoutes(t *testing.T) {
+	dir := filepath.Join("..", "server")
+	matches := scanForForbiddenRefs(t, dir, []string{
+		"simulate",
+		"snmptrap",
+		"SimulateTrap",
+		"handleTrap",
+	})
+	if len(matches) > 0 {
+		t.Errorf("found forbidden references in non-test handler code (privacy invariant violated):\n%v",
+			strings.Join(matches, "\n"))
+	}
+}
+
+// scanForForbiddenRefs walks `root` looking for any `*.go` file
+// that is NOT a `_test.go` or generated `_templ.go` file and
+// contains any of the forbidden substrings on a non-comment line.
+// Comment-only lines (`// …`) are skipped because the privacy
+// invariant is about executable handler code, not docstrings.
+// Returns a list of "<path>:<line>: <substring>" matches.
+func scanForForbiddenRefs(t *testing.T, root string, forbidden []string) []string {
+	t.Helper()
+	var hits []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		if strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		if strings.HasSuffix(path, "_templ.go") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimLeft(line, " \t")
+			if strings.HasPrefix(trimmed, "//") {
+				continue
+			}
+			for _, sub := range forbidden {
+				if strings.Contains(line, sub) {
+					hits = append(hits, path+":"+itoa(i+1)+": "+sub)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	return hits
+}
+
+// itoa is a tiny strconv.Itoa wrapper kept inline so the test
+// snippet stays self-contained.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}
+
+// TestNotificationPageContainsDataAttributes seeds a `linkDown`-
+// shaped NOTIFICATION-TYPE plus its OBJECTS-clause varbinds, then
+// renders the workspace page and checks that the notify-objects
+// list carries the data-* attributes the trap-simulator modal
+// reads. Catches regressions where the templ stops emitting them
+// or the handler stops populating NotifyVarbind.
+func TestNotificationPageContainsDataAttributes(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: "IF-MIB", OIDRoot: "1.3.6.1.2.1.31", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "IF-MIB", Name: "ifEntry",
+				OID: "1.3.6.1.2.1.2.2.1", ParentOID: "1.3.6.1.2.1.2.2",
+				Kind: model.KindTableEntry, Syntax: "IfEntry",
+				IndexColumns: []string{"ifIndex"},
+			},
+			{
+				ModuleName: "IF-MIB", Name: "ifIndex",
+				OID: "1.3.6.1.2.1.2.2.1.1", ParentOID: "1.3.6.1.2.1.2.2.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "IF-MIB", Name: "ifAdminStatus",
+				OID: "1.3.6.1.2.1.2.2.1.7", ParentOID: "1.3.6.1.2.1.2.2.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+				EnumValues: []model.EnumValue{
+					{Name: "up", Number: 1},
+					{Name: "down", Number: 2},
+					{Name: "testing", Number: 3},
+				},
+			},
+			{
+				ModuleName: "IF-MIB", Name: "ifOperStatus",
+				OID: "1.3.6.1.2.1.2.2.1.8", ParentOID: "1.3.6.1.2.1.2.2.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "IF-MIB", Name: "linkDown",
+				OID: "1.3.6.1.6.3.1.1.5.3", ParentOID: "1.3.6.1.6.3.1.1.5",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+				Description: "A linkDown trap signifies that the SNMP entity recognizes a failure.",
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "IF-MIB", SourceName: "linkDown",
+				TargetModule: "IF-MIB", TargetName: "ifIndex",
+				Kind: model.RefNotificationObject,
+			},
+			{
+				SourceModule: "IF-MIB", SourceName: "linkDown",
+				TargetModule: "IF-MIB", TargetName: "ifAdminStatus",
+				Kind: model.RefNotificationObject,
+			},
+			{
+				SourceModule: "IF-MIB", SourceName: "linkDown",
+				TargetModule: "IF-MIB", TargetName: "ifOperStatus",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	// Navigate via `?sel=linkDown` (name selector) so the workspace
+	// resolves to the notification-type symbol.
+	resp, err := http.Get(ts.URL + "/m/IF-MIB?sel=linkDown")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body := bodyString(t, resp)
+
+	// `<ul class="notify-objects" data-…>` carrying notification-level
+	// metadata — the modal reads these on open to seed its state.
+	wantUL := []string{
+		`class="notify-objects"`,
+		`data-notification-oid="1.3.6.1.6.3.1.1.5.3"`,
+		`data-notification-name="linkDown"`,
+		`data-notification-module="IF-MIB"`,
+		`data-trap-index-mode="single-int"`,
+		`data-trap-index-label="ifIndex"`,
+	}
+	for _, w := range wantUL {
+		if !strings.Contains(body, w) {
+			t.Errorf("rendered HTML missing %q", w)
+		}
+	}
+
+	// Per-varbind <li> data-* — the modal reads these to build
+	// the varbind value inputs (and the snmptrap type letters).
+	wantVarbind := []string{
+		`data-name="ifAdminStatus"`,
+		`data-oid="1.3.6.1.2.1.2.2.1.7"`,
+		`data-syntax="INTEGER"`,
+		`data-trap-type-letter="i"`,
+		`data-is-column="true"`,
+	}
+	for _, w := range wantVarbind {
+		if !strings.Contains(body, w) {
+			t.Errorf("rendered HTML missing %q", w)
+		}
+	}
+
+	// EnumValues JSON for ifAdminStatus surfaces as a JSON array
+	// in the data-enum-values attribute. templ escapes `"` to
+	// `&#34;` for attribute safety; the keys are lowercase per
+	// model.EnumValue's json struct tags.
+	if !strings.Contains(body, `&#34;name&#34;:&#34;up&#34;`) {
+		t.Errorf("rendered HTML missing enum-values JSON for ifAdminStatus; notify-objects excerpt:\n%s",
+			snippet(body, "notify-objects", 800))
+	}
+}
+
+// bodyString reads the response body in full and returns it as a
+// string. Used by the data-attribute tests above.
+func bodyString(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	_ = resp.Body.Close()
+	return string(b)
+}
+
+// snippet returns a trimmed window of `body` around the first
+// occurrence of `marker` for use in test failure messages —
+// dumping the full body of a workspace page is unhelpful noise.
+func snippet(body, marker string, window int) string {
+	i := strings.Index(body, marker)
+	if i < 0 {
+		return "(marker not found)"
+	}
+	start := i - window/2
+	if start < 0 {
+		start = 0
+	}
+	end := i + window/2
+	if end > len(body) {
+		end = len(body)
+	}
+	return body[start:end]
 }
