@@ -549,14 +549,16 @@ func TypeLetter(s *model.Symbol) string {
 func TrapTypeLetter(syntax string) string {
 	s := strings.TrimSpace(syntax)
 	// Strip any inline `{…}` body — `INTEGER {up(1), down(2)}` is
-	// still an INTEGER for snmptrap purposes.
-	if i := strings.IndexByte(s, '{'); i > 0 {
+	// still an INTEGER for snmptrap purposes. Use `i >= 0` so a
+	// pathological syntax that starts with `{` (no leading type
+	// keyword) still gets the empty-prefix treatment.
+	if i := strings.IndexByte(s, '{'); i >= 0 {
 		s = strings.TrimSpace(s[:i])
 	}
 	// Strip subrange / size constraints — `Integer32 (1..2147483647)`
 	// or `OCTET STRING (SIZE(0..255))` are the base types for our
 	// purposes.
-	if i := strings.IndexByte(s, '('); i > 0 {
+	if i := strings.IndexByte(s, '('); i >= 0 {
 		s = strings.TrimSpace(s[:i])
 	}
 	switch s {
@@ -574,7 +576,16 @@ func TrapTypeLetter(syntax string) string {
 		"InterfaceIndexOrZero",
 		"InetPortNumber",
 		"InetVersion",
-		"IANAifType":
+		"IANAifType",
+		// TruthValue (INTEGER 1..2) and RowStatus (INTEGER 1..6
+		// per RFC 2579) — the spec mandates "underlying base
+		// type's letter", which is INTEGER. The modal renders an
+		// inline hint near these TCs telling the user to type
+		// the integer (e.g. `1` for `up`, `4` for `createAndGo`)
+		// rather than the named value, since snmptrap on the
+		// wire requires the integer.
+		"TruthValue",
+		"RowStatus":
 		return "i"
 	case "Unsigned32", "Gauge32":
 		return "u"
@@ -587,9 +598,7 @@ func TrapTypeLetter(syntax string) string {
 	case "OCTET STRING",
 		"DisplayString",
 		"SnmpAdminString",
-		"DateAndTime",
-		"TruthValue", // INTEGER (1..2) but commonly stringy in user-facing forms
-		"RowStatus":  // INTEGER but often pasted as the named status
+		"DateAndTime":
 		return "s"
 	case "OBJECT IDENTIFIER":
 		return "o"
@@ -600,11 +609,6 @@ func TrapTypeLetter(syntax string) string {
 	case "MacAddress", "PhysAddress":
 		return "x"
 	}
-	// TruthValue and RowStatus are technically INTEGER subtypes —
-	// users typically want to type "true" or "createAndGo" not the
-	// number, so we prefer "s" and let the user override. If the
-	// caller wants strict INTEGER semantics they can pass "INTEGER"
-	// instead of the TC name.
 	return "s"
 }
 

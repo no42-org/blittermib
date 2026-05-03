@@ -80,8 +80,12 @@ func TestTrapTypeLetterCommonTCs(t *testing.T) {
 		{"SnmpAdminString", "s"},
 		{"TimeStamp", "t"},
 		{"DateAndTime", "s"},
-		{"TruthValue", "s"},
-		{"RowStatus", "s"},
+		// TruthValue and RowStatus are INTEGER subtypes per RFCs
+		// 1903 / 2579; the spec mandates "underlying base type's
+		// letter", so they map to `i`. Modal UX surfaces an
+		// inline hint reminding the user to type the integer.
+		{"TruthValue", "i"},
+		{"RowStatus", "i"},
 
 		// Inline enum bodies stripped — INTEGER {up(1), down(2)}
 		// is an INTEGER for snmptrap purposes.

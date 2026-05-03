@@ -27,8 +27,23 @@ templ Workspace(view *WorkspaceView) {
 			</section>
 		</div>
 		@modulePicker(view.Modules)
-		@trapSimulatorModal()
+		if isNotificationSelection(view) {
+			@trapSimulatorModal()
+		}
 	}
+}
+
+// isNotificationSelection reports whether the current workspace
+// selection is a NOTIFICATION-TYPE / TRAP-TYPE — used to gate
+// the trap-simulator modal so its ~6 KB of HTML / Alpine
+// bindings only ship on pages where the Simulate button can
+// actually fire it.
+func isNotificationSelection(v *WorkspaceView) bool {
+	if v == nil || v.Selected == nil || v.Selected.Symbol == nil {
+		return false
+	}
+	k := v.Selected.Symbol.Kind
+	return k == model.KindNotificationType || k == model.KindTrapType
 }
 
 // trapSimulatorModal is the page-level modal overlay for the trap
@@ -55,14 +70,15 @@ templ trapSimulatorModal() {
 		x-cloak
 		role="dialog"
 		aria-modal="true"
-		aria-labelledby="simulate-title"
+		x-bind:aria-label="notif.name ? ('Simulate trap — ' + notif.name) : 'Simulate trap'"
 		x-on:keydown.escape.window="close()">
 		<div class="simulate-backdrop" x-on:click="close()"></div>
 		<div class="simulate-modal">
 			<header class="simulate-head">
-				<h2 id="simulate-title" class="simulate-title">
+				<h2 class="simulate-title">
 					Simulate trap
-					<span class="simulate-title-name" x-text="notif.name"></span>
+					<span class="simulate-title-name"
+						x-text="notif.name || ''"></span>
 				</h2>
 				<button type="button" class="simulate-close"
 					x-on:click="close()"
@@ -73,6 +89,8 @@ templ trapSimulatorModal() {
 				This generates a real <code>snmptrap</code> command.
 				Verify the host before running it on a production network.
 			</p>
+
+			<p class="simulate-error" x-show="openError" x-text="openError"></p>
 
 			<div class="simulate-section">
 				<label class="simulate-label">Version</label>
@@ -215,7 +233,7 @@ templ trapSimulatorModal() {
 
 			<div class="simulate-section" x-show="varbinds.length > 0">
 				<label class="simulate-label">Varbinds</label>
-				<template x-for="vb in varbinds" :key="vb.oid">
+				<template x-for="vb in varbinds" :key="vb.module + ':' + vb.name">
 					<div class="simulate-varbind">
 						<span class="simulate-varbind-name" x-text="vb.name"></span>
 						<span class="simulate-varbind-syntax" x-text="vb.syntax"></span>
@@ -229,6 +247,15 @@ templ trapSimulatorModal() {
 						<template x-if="!vb.enumValues || vb.enumValues.length === 0">
 							<input type="text" x-model="vb.value"/>
 						</template>
+						<template x-if="vb.syntax === 'TruthValue' || vb.syntax === 'RowStatus'">
+							<span class="simulate-hint">
+								Type the integer
+								(e.g. <code>1</code> = <code>true</code>
+								or <code>active</code>);
+								snmptrap encodes this varbind as
+								INTEGER on the wire.
+							</span>
+						</template>
 					</div>
 				</template>
 			</div>
@@ -241,6 +268,7 @@ templ trapSimulatorModal() {
 					<span x-show="!copied">Copy</span>
 					<span x-show="copied">Copied ✓</span>
 				</button>
+				<p class="simulate-error" x-show="copyError" x-text="copyError"></p>
 			</div>
 
 			<p class="simulate-footer">

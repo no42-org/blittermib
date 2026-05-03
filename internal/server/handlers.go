@@ -945,6 +945,12 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 		if len(target.EnumValues) > 0 {
 			if buf, err := json.Marshal(target.EnumValues); err == nil {
 				vb.EnumValuesJSON = string(buf)
+			} else {
+				slog.Warn("trap-simulator: marshal enum values",
+					"module", target.ModuleName,
+					"name", target.Name,
+					"err", err,
+				)
 			}
 			// Enum-valued symbols are always INTEGER subtypes per
 			// SMI; force the trap type letter even if the syntax
@@ -981,10 +987,14 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 	}
 	if allColumns && !conflictingEntries && sharedEntryOID != "" {
 		entry, err := s.store.GetSymbolByOID(ctx, sharedEntryOID)
-		if err == nil && len(entry.IndexColumns) == 1 {
+		// Defensive nil-entry guard. The store contract today
+		// returns a non-nil pointer when err is nil, but a future
+		// store change could surface a (nil, nil) path; without
+		// the guard the next access panics.
+		if err == nil && entry != nil && len(entry.IndexColumns) == 1 {
 			// Look up the index column's syntax to confirm it's
 			// INTEGER / Integer32.
-			if idx, err := s.store.GetSymbol(ctx, entry.ModuleName, entry.IndexColumns[0]); err == nil {
+			if idx, err := s.store.GetSymbol(ctx, entry.ModuleName, entry.IndexColumns[0]); err == nil && idx != nil {
 				if isIntegerSyntax(idx.Syntax) {
 					return out, web.TrapIndexStrategy{
 						Mode:       "single-int",
@@ -1011,10 +1021,10 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 // for that table.
 func isIntegerSyntax(s string) bool {
 	t := strings.TrimSpace(s)
-	if i := strings.IndexByte(t, '{'); i > 0 {
+	if i := strings.IndexByte(t, '{'); i >= 0 {
 		t = strings.TrimSpace(t[:i])
 	}
-	if i := strings.IndexByte(t, '('); i > 0 {
+	if i := strings.IndexByte(t, '('); i >= 0 {
 		t = strings.TrimSpace(t[:i])
 	}
 	switch t {
@@ -1024,7 +1034,10 @@ func isIntegerSyntax(s string) bool {
 		"InterfaceIndexOrZero",
 		"InetPortNumber",
 		"InetVersion",
-		"IANAifType":
+		"IANAifType",
+		// TruthValue / RowStatus mirror `web.TrapTypeLetter`.
+		"TruthValue",
+		"RowStatus":
 		return true
 	}
 	return false

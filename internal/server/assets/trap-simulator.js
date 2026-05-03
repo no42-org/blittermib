@@ -103,10 +103,19 @@ window.trapSimulator = (function () {
 			// UI state
 			copied: false,
 			engineIDError: '',
+			openError: '',
+			copyError: '',
 
 			open: function () {
 				var ul = document.querySelector('.notify-objects');
-				if (!ul) return;
+				if (!ul) {
+					// Surface to the user — without this signal the
+					// modal silently stays closed and the click
+					// looks like dead UI.
+					this.openError = 'Could not load notification metadata for the simulator.';
+					this.isOpen = true;
+					return;
+				}
 				this.notif = {
 					oid: ul.dataset.notificationOid || '',
 					name: ul.dataset.notificationName || '',
@@ -117,33 +126,76 @@ window.trapSimulator = (function () {
 				this.varbinds = readVarbinds(ul);
 				this.copied = false;
 				this.engineIDError = '';
+				this.openError = '';
+				this.copyError = '';
 				this.isOpen = true;
 			},
 
 			close: function () {
 				this.isOpen = false;
 				// Auto-clear credentials on close (S7 mitigation).
-				// Community is treated as a default-able non-secret
-				// since it's typically "public" for testing — only
-				// the v3 auth/priv passwords get wiped.
+				// All credential-shaped fields go back to empty so
+				// the next open() requires deliberate re-entry, and
+				// transient identifiers (engine ID, v3 user, agent
+				// address, per-varbind values) reset to their
+				// initial defaults so the modal doesn't carry
+				// state from a previous notification.
 				this.v3AuthPass = '';
 				this.v3PrivPass = '';
+				this.v3User = '';
+				this.v3EngineID = '';
+				this.agentAddr = '0.0.0.0';
+				this.rowIndex = 1;
+				this.rawSuffix = '';
+				this.specificTrap = 0;
+				this.uptime = 0;
+				// Per-varbind values reset to their first-enum /
+				// type-default; community + host are deliberately
+				// preserved (they're not secrets and re-typing
+				// them every time is friction).
+				this.varbinds.forEach(function (vb) {
+					if (vb.enumValues && vb.enumValues.length > 0) {
+						vb.value = vb.enumValues[0].number;
+					} else if (vb.typeLetter === 'i' || vb.typeLetter === 'u' ||
+						vb.typeLetter === 'c' || vb.typeLetter === 'C' ||
+						vb.typeLetter === 't') {
+						vb.value = 0;
+					} else {
+						vb.value = '';
+					}
+				});
 				this.copied = false;
+				this.engineIDError = '';
+				this.openError = '';
+				this.copyError = '';
 			},
 
 			validateEngineID: function () {
 				var v = (this.v3EngineID || '').trim();
-				if (v === '' || /^[0-9a-fA-F]+$/.test(v)) {
+				if (v === '') {
+					this.engineIDError = '';
+					return;
+				}
+				// RFC 3411 §5: snmpEngineID is 5–32 octets.
+				// In hex form that's 10–64 chars and the length
+				// must be even. The regex enforces both.
+				if (/^([0-9a-fA-F]{2}){5,32}$/.test(v)) {
 					this.engineIDError = '';
 				} else {
-					this.engineIDError = 'Engine ID must be hex (0-9, a-f).';
+					this.engineIDError = 'Engine ID must be 10–64 hex chars (5–32 octets, even length).';
 				}
 			},
 
 			suffix: function (vb) {
 				if (vb.isColumn) {
 					if (this.indexMode === 'single-int') {
-						return '.' + this.rowIndex;
+						// x-model.number on an empty input yields
+						// NaN; fall back to 1 so the generated
+						// command stays valid until the user fixes
+						// the input.
+						var n = Number(this.rowIndex);
+						if (!isFinite(n)) n = 1;
+						return '.' + n;
 					}
 					if (this.indexMode === 'raw-suffix') {
 						// rawSuffix may or may not include a leading dot
@@ -163,11 +215,30 @@ window.trapSimulator = (function () {
 					vb.typeLetter === 'b') {
 					// String-shaped types: shell-quote so embedded
 					// spaces / special chars survive copy-paste.
+					// For OID / BITS / hex, an empty value would
+					// produce `''` in the command — not a runnable
+					// varbind. Surface a placeholder so the user
+					// notices instead of pasting a broken command.
+					var sv = (v == null ? '' : String(v)).trim();
+					if (sv === '' && (vb.typeLetter === 'o' ||
+						vb.typeLetter === 'b' ||
+						vb.typeLetter === 'x')) {
+						return '<EDIT>';
+					}
 					return quote(v == null ? '' : String(v));
 				}
-				// Numeric types: empty → 0
-				var s = String(v == null ? '' : v).trim();
-				return s === '' ? '0' : s;
+				// Numeric types — guard against NaN from
+				// x-model.number on a cleared input.
+				var n = Number(v);
+				if (!isFinite(n)) {
+					// Fall back to 0 only when the user truly
+					// blanked the field; if the input held a
+					// non-numeric, surface a placeholder.
+					var raw = String(v == null ? '' : v).trim();
+					if (raw === '') return '0';
+					return '<EDIT>';
+				}
+				return String(n);
 			},
 
 			varbindArgs: function () {
@@ -183,7 +254,7 @@ window.trapSimulator = (function () {
 					'snmptrap',
 					'-v', '2c',
 					'-c', quote(this.community),
-					this.host,
+					quote(this.host),
 					"''",
 					this.notif.oid,
 				];
@@ -207,9 +278,9 @@ window.trapSimulator = (function () {
 					parts.push('-x', this.v3PrivProto, '-X', quote(this.v3PrivPass));
 				}
 				if (this.v3EngineID) {
-					parts.push('-e', this.v3EngineID);
+					parts.push('-e', quote(this.v3EngineID));
 				}
-				parts.push(this.host, "''", this.notif.oid);
+				parts.push(quote(this.host), "''", this.notif.oid);
 				var cmd = parts.join(' ');
 				var vbs = this.varbindArgs();
 				if (vbs.length === 0) return cmd;
@@ -217,27 +288,34 @@ window.trapSimulator = (function () {
 			},
 
 			generateV1: function () {
-				// RFC 2576 SMIv2 -> SMIv1 translation, per §3.1:
-				//   - For SMIv2 notifications whose OID ends in `.0.N`,
-				//     the enterprise OID is the prefix before `.0`,
-				//     and the specific-trap is N.
-				//   - Otherwise the prefix-before-last-segment becomes
-				//     the enterprise OID and the last segment becomes
-				//     the specific-trap.
-				//   - snmpTrapOID.0 is prepended to the varbind list
-				//     with the original notification OID as its value.
+				// RFC 2576 SMIv2 -> SMIv1 translation:
 				//
-				// When the user picks a non-enterpriseSpecific generic
-				// trap (0-5 = coldStart, warmStart, linkDown, linkUp,
-				// authenticationFailure, egpNeighborLoss), enterprise
-				// is taken from the user's input or defaults to the
-				// notification's parent prefix; specific = 0.
+				// - For an enterpriseSpecific trap (genericTrap = 6),
+				//   the SMIv2 notification's OID splits into an
+				//   enterprise + specific-trap pair: the last segment
+				//   becomes specific-trap, the prefix becomes the
+				//   enterprise OID. Per the SMIv2 notification
+				//   convention, a trailing `.0` between the assignment
+				//   arc and the specific-trap segment is dropped from
+				//   the enterprise. snmpTrapOID.0 is prepended to the
+				//   varbind list with the original notification OID
+				//   as its OID-typed value.
+				//
+				// - For a generic trap (0-5: coldStart, warmStart,
+				//   linkDown, linkUp, authenticationFailure,
+				//   egpNeighborLoss), enterprise is the notification's
+				//   parent prefix (drop the last segment) per
+				//   RFC 2576 §3.2, specific-trap is forced to 0, and
+				//   snmpTrapOID.0 is NOT prepended (the receiver
+				//   derives the trap OID from the generic-trap field
+				//   itself).
 				var oid = (this.notif.oid || '').replace(/^\./, '');
+				var parts = oid ? oid.split('.') : [];
 				var enterprise = '.' + oid;
 				var specific = this.specificTrap;
+				var prependTrapOID = false;
 
 				if (this.genericTrap === 6) {
-					var parts = oid.split('.');
 					if (parts.length >= 2) {
 						specific = Number(parts[parts.length - 1]);
 						var prefix = parts.slice(0, -1);
@@ -249,26 +327,35 @@ window.trapSimulator = (function () {
 						}
 						enterprise = '.' + prefix.join('.');
 					}
+					prependTrapOID = true;
+				} else {
+					// Generic 0-5: enterprise is the notification's
+					// parent prefix (drop last segment); specific = 0.
+					if (parts.length >= 2) {
+						enterprise = '.' + parts.slice(0, -1).join('.');
+					}
+					specific = 0;
 				}
 
 				var cmdParts = [
 					'snmptrap',
 					'-v', '1',
 					'-c', quote(this.community),
-					this.host,
+					quote(this.host),
 					enterprise,
-					this.agentAddr,
+					quote(this.agentAddr),
 					String(this.genericTrap),
 					String(specific),
 					String(this.uptime),
 				];
 
-				// Prepend snmpTrapOID.0 with the original notification
-				// OID as its OID-typed value. Then the original
-				// varbinds.
-				var vbs = [SNMP_TRAP_OID + ' o ' + this.notif.oid].concat(this.varbindArgs());
+				var vbs = this.varbindArgs();
+				if (prependTrapOID) {
+					vbs = [SNMP_TRAP_OID + ' o ' + this.notif.oid].concat(vbs);
+				}
 
 				var cmd = cmdParts.join(' ');
+				if (vbs.length === 0) return cmd;
 				return cmd + ' \\\n  ' + vbs.join(' \\\n  ');
 			},
 
@@ -287,8 +374,35 @@ window.trapSimulator = (function () {
 				if (navigator.clipboard) {
 					navigator.clipboard.writeText(txt).then(function () {
 						self.copied = true;
+						self.copyError = '';
 						setTimeout(function () { self.copied = false; }, 2000);
-					}, function () {});
+					}, function () {
+						self.copyError = 'Copy failed — select the command above and use Cmd-C / Ctrl-C.';
+					});
+					return;
+				}
+				// Fallback for non-HTTPS / older browsers without
+				// `navigator.clipboard`. Use a transient textarea
+				// + execCommand('copy'), and surface a hint if
+				// even that fails.
+				try {
+					var ta = document.createElement('textarea');
+					ta.value = txt;
+					ta.style.position = 'fixed';
+					ta.style.opacity = '0';
+					document.body.appendChild(ta);
+					ta.select();
+					var ok = document.execCommand('copy');
+					document.body.removeChild(ta);
+					if (ok) {
+						self.copied = true;
+						self.copyError = '';
+						setTimeout(function () { self.copied = false; }, 2000);
+					} else {
+						self.copyError = 'Copy failed — select the command above and use Cmd-C / Ctrl-C.';
+					}
+				} catch (_) {
+					self.copyError = 'Copy failed — select the command above and use Cmd-C / Ctrl-C.';
 				}
 			},
 		};

@@ -3136,11 +3136,6 @@ main.page:has(.workspace-grid) .content-inner,
   font-size: 11px;
   color: var(--fg-3);
 }
-  font-family: var(--font-mono);
-  font-feature-settings: 'liga' 0, 'calt' 0;
-  font-size: 11px;
-  color: var(--fg-3);
-}
 
 /* ----------------------------------------------------------- *
  * Trap simulator modal — surfaces a snmptrap command generator
