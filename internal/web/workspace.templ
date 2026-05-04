@@ -418,8 +418,9 @@ templ typeDefsBar(view *WorkspaceView) {
 			</summary>
 			<div class="type-defs-body">
 				for _, td := range view.TypeDefs {
+					{{ tcSym := model.Symbol{ModuleName: td.Module, Name: td.Name, Kind: model.KindTextualConvention} }}
 					<div class="type-defs-row" x-data="{ open: false }">
-						<a class="type-defs-name" href={ symbolURL(td.Module, td.Name) }>
+						<a class="type-defs-name" href={ WorkspaceRowURL(view, &tcSym) }>
 							<code>{ td.Name }</code>
 						</a>
 						if td.Base != "" {

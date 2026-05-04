@@ -2231,7 +2231,7 @@ func TestTypeDefsBarRendersCount(t *testing.T) {
 		`class="type-defs"`,
 		`Type Definitions`,
 		`(3)`,
-		`href="/s/IF-MIB::InterfaceIndex"`,
+		`href="/m/IF-MIB?sel=InterfaceIndex"`,
 		`<code>InterfaceIndex</code>`,
 	}
 	for _, w := range wants {
@@ -2327,7 +2327,7 @@ func TestTypeDefsBarRawFallback(t *testing.T) {
 	wants := []string{
 		`>VendorMagicTC<`,
 		`(mystery)`,
-		`href="/s/VENDOR-MIB::QuirkyTC"`,
+		`href="/m/VENDOR-MIB?sel=QuirkyTC"`,
 	}
 	for _, w := range wants {
 		if !strings.Contains(body, w) {
