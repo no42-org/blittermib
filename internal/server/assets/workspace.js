@@ -45,6 +45,20 @@ window.workspace = function () {
 
 		init() {
 			this.$watch('kindFilter', (v) => saveKindFilter(v));
+			// Scroll the server-marked selected row into view. On
+			// long modules the highlighted row often lands below
+			// the fold and the user has to hunt for it; this makes
+			// the selection self-revealing on page load. Runs on
+			// the next frame so Alpine's x-show pass has finished
+			// hiding rows that don't match the current filter —
+			// scrolling before that lands at the wrong vertical
+			// offset.
+			requestAnimationFrame(() => {
+				var row = document.querySelector('.list-row.selected');
+				if (row) {
+					row.scrollIntoView({ block: 'center', behavior: 'auto' });
+				}
+			});
 		},
 
 		// matchesKind reads `data-kind` from the row and answers
