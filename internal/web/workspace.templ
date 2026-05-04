@@ -386,6 +386,36 @@ templ moduleInfoBar(mod *model.Module, downloadable bool) {
 	}
 }
 
+// copyToClipboardIcon renders a small clipboard icon button used
+// inline in the Properties grid (kvbox) — replaces the prior
+// "Copy OID" / "Copy name" text buttons. Each instance has its
+// own Alpine `x-data` scope so multiple icons on the same page
+// can flash a transient `copied` state without leaking state
+// between rows.
+//
+// The icon is a 14×14 inline SVG (rather than a Unicode glyph)
+// so it renders consistently across browsers / fonts. Inline
+// SVG also picks up the parent's text color via `currentColor`,
+// which the `:hover` and `.copied` states tint without needing
+// a separate icon variant.
+templ copyToClipboardIcon(value, label string) {
+	<button type="button" class="copy-btn"
+		x-data="{ copied: false }"
+		data-clipboard-text={ value }
+		x-on:click="if (navigator.clipboard) { navigator.clipboard.writeText($el.dataset.clipboardText); copied = true; setTimeout(() => copied = false, 1500); }"
+		x-bind:class="{ copied: copied }"
+		aria-label={ label }
+		title={ label }>
+		<svg viewBox="0 0 24 24" width="14" height="14"
+			fill="none" stroke="currentColor" stroke-width="2"
+			stroke-linecap="round" stroke-linejoin="round"
+			aria-hidden="true">
+			<rect x="9" y="2" width="6" height="4" rx="1"></rect>
+			<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+		</svg>
+	</button>
+}
+
 // typeDefsBar is the collapsible row between the module-info bar
 // and the workspace 3-pane grid that lists the module's Textual
 // Conventions (TCs). Suppressed entirely when the module declares
@@ -856,14 +886,28 @@ templ moduleOverview(mod *model.Module) {
 // workspaceDetailBody is the compact, right-pane variant of the
 // symbol detail. The canonical /s/ page (`symbolDetailBody`)
 // remains the long-form reference; this is the at-a-glance view a
-// user gets when clicking a row in the workspace list. Sections in
-// order: kind+name header, family-colored type pill + access +
-// status, primary Copy-OID button + Copy-name + Close, description
-// block, OID decode (one row per dotted segment), properties grid.
+// user gets when clicking a row in the workspace list.
+//
+// Sections, in order:
+//   - kind + name header (with an X close affordance pinned to the
+//     top-right of the pane that returns to the unscoped module
+//     view, replacing the prior `Close` text button)
+//   - family-colored type pill + access + status meta row
+//   - optional Simulate button for NOTIFICATION-TYPE / TRAP-TYPE
+//     symbols (the only action surface left in detail-actions —
+//     Copy OID and Copy name moved into inline clipboard icons
+//     prefixing their respective values in the Properties grid)
+//   - description block
+//   - notification-objects list (when applicable)
+//   - properties grid (kvbox) with clipboard icons before the
+//     `name` and `oid` values
 templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 	{{ s := sv.Symbol }}
 	{{ fam := FamilyClass(s) }}
 	<div class="detail-head">
+		<a class="detail-close-x" href={ moduleURL(s.ModuleName) }
+			aria-label="Close detail pane"
+			title="Close">✕</a>
 		<div class={ "detail-kind " + fam }>
 			<span class="kdot" aria-hidden="true"></span>
 			{ KindLabel(s.Kind) }
@@ -883,27 +927,14 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 				<span class="pill">{ s.Units }</span>
 			}
 		</div>
-		<div class="detail-actions">
-			if s.OID != "" {
+		if s.Kind == model.KindNotificationType || s.Kind == model.KindTrapType {
+			<div class="detail-actions">
 				<button type="button" class="btn primary"
-					data-clipboard-text={ s.OID }
-					x-on:click="if (navigator.clipboard) { navigator.clipboard.writeText($el.dataset.clipboardText); }">
-					Copy OID
-				</button>
-			}
-			<button type="button" class="btn"
-				data-clipboard-text={ s.Name }
-				x-on:click="if (navigator.clipboard) { navigator.clipboard.writeText($el.dataset.clipboardText); }">
-				Copy name
-			</button>
-			if s.Kind == model.KindNotificationType || s.Kind == model.KindTrapType {
-				<button type="button" class="btn"
 					x-on:click="$dispatch('simulate:open')">
 					Simulate
 				</button>
-			}
-			<a class="btn" href={ moduleURL(s.ModuleName) }>Close</a>
-		</div>
+			</div>
+		}
 	</div>
 	<div class="detail-body">
 		if s.Description != "" {
@@ -939,9 +970,17 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 		}
 		<div class="section-title">Properties</div>
 		<div class="kvbox">
-			<span class="k">name</span><span class="v">{ s.Name }</span>
+			<span class="k">name</span>
+			<span class="v">
+				@copyToClipboardIcon(s.Name, "Copy name")
+				{ s.Name }
+			</span>
 			if s.OID != "" {
-				<span class="k">oid</span><span class="v">{ s.OID }</span>
+				<span class="k">oid</span>
+				<span class="v">
+					@copyToClipboardIcon(s.OID, "Copy OID")
+					{ s.OID }
+				</span>
 			}
 			<span class="k">kind</span><span class="v">{ KindLabel(s.Kind) }</span>
 			if s.Syntax != "" {

@@ -2378,11 +2378,44 @@ main.page:has(.workspace-grid) .content-inner,
 }
 
 /* Compact detail-pane head — kind label + colored dot, big mono
- * name, type/access/status pills, action row. */
+ * name, type/access/status pills, action row. The relative
+ * positioning anchors the close-X affordance pinned to the
+ * top-right corner. */
 .workspace-detail .detail-head {
+  position: relative;
   padding: 14px 18px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--bg-elev);
+}
+/* Close X pinned in the detail-pane corner — replaces the prior
+ * "Close" text button. The X is the universal "dismiss" glyph
+ * for sub-panels; visually anchored top-right with a small
+ * hover background so the click target is forgiving without
+ * shouting on idle render. */
+.workspace-detail .detail-close-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--fg-3);
+  background: transparent;
+  font-size: 14px;
+  line-height: 1;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.workspace-detail .detail-close-x:hover {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--fg) 8%, transparent);
+  border-color: var(--line);
+  text-decoration: none;
 }
 .workspace-detail .detail-kind {
   display: flex;
@@ -2606,6 +2639,34 @@ main.page:has(.workspace-grid) .content-inner,
   border-bottom: 1px solid var(--line-soft);
   color: var(--fg);
   word-break: break-all;
+}
+/* Inline clipboard icon button — replaces the prior "Copy OID"
+ * and "Copy name" text buttons. Sits flush against the value
+ * with a small right margin so the icon and the text read as a
+ * unit. Subtle by default; tints to accent on hover, briefly
+ * flips green-ish on a successful copy via the per-button
+ * Alpine `copied` flag. */
+.workspace-detail .kvbox .v .copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 0 4px 0 0;
+  margin: 0 4px 0 0;
+  cursor: pointer;
+  color: var(--fg-4);
+  vertical-align: -2px;
+  transition: color 120ms ease;
+}
+.workspace-detail .kvbox .v .copy-btn:hover {
+  color: var(--accent);
+}
+.workspace-detail .kvbox .v .copy-btn.copied {
+  color: oklch(72% 0.16 145);
+}
+.workspace-detail .kvbox .v .copy-btn svg {
+  display: block;
 }
 .workspace-detail .kvbox .k:nth-last-of-type(1),
 .workspace-detail .kvbox .v:nth-last-of-type(1) {
