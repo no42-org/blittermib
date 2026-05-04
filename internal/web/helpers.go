@@ -896,9 +896,15 @@ func parseTCSyntax(syntax string) (base, constraint string) {
 		}
 		count := countNamedEntries(body)
 		switch head {
-		case "INTEGER":
+		case "INTEGER", "Enumeration":
+			// `Enumeration` is what smidump emits as the basetype
+			// for a TEXTUAL-CONVENTION whose underlying type is
+			// INTEGER + named numbers. The SMI base type is still
+			// INTEGER, so the pill reads `Integer` with the count
+			// in the constraint slot — matches the reference UI
+			// and tells the user the underlying type at a glance.
 			return "Integer", fmt.Sprintf("enum: %d values", count)
-		case "BITS":
+		case "BITS", "Bits":
 			return "BITS", fmt.Sprintf("%d flags", count)
 		}
 		// Fall through — unrecognised head with an inline body.

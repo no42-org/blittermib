@@ -289,10 +289,16 @@ func TestParseTCSyntaxBaseAndConstraint(t *testing.T) {
 		{"ObjectIdentifier", "OID", ""},
 		{"Bits", "BITS", ""},
 
-		// Enum INTEGER and BITS bodies.
+		// Enum INTEGER and BITS bodies. `Enumeration` is smidump's
+		// basetype attribute for TEXTUAL-CONVENTION INTEGER {…};
+		// it round-trips through renderTypedefSyntax verbatim, so
+		// the parser has to recognise the spelling and surface the
+		// underlying SMI type (Integer) in the pill.
 		{"INTEGER { up(1), down(2), testing(3) }", "Integer", "enum: 3 values"},
 		{"INTEGER {up(1),down(2)}", "Integer", "enum: 2 values"},
+		{"Enumeration { other(1), volatile(2), nonVolatile(3), permanent(4), readOnly(5) }", "Integer", "enum: 5 values"},
 		{"BITS { read(0), write(1), execute(2) }", "BITS", "3 flags"},
+		{"Bits { read(0), write(1) }", "BITS", "2 flags"},
 
 		// Whitespace tolerance — leading/trailing pads.
 		{"  Integer32 (1..255)  ", "Integer32", "range: 1..255"},

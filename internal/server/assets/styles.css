@@ -2924,7 +2924,7 @@ main.page:has(.workspace-grid) .content-inner,
   margin-top: 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   max-height: 360px;
   overflow-y: auto;
   border: 1px solid var(--line);
@@ -2932,16 +2932,29 @@ main.page:has(.workspace-grid) .content-inner,
   padding: 6px 10px;
   background: var(--bg);
 }
+/* Five-column grid:
+ *   1. name        (min 180px so short names align across rows)
+ *   2. pill        (base-type token, content-sized)
+ *   3. constraint  (range/size/enum phrase, content-sized)
+ *   4. toggle      (chevron, sits adjacent to its constraint)
+ *   5. spacer (1fr) absorbs the remaining width so columns 1-4
+ *      cluster on the left rather than spreading edge-to-edge
+ *
+ * Each child names its column explicitly so a missing optional
+ * cell (e.g. a TC with no constraint phrase) doesn't shift the
+ * toggle into the constraint slot.
+ */
 .type-defs-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto auto auto;
-  gap: 8px 14px;
+  grid-template-columns: minmax(180px, auto) auto auto auto 1fr;
+  gap: 4px 12px;
   align-items: baseline;
-  padding: 4px 2px;
+  padding: 3px 2px;
   border-bottom: 1px solid var(--line-soft);
 }
 .type-defs-row:last-child { border-bottom: 0; }
 .type-defs-name {
+  grid-column: 1;
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
   font-size: 12px;
@@ -2955,6 +2968,7 @@ main.page:has(.workspace-grid) .content-inner,
   text-decoration: underline;
 }
 .type-defs-pill {
+  grid-column: 2;
   display: inline-block;
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
@@ -2968,6 +2982,7 @@ main.page:has(.workspace-grid) .content-inner,
   align-self: center;
 }
 .type-defs-constraint {
+  grid-column: 3;
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
   font-size: 11px;
@@ -2976,6 +2991,7 @@ main.page:has(.workspace-grid) .content-inner,
   white-space: nowrap;
 }
 .type-defs-enum-toggle {
+  grid-column: 4;
   background: transparent;
   border: 0;
   padding: 0 4px;
@@ -2987,9 +3003,13 @@ main.page:has(.workspace-grid) .content-inner,
 .type-defs-enum-toggle:hover {
   color: var(--accent);
 }
+/* Enum reveal spans columns 2-5 (everything except the name)
+ * so the values indent under the pill / constraint cluster
+ * rather than left-flushing under the name. Visually associates
+ * the values with their toggle, which now lives in column 4. */
 .type-defs-enum-list {
-  grid-column: 1 / -1;
-  margin: 4px 0 4px 18px;
+  grid-column: 2 / -1;
+  margin: 4px 0;
   padding: 6px 10px;
   list-style: none;
   background: var(--bg-elev);
