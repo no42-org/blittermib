@@ -14,7 +14,7 @@ import (
 templ Workspace(view *WorkspaceView) {
 	@Base(view.Module.Name + " · blittermib") {
 		@workspaceStatusBar(view)
-		@moduleInfoBar(view.Module, view.ModuleDownloadable)
+		@moduleInfoBar(view.Module, view.ModuleDownloadable, view.BundleFileCount)
 		@typeDefsBar(view)
 		<div class="workspace-grid" x-data="workspace()">
 			<aside class="workspace-tree">
@@ -311,7 +311,7 @@ templ trapSimulatorModal() {
 // has focus, and `click.stop` alone leaves the keyboard path
 // unprotected. With both modifiers, the user can keyboard-Tab to
 // the link and press Enter to download without toggling the bar.
-templ moduleInfoBar(mod *model.Module, downloadable bool) {
+templ moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int) {
 	if mod != nil && (mod.Description != "" || mod.Organization != "" || len(mod.Imports) > 0 || downloadable) {
 		<details class="module-info">
 			<summary class="module-info-summary">
@@ -338,7 +338,7 @@ templ moduleInfoBar(mod *model.Module, downloadable bool) {
 						<a class="module-info-download-link" href={ moduleBundleURL(mod.Name) }
 							title={ "Download " + mod.Name + " plus its imports as a ZIP bundle" }
 							x-on:click.stop
-							x-on:keydown.stop>↓ bundle ({ fmt.Sprintf("%d", len(mod.Imports)+1) })</a>
+							x-on:keydown.stop>↓ bundle ({ fmt.Sprintf("%d", bundleFileCount) })</a>
 					</span>
 				}
 			</summary>
@@ -377,7 +377,7 @@ templ moduleInfoBar(mod *model.Module, downloadable bool) {
 							↓ { mod.Name }.mib
 						</a>
 						<a class="module-info-download-btn" href={ moduleBundleURL(mod.Name) }>
-							↓ { mod.Name }-bundle.zip ({ fmt.Sprintf("%d", len(mod.Imports)+1) } files)
+							↓ { mod.Name }-bundle.zip ({ fmt.Sprintf("%d", bundleFileCount) } files)
 						</a>
 					</div>
 				}

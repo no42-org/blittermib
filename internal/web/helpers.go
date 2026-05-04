@@ -1212,6 +1212,15 @@ type WorkspaceView struct {
 	// module declares no TCs; the templ suppresses the bar
 	// entirely in that case.
 	TypeDefs []TypeDef
+	// BundleFileCount is the number of `.mib` entries the
+	// `/m/{name}/download.zip` endpoint will ship — equal to
+	// the count of loaded modules in the IMPORTS closure
+	// (root + direct + transitive). The module-info bar
+	// displays this so users know how many files they'll get
+	// before clicking the bundle download. Computed at render
+	// time by handleWorkspace; zero when the closure couldn't
+	// be resolved (the templ falls back gracefully).
+	BundleFileCount int
 }
 
 // moduleSummaryPreview returns the first-sentence preview of a

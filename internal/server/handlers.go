@@ -655,6 +655,32 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		}
 	}
 
+	// Pre-compute the bundle's `.mib` file count from the IMPORTS
+	// closure so the module-info bar can advertise an accurate
+	// number — using `len(mod.Imports)` would count flat
+	// per-symbol imports (e.g. each `Counter32`, `Integer32`,
+	// `TimeTicks` from SNMPv2-SMI as a separate entry), which
+	// massively over-counts. The bundle endpoint ships one `.mib`
+	// per loaded closure entry; this counts the same set so the
+	// displayed number matches what the user actually downloads.
+	// Errors collapse to 0 so the templ can suppress the count
+	// gracefully — closure walks should not be load-bearing for
+	// rendering the workspace itself.
+	bundleFileCount := 0
+	if downloadable {
+		closure, err := s.store.ListImportClosure(ctx, name)
+		if err != nil {
+			slog.Warn("workspace: import-closure count failed", "module", name, "err", err)
+		} else {
+			roots := []string{s.standardMibsDir, s.mibsDir}
+			for _, e := range closure {
+				if e.Loaded && e.SourcePath != "" && pathUnderAny(e.SourcePath, roots) {
+					bundleFileCount++
+				}
+			}
+		}
+	}
+
 	view := &web.WorkspaceView{
 		Module:             mod,
 		Counts:             counts,
@@ -664,6 +690,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		ScopeOID:           oid,
 		ModuleDownloadable: downloadable,
 		TypeDefs:           web.CollectTypeDefs(syms),
+		BundleFileCount:    bundleFileCount,
 	}
 
 	if selectionOID != "" {
