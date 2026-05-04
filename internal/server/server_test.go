@@ -2148,6 +2148,235 @@ func TestBuildNotifyVarbindsIpAddressIndex(t *testing.T) {
 	}
 }
 
+// seedModuleWithSymbols is a small helper used by the type-defs
+// integration tests to build an in-memory store and an httptest
+// server with one module's symbols. Returns the test server URL.
+func seedModuleWithSymbols(t *testing.T, modName, oidRoot string, syms []model.Symbol) string {
+	t.Helper()
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: modName, OIDRoot: oidRoot, ParseStatus: model.ParseStatusClean},
+		syms,
+		nil,
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return ts.URL
+}
+
+// TestTypeDefsBarHiddenWhenEmpty pins the suppression rule: a
+// module that declares no Textual Conventions renders no
+// `<details class="type-defs">` element. The empty-bar would be
+// noise on RFC1213-style modules (most of them).
+func TestTypeDefsBarHiddenWhenEmpty(t *testing.T) {
+	url := seedModuleWithSymbols(t, "PLAIN-MIB", "1.3.6.1.4.1.99",
+		[]model.Symbol{
+			{
+				ModuleName: "PLAIN-MIB", Name: "thingScalar",
+				OID: "1.3.6.1.4.1.99.1", ParentOID: "1.3.6.1.4.1.99",
+				Kind: model.KindScalar, Syntax: "INTEGER",
+			},
+		},
+	)
+	resp, err := http.Get(url + "/m/PLAIN-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body := bodyString(t, resp)
+	if strings.Contains(body, `class="type-defs"`) {
+		t.Errorf("type-defs bar rendered for a module with zero TCs; body excerpt:\n%s",
+			snippet(body, "type-defs", 200))
+	}
+}
+
+// TestTypeDefsBarRendersCount seeds a 3-TC module shaped like
+// IF-MIB and asserts the summary count + a representative row
+// link.
+func TestTypeDefsBarRendersCount(t *testing.T) {
+	url := seedModuleWithSymbols(t, "IF-MIB", "1.3.6.1.2.1.31",
+		[]model.Symbol{
+			{
+				ModuleName: "IF-MIB", Name: "InterfaceIndex",
+				Kind: model.KindTextualConvention, Syntax: "Integer32 (1..2147483647)",
+			},
+			{
+				ModuleName: "IF-MIB", Name: "InterfaceIndexOrZero",
+				Kind: model.KindTextualConvention, Syntax: "Integer32 (0..2147483647)",
+			},
+			{
+				ModuleName: "IF-MIB", Name: "OwnerString",
+				Kind: model.KindTextualConvention, Syntax: "OCTET STRING (SIZE(0..255))",
+			},
+		},
+	)
+	resp, err := http.Get(url + "/m/IF-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bodyString(t, resp)
+
+	wants := []string{
+		`class="type-defs"`,
+		`Type Definitions`,
+		`(3)`,
+		`href="/s/IF-MIB::InterfaceIndex"`,
+		`<code>InterfaceIndex</code>`,
+	}
+	for _, w := range wants {
+		if !strings.Contains(body, w) {
+			t.Errorf("rendered HTML missing %q; type-defs excerpt:\n%s",
+				w, snippet(body, "type-defs", 800))
+		}
+	}
+}
+
+// TestTypeDefsBarRendersParsedShapes pins that the parser's output
+// reaches the rendered HTML for each recognised shape — pill text
+// + constraint phrase appear as plain HTML strings in the body.
+func TestTypeDefsBarRendersParsedShapes(t *testing.T) {
+	url := seedModuleWithSymbols(t, "SHAPES-MIB", "1.3.6.1.4.1.99",
+		[]model.Symbol{
+			{
+				ModuleName: "SHAPES-MIB", Name: "RangeTC",
+				Kind: model.KindTextualConvention, Syntax: "Integer32 (1..2147483647)",
+			},
+			{
+				ModuleName: "SHAPES-MIB", Name: "FixedSizeTC",
+				Kind: model.KindTextualConvention, Syntax: "OCTET STRING (SIZE(6))",
+			},
+			{
+				ModuleName: "SHAPES-MIB", Name: "VarSizeTC",
+				Kind: model.KindTextualConvention, Syntax: "OCTET STRING (SIZE(0..255))",
+			},
+			{
+				ModuleName: "SHAPES-MIB", Name: "EnumTC",
+				Kind: model.KindTextualConvention, Syntax: "INTEGER { up(1), down(2), testing(3) }",
+				EnumValues: []model.EnumValue{
+					{Name: "up", Number: 1},
+					{Name: "down", Number: 2},
+					{Name: "testing", Number: 3},
+				},
+			},
+			{
+				ModuleName: "SHAPES-MIB", Name: "BitsTC",
+				Kind: model.KindTextualConvention, Syntax: "BITS { read(0), write(1) }",
+				EnumValues: []model.EnumValue{
+					{Name: "read", Number: 0},
+					{Name: "write", Number: 1},
+				},
+			},
+			{
+				ModuleName: "SHAPES-MIB", Name: "PlainTC",
+				Kind: model.KindTextualConvention, Syntax: "Counter32",
+			},
+		},
+	)
+	resp, err := http.Get(url + "/m/SHAPES-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bodyString(t, resp)
+
+	wants := []string{
+		`>Integer32<`, `range: 1..2147483647`,
+		`>OctetString<`, `size: 6`, `size: 0..255`,
+		`>Integer<`, `enum: 3 values`,
+		`>BITS<`, `2 flags`,
+		`>Counter32<`,
+	}
+	for _, w := range wants {
+		if !strings.Contains(body, w) {
+			t.Errorf("rendered HTML missing %q; type-defs excerpt:\n%s",
+				w, snippet(body, "type-defs", 1200))
+		}
+	}
+}
+
+// TestTypeDefsBarRawFallback pins the verbatim fallback for
+// unrecognised vendor-TC syntaxes — the leading token reaches
+// the pill and the parenthesised remainder reaches the
+// constraint slot, parens preserved so the user sees the
+// shape that wasn't recognised.
+func TestTypeDefsBarRawFallback(t *testing.T) {
+	url := seedModuleWithSymbols(t, "VENDOR-MIB", "1.3.6.1.4.1.42",
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "QuirkyTC",
+				Kind: model.KindTextualConvention, Syntax: "VendorMagicTC (mystery)",
+			},
+		},
+	)
+	resp, err := http.Get(url + "/m/VENDOR-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bodyString(t, resp)
+
+	wants := []string{
+		`>VendorMagicTC<`,
+		`(mystery)`,
+		`href="/s/VENDOR-MIB::QuirkyTC"`,
+	}
+	for _, w := range wants {
+		if !strings.Contains(body, w) {
+			t.Errorf("rendered HTML missing %q; type-defs excerpt:\n%s",
+				w, snippet(body, "type-defs", 600))
+		}
+	}
+}
+
+// TestTypeDefsBarEnumValuesEmbedded pins that an enum TC's named
+// values reach the rendered DOM as `<li>name(number)</li>`
+// entries inside the row's enum list. The toggle is client-side
+// (Alpine), so the values must be in the markup regardless of
+// the open / closed state.
+func TestTypeDefsBarEnumValuesEmbedded(t *testing.T) {
+	url := seedModuleWithSymbols(t, "STATUS-MIB", "1.3.6.1.4.1.42",
+		[]model.Symbol{
+			{
+				ModuleName: "STATUS-MIB", Name: "IfAdminStatus",
+				Kind: model.KindTextualConvention, Syntax: "INTEGER { up(1), down(2), testing(3) }",
+				EnumValues: []model.EnumValue{
+					{Name: "up", Number: 1},
+					{Name: "down", Number: 2},
+					{Name: "testing", Number: 3},
+				},
+			},
+		},
+	)
+	resp, err := http.Get(url + "/m/STATUS-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bodyString(t, resp)
+
+	wants := []string{
+		`type-defs-enum-toggle`,
+		`type-defs-enum-list`,
+		`<li>up(1)</li>`,
+		`<li>down(2)</li>`,
+		`<li>testing(3)</li>`,
+	}
+	for _, w := range wants {
+		if !strings.Contains(body, w) {
+			t.Errorf("rendered HTML missing %q; type-defs excerpt:\n%s",
+				w, snippet(body, "type-defs", 1200))
+		}
+	}
+}
+
 // snippet returns a trimmed window of `body` around the first
 // occurrence of `marker` for use in test failure messages —
 // dumping the full body of a workspace page is unhelpful noise.

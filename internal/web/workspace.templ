@@ -15,6 +15,7 @@ templ Workspace(view *WorkspaceView) {
 	@Base(view.Module.Name + " · blittermib") {
 		@workspaceStatusBar(view)
 		@moduleInfoBar(view.Module, view.ModuleDownloadable)
+		@typeDefsBar(view)
 		<div class="workspace-grid" x-data="workspace()">
 			<aside class="workspace-tree">
 				@workspaceTree(view, view.TreeRows)
@@ -378,6 +379,71 @@ templ moduleInfoBar(mod *model.Module, downloadable bool) {
 						<a class="module-info-download-btn" href={ moduleBundleURL(mod.Name) }>
 							↓ { mod.Name }-bundle.zip ({ fmt.Sprintf("%d", len(mod.Imports)+1) } files)
 						</a>
+					</div>
+				}
+			</div>
+		</details>
+	}
+}
+
+// typeDefsBar is the collapsible row between the module-info bar
+// and the workspace 3-pane grid that lists the module's Textual
+// Conventions (TCs). Suppressed entirely when the module declares
+// no TCs — most simple MIBs (RFC1213-style) declare zero, and an
+// always-rendered "Type Definitions (0)" bar would be visual noise.
+//
+// Each row carries: a clickable name (linking to the canonical
+// `/s/{module}::{name}` symbol page), a parsed base-type pill
+// (Integer32 / OctetString / OID / BITS / …), and a constraint
+// phrase ("range: 1..2147483647", "size: 0..255",
+// "enum: 3 values").
+//
+// Enum / BITS rows additionally carry an inline expand chevron;
+// toggling the chevron reveals the named values
+// (`up(1) / down(2) / testing(3)`) inside the row, without
+// navigating away from the workspace. Expansion state lives in
+// per-row Alpine `x-data` and is transient across page loads.
+//
+// The bar body has a max-height with internal scroll so vendor
+// MIBs declaring 50+ TCs don't push the workspace grid off-screen;
+// per-row enum bodies have the same overflow treatment so a single
+// 270-entry enumeration (IANAifType) doesn't blow a row's layout.
+templ typeDefsBar(view *WorkspaceView) {
+	if view != nil && len(view.TypeDefs) > 0 {
+		<details class="type-defs">
+			<summary class="type-defs-summary">
+				<span class="type-defs-chevron" aria-hidden="true">▸</span>
+				<span class="type-defs-title">Type Definitions</span>
+				<span class="type-defs-count">({ fmt.Sprintf("%d", len(view.TypeDefs)) })</span>
+			</summary>
+			<div class="type-defs-body">
+				for _, td := range view.TypeDefs {
+					<div class="type-defs-row" x-data="{ open: false }">
+						<a class="type-defs-name" href={ symbolURL(td.Module, td.Name) }>
+							<code>{ td.Name }</code>
+						</a>
+						if td.Base != "" {
+							<span class="type-defs-pill">{ td.Base }</span>
+						}
+						if td.Constraint != "" {
+							<span class="type-defs-constraint">{ td.Constraint }</span>
+						}
+						if len(td.EnumValues) > 0 {
+							<button type="button"
+								class="type-defs-enum-toggle"
+								x-on:click.stop.prevent="open = !open"
+								x-bind:aria-expanded="open"
+								aria-expanded="false"
+								aria-label="Toggle enumerated values">
+								<span x-show="!open" aria-hidden="true">▸</span>
+								<span x-show="open" aria-hidden="true" x-cloak>▾</span>
+							</button>
+							<ul class="type-defs-enum-list" x-show="open" x-cloak>
+								for _, ev := range td.EnumValues {
+									<li>{ ev.Name }({ fmtInt64(ev.Number) })</li>
+								}
+							</ul>
+						}
 					</div>
 				}
 			</div>

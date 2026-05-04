@@ -663,6 +663,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		Modules:            allModules,
 		ScopeOID:           oid,
 		ModuleDownloadable: downloadable,
+		TypeDefs:           web.CollectTypeDefs(syms),
 	}
 
 	if selectionOID != "" {

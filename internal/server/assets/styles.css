@@ -2864,6 +2864,151 @@ main.page:has(.workspace-grid) .content-inner,
   background: color-mix(in oklch, var(--accent) 28%, transparent);
 }
 
+/* Type Definitions bar — sibling of `.module-info`. Lists the
+ * module's Textual Conventions with a parsed base-type pill and
+ * a constraint phrase per row. Hidden when the module declares
+ * zero TCs (the templ skips the element entirely). Default
+ * closed; expanding shows the list with an internal max-height +
+ * scroll so vendor MIBs declaring 50+ TCs don't push the
+ * workspace grid off-screen.
+ *
+ * Mirrors `.module-info`'s typography (mono, 12px, fg-3) and
+ * 8/18px padding so the two bars stack as one chrome strip. */
+.type-defs {
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 18px;
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.type-defs[open] {
+  background: var(--bg);
+  padding-bottom: 14px;
+}
+.type-defs-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.type-defs-summary::-webkit-details-marker { display: none; }
+.type-defs-chevron {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--fg-4);
+  transition: transform 120ms ease;
+  display: inline-block;
+  transform-origin: 50% 60%;
+}
+.type-defs[open] .type-defs-chevron {
+  transform: rotate(90deg);
+}
+.type-defs-title {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--fg-3);
+}
+.type-defs-count {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.type-defs-body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  background: var(--bg);
+}
+.type-defs-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto auto;
+  gap: 8px 14px;
+  align-items: baseline;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.type-defs-row:last-child { border-bottom: 0; }
+.type-defs-name {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+  word-break: break-word;
+}
+.type-defs-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.type-defs-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in oklch, var(--accent) 18%, transparent);
+  color: var(--accent);
+  white-space: nowrap;
+  align-self: center;
+}
+.type-defs-constraint {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  color: var(--fg-3);
+  align-self: center;
+  white-space: nowrap;
+}
+.type-defs-enum-toggle {
+  background: transparent;
+  border: 0;
+  padding: 0 4px;
+  cursor: pointer;
+  color: var(--fg-4);
+  font-size: 10px;
+  align-self: center;
+}
+.type-defs-enum-toggle:hover {
+  color: var(--accent);
+}
+.type-defs-enum-list {
+  grid-column: 1 / -1;
+  margin: 4px 0 4px 18px;
+  padding: 6px 10px;
+  list-style: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  color: var(--fg-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Per-row enum body bounds itself the same way the outer bar
+   * does — IANAifType has 270 entries; without this a single
+   * row could blow the layout. */
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 /* Module imports — shown in the right pane's module-overview
  * (the unscoped workspace landing replaces the "Pick a symbol"
  * empty state with this). Each row groups the symbols imported

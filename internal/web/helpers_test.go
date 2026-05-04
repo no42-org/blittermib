@@ -235,3 +235,120 @@ func TestWorkspaceRowURL(t *testing.T) {
 		})
 	}
 }
+
+// TestParseTCSyntaxBaseAndConstraint pins the parser's contract for
+// every recognised base-type / constraint shape plus the verbatim
+// raw-fallback path. The cases trace the rendering matrix in the
+// design doc — adding a new recognised shape means adding a row
+// here too.
+func TestParseTCSyntaxBaseAndConstraint(t *testing.T) {
+	cases := []struct {
+		syntax         string
+		wantBase       string
+		wantConstraint string
+	}{
+		// Base types with no constraint.
+		{"Integer32", "Integer32", ""},
+		{"INTEGER", "Integer", ""},
+		{"Unsigned32", "Unsigned32", ""},
+		{"Gauge32", "Gauge32", ""},
+		{"Counter32", "Counter32", ""},
+		{"Counter64", "Counter64", ""},
+		{"OCTET STRING", "OctetString", ""},
+		{"OBJECT IDENTIFIER", "OID", ""},
+		{"TimeTicks", "TimeTicks", ""},
+		{"IpAddress", "IpAddress", ""},
+
+		// Range constraints on integer-shaped TCs.
+		{"Integer32 (1..2147483647)", "Integer32", "range: 1..2147483647"},
+		{"Integer32 (0..2147483647)", "Integer32", "range: 0..2147483647"},
+		{"INTEGER (1..255)", "Integer", "range: 1..255"},
+
+		// SIZE constraints on OCTET STRING.
+		{"OCTET STRING (SIZE(6))", "OctetString", "size: 6"},
+		{"OCTET STRING (SIZE(0..255))", "OctetString", "size: 0..255"},
+		{"OCTET STRING (SIZE(1..256))", "OctetString", "size: 1..256"},
+		{"OCTET STRING (SIZE(0..255 | 65535))", "OctetString", "size: variable"},
+
+		// Enum INTEGER and BITS bodies.
+		{"INTEGER { up(1), down(2), testing(3) }", "Integer", "enum: 3 values"},
+		{"INTEGER {up(1),down(2)}", "Integer", "enum: 2 values"},
+		{"BITS { read(0), write(1), execute(2) }", "BITS", "3 flags"},
+
+		// Whitespace tolerance — leading/trailing pads.
+		{"  Integer32 (1..255)  ", "Integer32", "range: 1..255"},
+
+		// Unrecognised vendor TC token: verbatim fallback. Both base
+		// (the leading token) and constraint (the parenthesised
+		// substring, parens preserved) come through unmodified so the
+		// user sees what shape the parser didn't recognise.
+		{"VendorMagicTC", "VendorMagicTC", ""},
+		{"VendorMagicTC (whatever)", "VendorMagicTC", "(whatever)"},
+
+		// TC over another TC (no visible base): the chained TC name
+		// becomes the pill verbatim, no constraint.
+		{"PhysAddress", "PhysAddress", ""},
+
+		// Empty / whitespace-only input — both fields empty.
+		{"", "", ""},
+		{"   ", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.syntax, func(t *testing.T) {
+			gotBase, gotConstraint := parseTCSyntax(c.syntax)
+			if gotBase != c.wantBase {
+				t.Errorf("base = %q, want %q", gotBase, c.wantBase)
+			}
+			if gotConstraint != c.wantConstraint {
+				t.Errorf("constraint = %q, want %q", gotConstraint, c.wantConstraint)
+			}
+		})
+	}
+}
+
+// TestCollectTypeDefsFiltersToTextualConvention pins that the
+// projection only includes TC-kinded symbols and preserves source
+// order. Other kinds in the slice (table, column, notification)
+// stay out so the bar's row count matches "TCs declared by this
+// module" exactly.
+func TestCollectTypeDefsFiltersToTextualConvention(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "IF-MIB", Name: "ifTable", Kind: model.KindTable, Syntax: "SEQUENCE OF IfEntry"},
+		{ModuleName: "IF-MIB", Name: "InterfaceIndex", Kind: model.KindTextualConvention, Syntax: "Integer32 (1..2147483647)"},
+		{ModuleName: "IF-MIB", Name: "ifIndex", Kind: model.KindColumn, Syntax: "INTEGER"},
+		{ModuleName: "IF-MIB", Name: "InterfaceIndexOrZero", Kind: model.KindTextualConvention, Syntax: "Integer32 (0..2147483647)"},
+		{ModuleName: "IF-MIB", Name: "OwnerString", Kind: model.KindTextualConvention, Syntax: "OCTET STRING (SIZE(0..255))"},
+		{ModuleName: "IF-MIB", Name: "linkDown", Kind: model.KindNotificationType},
+	}
+	out := CollectTypeDefs(syms)
+	if len(out) != 3 {
+		t.Fatalf("len = %d, want 3; got %#v", len(out), out)
+	}
+	wantOrder := []string{"InterfaceIndex", "InterfaceIndexOrZero", "OwnerString"}
+	for i, want := range wantOrder {
+		if out[i].Name != want {
+			t.Errorf("[%d].Name = %q, want %q", i, out[i].Name, want)
+		}
+	}
+	// Spot-check parsed fields on the first row.
+	if out[0].Base != "Integer32" {
+		t.Errorf("[0].Base = %q, want %q", out[0].Base, "Integer32")
+	}
+	if out[0].Constraint != "range: 1..2147483647" {
+		t.Errorf("[0].Constraint = %q, want %q", out[0].Constraint, "range: 1..2147483647")
+	}
+}
+
+// TestCollectTypeDefsEmpty pins the nil-on-empty contract that the
+// templ's `len(view.TypeDefs) > 0` gate relies on.
+func TestCollectTypeDefsEmpty(t *testing.T) {
+	if got := CollectTypeDefs(nil); got != nil {
+		t.Errorf("CollectTypeDefs(nil) = %#v, want nil", got)
+	}
+	if got := CollectTypeDefs([]model.Symbol{
+		{Kind: model.KindTable},
+		{Kind: model.KindColumn},
+	}); got != nil {
+		t.Errorf("CollectTypeDefs(no TCs) = %#v, want nil", got)
+	}
+}

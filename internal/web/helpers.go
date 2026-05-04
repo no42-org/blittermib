@@ -837,6 +837,236 @@ func TrapIndexColumnsJSON(cols []TrapIndexColumn) string {
 	return strings.TrimRight(buf.String(), "\n")
 }
 
+// parseTCSyntax decomposes a Textual Convention's syntax string
+// into a base-type pill label and a constraint phrase for the
+// type-definitions bar.
+//
+// The recognised base types are the SMI base types and a small set
+// of common rendering aliases:
+//
+//	"Integer32"          → "Integer32"
+//	"INTEGER"            → "Integer"
+//	"Unsigned32"         → "Unsigned32"
+//	"Gauge32"            → "Gauge32"
+//	"Counter32"          → "Counter32"
+//	"Counter64"          → "Counter64"
+//	"OCTET STRING"       → "OctetString"
+//	"OBJECT IDENTIFIER"  → "OID"
+//	"BITS"               → "BITS"
+//	"TimeTicks"          → "TimeTicks"
+//	"IpAddress"          → "IpAddress"
+//
+// The recognised constraint shapes:
+//
+//	"(SIZE(N))"           → "size: N"
+//	"(SIZE(min..max))"    → "size: min..max"
+//	"(SIZE(...|...))"     → "size: variable"      (multi-segment)
+//	"(min..max)"          → "range: min..max"
+//	"INTEGER {…}"         → "enum: N values"      (counts named entries)
+//	"BITS {…}"            → "N flags"             (counts named entries)
+//	(none)                → ""                    (e.g. plain Counter32)
+//
+// Unrecognised shapes fall back to a verbatim leading-token base
+// and the trailing parenthesised substring as the constraint —
+// truthful but ugly, so the user can see what shape the parser
+// didn't recognise instead of a misleading empty cell.
+func parseTCSyntax(syntax string) (base, constraint string) {
+	s := strings.TrimSpace(syntax)
+	if s == "" {
+		return "", ""
+	}
+	// Enum / BITS shapes carry a `{name(num), …}` body that the
+	// SIZE/range-extracting branch below doesn't expect. Detect and
+	// classify them first.
+	if i := strings.IndexByte(s, '{'); i >= 0 {
+		head := strings.TrimSpace(s[:i])
+		body := s[i+1:]
+		if j := strings.LastIndexByte(body, '}'); j >= 0 {
+			body = body[:j]
+		}
+		count := countNamedEntries(body)
+		switch head {
+		case "INTEGER":
+			return "Integer", fmt.Sprintf("enum: %d values", count)
+		case "BITS":
+			return "BITS", fmt.Sprintf("%d flags", count)
+		}
+		// Fall through — unrecognised head with an inline body.
+		return head, ""
+	}
+	// Split into <head> "(" <constraint-body> ")" if a parenthesised
+	// constraint is present. The head is the base-type token.
+	headEnd := strings.IndexByte(s, '(')
+	var (
+		head           string
+		constraintBody string
+	)
+	if headEnd < 0 {
+		head = s
+	} else {
+		head = strings.TrimSpace(s[:headEnd])
+		// Take everything between the FIRST `(` and the matching final `)`.
+		// SMI permits nested parens (`(SIZE(0..255))`), so we want the
+		// outermost pair — last `)` in the string is sufficient.
+		rest := s[headEnd+1:]
+		closeIdx := strings.LastIndexByte(rest, ')')
+		if closeIdx >= 0 {
+			constraintBody = rest[:closeIdx]
+		} else {
+			constraintBody = rest
+		}
+	}
+	rendered := renderBaseType(head)
+	if rendered == "" {
+		// Unrecognised base — verbatim fallback.
+		if constraintBody != "" {
+			return head, "(" + constraintBody + ")"
+		}
+		return head, ""
+	}
+	if constraintBody == "" {
+		return rendered, ""
+	}
+	if c := parseConstraintBody(constraintBody); c != "" {
+		return rendered, c
+	}
+	return rendered, "(" + constraintBody + ")"
+}
+
+// renderBaseType normalises an SMI base-type token to the short
+// label rendered in the type-defs pill. Returns "" for unrecognised
+// tokens — callers fall back to the verbatim head.
+func renderBaseType(head string) string {
+	switch head {
+	case "Integer32":
+		return "Integer32"
+	case "INTEGER":
+		return "Integer"
+	case "Unsigned32":
+		return "Unsigned32"
+	case "Gauge32":
+		return "Gauge32"
+	case "Counter32":
+		return "Counter32"
+	case "Counter64":
+		return "Counter64"
+	case "OCTET STRING":
+		return "OctetString"
+	case "OBJECT IDENTIFIER":
+		return "OID"
+	case "BITS":
+		return "BITS"
+	case "TimeTicks":
+		return "TimeTicks"
+	case "IpAddress":
+		return "IpAddress"
+	}
+	return ""
+}
+
+// parseConstraintBody renders the inside of a parenthesised
+// constraint group ("SIZE(N)", "SIZE(min..max)", "min..max", etc.)
+// as a human-readable phrase. Returns "" when the body shape isn't
+// recognised; the caller falls back to verbatim rendering.
+func parseConstraintBody(body string) string {
+	body = strings.TrimSpace(body)
+	if strings.HasPrefix(body, "SIZE(") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(body, "SIZE("), ")")
+		inner = strings.TrimSpace(inner)
+		if inner == "" {
+			return ""
+		}
+		if strings.Contains(inner, "|") {
+			return "size: variable"
+		}
+		return "size: " + inner
+	}
+	// Bare range — `min..max` (no SIZE prefix).
+	if strings.Contains(body, "..") && !strings.Contains(body, "|") {
+		return "range: " + body
+	}
+	return ""
+}
+
+// countNamedEntries counts comma-separated `name(num)` entries
+// inside an INTEGER {} or BITS {} body. Robust against extra
+// whitespace and nested parentheses (no real-world MIB nests
+// inside an enum body, but the count tolerates them).
+func countNamedEntries(body string) int {
+	depth := 0
+	count := 0
+	hadContent := false
+	for _, r := range body {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 && hadContent {
+				count++
+				hadContent = false
+			}
+		default:
+			if !unicode.IsSpace(r) {
+				hadContent = true
+			}
+		}
+	}
+	if hadContent {
+		count++
+	}
+	return count
+}
+
+// TypeDef is one row in the workspace's type-definitions bar — a
+// projected, render-ready shape derived from a Textual Convention
+// symbol. The bar walks `[]TypeDef` to render one row per TC with
+// a parsed base-type pill and a constraint phrase ("range:
+// 1..2147483647", "size: 0..255", "enum: 3 values"), plus an
+// inline expansion of `EnumValues` for enum / BITS TCs.
+//
+// The shape is a pure projection — no live `*model.Symbol`
+// pointer — so the templ doesn't accidentally reach into fields
+// that aren't relevant for the bar (Description, OID, etc.).
+type TypeDef struct {
+	Module     string
+	Name       string
+	Base       string
+	Constraint string
+	EnumValues []model.EnumValue
+}
+
+// CollectTypeDefs filters a module's symbol slice to its Textual
+// Conventions and projects each into a render-ready `TypeDef`.
+// Source order is preserved — TCs in real MIBs are often defined
+// in dependency order (`InterfaceIndex` before
+// `InterfaceIndexOrZero` because the latter cites the former), and
+// the bar's reading order should match the source.
+//
+// Returns nil when the module declares no TCs so the templ can
+// suppress the entire bar with a `len(...) > 0` gate.
+func CollectTypeDefs(syms []model.Symbol) []TypeDef {
+	var out []TypeDef
+	for i := range syms {
+		s := &syms[i]
+		if s.Kind != model.KindTextualConvention {
+			continue
+		}
+		base, constraint := parseTCSyntax(s.Syntax)
+		out = append(out, TypeDef{
+			Module:     s.ModuleName,
+			Name:       s.Name,
+			Base:       base,
+			Constraint: constraint,
+			EnumValues: s.EnumValues,
+		})
+	}
+	return out
+}
+
 // SymbolContext captures "where in the SMI tree does this symbol sit"
 // for the in-context block on the symbol page (Column N of X table,
 // Indexed by …, Augments …).
@@ -917,6 +1147,11 @@ type WorkspaceView struct {
 	// produce an empty bundle, so we hide them rather than
 	// advertise a broken click target.
 	ModuleDownloadable bool
+	// TypeDefs is the projected list of the module's Textual
+	// Conventions for the type-definitions bar. Empty when the
+	// module declares no TCs; the templ suppresses the bar
+	// entirely in that case.
+	TypeDefs []TypeDef
 }
 
 // moduleSummaryPreview returns the first-sentence preview of a
