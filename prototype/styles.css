@@ -3148,16 +3148,23 @@ main.page:has(.workspace-grid) .content-inner,
  * ----------------------------------------------------------- */
 .simulate-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 1100;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 8vh var(--gutter, 16px) var(--gutter, 16px);
+  box-sizing: border-box;
 }
 .simulate-backdrop {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: color-mix(in oklch, var(--bg) 75%, transparent);
 }
 .simulate-modal {
@@ -3267,16 +3274,26 @@ main.page:has(.workspace-grid) .content-inner,
   margin: 0;
 }
 .simulate-varbind {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(80px, auto) 2fr;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.simulate-varbind:first-child {
+  border-top: 0;
+}
+.simulate-varbind-head {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
-  align-items: center;
-  padding: 4px 0;
+  flex-wrap: wrap;
 }
 .simulate-varbind-name {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--fg-1);
+  word-break: break-all;
 }
 .simulate-varbind-syntax {
   font-size: 11px;
@@ -3291,6 +3308,8 @@ main.page:has(.workspace-grid) .content-inner,
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--fg-1);
+  width: 100%;
+  box-sizing: border-box;
 }
 .simulate-command {
   font-family: var(--font-mono);

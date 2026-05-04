@@ -235,8 +235,10 @@ templ trapSimulatorModal() {
 				<label class="simulate-label">Varbinds</label>
 				<template x-for="vb in varbinds" :key="vb.module + ':' + vb.name">
 					<div class="simulate-varbind">
-						<span class="simulate-varbind-name" x-text="vb.name"></span>
-						<span class="simulate-varbind-syntax" x-text="vb.syntax"></span>
+						<div class="simulate-varbind-head">
+							<span class="simulate-varbind-name" x-text="vb.name"></span>
+							<span class="simulate-varbind-syntax" x-text="vb.syntax"></span>
+						</div>
 						<template x-if="vb.enumValues && vb.enumValues.length > 0">
 							<select x-model.number="vb.value">
 								<template x-for="ev in vb.enumValues" :key="ev.number">
