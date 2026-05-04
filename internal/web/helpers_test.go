@@ -273,11 +273,21 @@ func TestParseTCSyntaxBaseAndConstraint(t *testing.T) {
 		{"Integer32 (0..2147483647)", "Integer32", "range: 0..2147483647"},
 		{"INTEGER (1..255)", "Integer", "range: 1..255"},
 
-		// SIZE constraints on OCTET STRING.
+		// SIZE constraints on OCTET STRING — both the SMI-canonical
+		// spelling and the smidump XML basetype spelling render
+		// identically through the pill, so the type-defs bar
+		// stays consistent regardless of which path the syntax
+		// string came from.
 		{"OCTET STRING (SIZE(6))", "OctetString", "size: 6"},
 		{"OCTET STRING (SIZE(0..255))", "OctetString", "size: 0..255"},
 		{"OCTET STRING (SIZE(1..256))", "OctetString", "size: 1..256"},
 		{"OCTET STRING (SIZE(0..255 | 65535))", "OctetString", "size: variable"},
+		{"OctetString (SIZE(6))", "OctetString", "size: 6"},
+		{"OctetString (SIZE(0..255))", "OctetString", "size: 0..255"},
+
+		// ObjectIdentifier (smidump spelling) renders as OID.
+		{"ObjectIdentifier", "OID", ""},
+		{"Bits", "BITS", ""},
 
 		// Enum INTEGER and BITS bodies.
 		{"INTEGER { up(1), down(2), testing(3) }", "Integer", "enum: 3 values"},

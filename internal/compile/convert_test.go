@@ -187,7 +187,7 @@ func TestRenderTypedefSyntax(t *testing.T) {
 		want string
 	}{
 		{
-			name: "non-enumeration falls through to base type",
+			name: "non-enumeration with no range falls through to base type",
 			in:   XMLTypedef{BaseType: "OCTET STRING"},
 			want: "OCTET STRING",
 		},
@@ -195,6 +195,41 @@ func TestRenderTypedefSyntax(t *testing.T) {
 			name: "enumeration with no named numbers reads as bare type",
 			in:   XMLTypedef{BaseType: "Enumeration"},
 			want: "Enumeration",
+		},
+		{
+			name: "Integer32 with range emits bare numeric range",
+			in: XMLTypedef{
+				BaseType: "Integer32",
+				Range:    []XMLRange{{Min: "1", Max: "2147483647"}},
+			},
+			want: "Integer32 (1..2147483647)",
+		},
+		{
+			name: "OctetString with range emits SIZE-wrapped form",
+			in: XMLTypedef{
+				BaseType: "OctetString",
+				Range:    []XMLRange{{Min: "0", Max: "255"}},
+			},
+			want: "OctetString (SIZE(0..255))",
+		},
+		{
+			name: "OctetString single-value range collapses to one token",
+			in: XMLTypedef{
+				BaseType: "OctetString",
+				Range:    []XMLRange{{Min: "6", Max: "6"}},
+			},
+			want: "OctetString (SIZE(6))",
+		},
+		{
+			name: "multi-segment range joins with pipe",
+			in: XMLTypedef{
+				BaseType: "Integer32",
+				Range: []XMLRange{
+					{Min: "1", Max: "10"},
+					{Min: "20", Max: "30"},
+				},
+			},
+			want: "Integer32 (1..10 | 20..30)",
 		},
 		{
 			name: "small enumeration renders inline",

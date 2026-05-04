@@ -314,6 +314,20 @@ func renderSyntax(s *XMLSyntax) string {
 // Inline rendering is capped at typedefEnumInlineCap entries with a
 // trailing `, …` so very long enums (IANAifType ~300 entries) don't
 // dominate the line width.
+//
+// For non-enum TCs that carry a `<range>` in the smidump XML, the
+// constraint is appended in SMI canonical form: `(SIZE(min..max))`
+// for OctetString / Bits typedefs (where the range bounds the
+// OCTET STRING / BIT STRING length) and bare `(min..max)` for
+// numeric-shaped typedefs (where the range bounds the value
+// itself). Multi-segment ranges (rare — `Integer32 (1..10 |
+// 20..30)`) preserve the `|` separator. Single-value ranges
+// (`SIZE(6)` for MAC) collapse to a single token.
+//
+// Downstream consumers (the workspace's Type Definitions bar
+// parser in `internal/web/helpers.go::parseTCSyntax`) recognise
+// these shapes verbatim; the parenthesised constraint round-trips
+// through to a "range:" / "size:" phrase in the rendered UI.
 const typedefEnumInlineCap = 10
 
 func renderTypedefSyntax(t XMLTypedef) string {
@@ -342,7 +356,42 @@ func renderTypedefSyntax(t XMLTypedef) string {
 		b.WriteString(" }")
 		return b.String()
 	}
-	return t.BaseType
+	if len(t.Range) == 0 {
+		return t.BaseType
+	}
+	constraint := renderRanges(t.Range)
+	if isStringShapedBase(t.BaseType) {
+		return t.BaseType + " (SIZE(" + constraint + "))"
+	}
+	return t.BaseType + " (" + constraint + ")"
+}
+
+// isStringShapedBase reports whether a smidump basetype string
+// represents a length-bounded type (OCTET STRING, BIT STRING)
+// where a `<range>` constraint should render as `SIZE(...)`
+// rather than as a numeric value range.
+func isStringShapedBase(base string) bool {
+	switch base {
+	case "OctetString", "OCTET STRING", "Bits", "BITS":
+		return true
+	}
+	return false
+}
+
+// renderRanges joins one or more `<range>` entries into the
+// canonical SMI form: `min..max` per entry, ` | ` between
+// entries. A single-value range (Min == Max) collapses to one
+// token (`SIZE(6)` for a MAC).
+func renderRanges(rs []XMLRange) string {
+	parts := make([]string, 0, len(rs))
+	for _, r := range rs {
+		if r.Min == r.Max {
+			parts = append(parts, r.Min)
+		} else {
+			parts = append(parts, r.Min+".."+r.Max)
+		}
+	}
+	return strings.Join(parts, " | ")
 }
 
 // normalizeAccess maps smidump's compact MAX-ACCESS tokens to the

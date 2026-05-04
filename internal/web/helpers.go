@@ -946,6 +946,14 @@ func parseTCSyntax(syntax string) (base, constraint string) {
 // renderBaseType normalises an SMI base-type token to the short
 // label rendered in the type-defs pill. Returns "" for unrecognised
 // tokens — callers fall back to the verbatim head.
+//
+// The recognised set covers both the SMI-canonical spellings
+// (`OCTET STRING`, `OBJECT IDENTIFIER`) and smidump's pascal-case
+// XML attribute spellings (`OctetString`, `ObjectIdentifier`,
+// `Bits`). Real smidump output for the IF-MIB typedefs uses
+// `OctetString` and `Integer32`; using both forms here means the
+// parser works whether the syntax string came from a typedef
+// rendering, a column rendering, or a synthetic test fixture.
 func renderBaseType(head string) string {
 	switch head {
 	case "Integer32":
@@ -960,11 +968,11 @@ func renderBaseType(head string) string {
 		return "Counter32"
 	case "Counter64":
 		return "Counter64"
-	case "OCTET STRING":
+	case "OCTET STRING", "OctetString":
 		return "OctetString"
-	case "OBJECT IDENTIFIER":
+	case "OBJECT IDENTIFIER", "ObjectIdentifier":
 		return "OID"
-	case "BITS":
+	case "BITS", "Bits":
 		return "BITS"
 	case "TimeTicks":
 		return "TimeTicks"
