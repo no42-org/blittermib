@@ -775,6 +775,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 						<span class="tlet" aria-hidden="true">{ TypeLetter(&s) }</span>
 					</td>
 					<td class="list-cell-name">
+						@copyToClipboardIcon(s.Name, "Copy name")
 						<a href={ rowURL }>
 							<code>
 								@templ.Raw(SplitNameHTML(s.Name))
@@ -788,6 +789,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 					<td class={ "list-cell-access " + AccessClass(s.Access) }>{ AccessLabel(s.Access) }</td>
 					<td class="list-cell-oid">
 						if s.OID != "" {
+							@copyToClipboardIcon(s.OID, "Copy OID")
 							if oidPre != "" {
 								<span class="pre">{ oidPre }</span>
 							}
