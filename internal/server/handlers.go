@@ -980,7 +980,13 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 
 	// Decide the index strategy.
 	if len(out) == 0 {
-		return out, web.TrapIndexStrategy{Mode: "raw-suffix"}
+		// No varbinds (e.g. authenticationFailure, coldStart,
+		// warmStart in SNMPv2-MIB). The simulator has no row
+		// identity to prompt for; the trap is sent with just
+		// its OID. Returning "scalar-only" suppresses both the
+		// single-int input and the raw-suffix fallback in the
+		// modal.
+		return out, web.TrapIndexStrategy{Mode: "scalar-only"}
 	}
 	if allScalar {
 		return out, web.TrapIndexStrategy{Mode: "scalar-only"}

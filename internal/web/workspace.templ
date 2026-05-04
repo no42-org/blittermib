@@ -829,9 +829,11 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 			<div class="section-title">Description</div>
 			<div class="desc">{ collapseWhitespace(s.Description) }</div>
 		}
-		if len(sv.NotifyObjects) > 0 {
-			<div class="section-title">Notification objects</div>
-			<ul class="notify-objects"
+		if s.Kind == model.KindNotificationType || s.Kind == model.KindTrapType {
+			if len(sv.NotifyObjects) > 0 {
+				<div class="section-title">Notification objects</div>
+			}
+			<ul class={ "notify-objects", templ.KV("notify-objects-empty", len(sv.NotifyObjects) == 0) }
 				data-notification-oid={ s.OID }
 				data-notification-name={ s.Name }
 				data-notification-module={ s.ModuleName }

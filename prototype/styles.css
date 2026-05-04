@@ -3146,6 +3146,9 @@ main.page:has(.workspace-grid) .content-inner,
  * backdrop, centered card with max-width). All form values
  * stay client-side; nothing is POSTed.
  * ----------------------------------------------------------- */
+.notify-objects-empty {
+  display: none;          /* metadata-only UL for empty-OBJECTS notifications */
+}
 .simulate-overlay {
   position: fixed;
   top: 0;

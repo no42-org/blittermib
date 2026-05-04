@@ -72,7 +72,11 @@ window.trapSimulator = (function () {
 		return {
 			isOpen: false,
 			notif: { name: '', oid: '', module: '' },
-			indexMode: 'raw-suffix',
+			// Default to scalar-only so a stale state can't bleed
+			// the raw-suffix UI into a fresh open() before the
+			// metadata reads. open() always sets the real value
+			// from the rendered DOM.
+			indexMode: 'scalar-only',
 			indexLabel: '',
 			varbinds: [],
 
@@ -168,6 +172,10 @@ window.trapSimulator = (function () {
 				this.engineIDError = '';
 				this.openError = '';
 				this.copyError = '';
+				// Reset indexMode so a previous notification's
+				// raw-suffix mode doesn't bleed into the next open.
+				this.indexMode = 'scalar-only';
+				this.indexLabel = '';
 			},
 
 			validateEngineID: function () {
