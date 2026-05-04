@@ -419,10 +419,13 @@ templ typeDefsBar(view *WorkspaceView) {
 			<div class="type-defs-body">
 				for _, td := range view.TypeDefs {
 					{{ tcSym := model.Symbol{ModuleName: td.Module, Name: td.Name, Kind: model.KindTextualConvention} }}
-					<div class="type-defs-row" x-data="{ open: false }">
+					<div class={ "type-defs-row", StatusModifier(td.Status) } x-data="{ open: false }">
 						<a class="type-defs-name" href={ WorkspaceRowURL(view, &tcSym) }>
 							<code>{ td.Name }</code>
 						</a>
+						if pill := StatusPillLabel(td.Status); pill != "" {
+							<span class={ "status-pill", string(td.Status) }>{ pill }</span>
+						}
 						if td.Base != "" {
 							<span class="type-defs-pill">{ td.Base }</span>
 						}
@@ -593,7 +596,7 @@ templ WorkspaceTreeFragment(view *WorkspaceView, rows []TreeRow) {
 // heavy SMI names.
 templ treeRow(view *WorkspaceView, r TreeRow) {
 	if r.HasChildren {
-		<li class={ "tree-row " + FamilyClass(&r.Symbol), templ.KV("selected", r.Selected) } role="treeitem"
+		<li class={ "tree-row " + FamilyClass(&r.Symbol), StatusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
 			data-name={ r.Symbol.Name }
 			data-oid={ r.Symbol.OID }
 			x-data={ TreeRowAlpineState(r.Expanded) }
@@ -622,7 +625,7 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 			</ul>
 		</li>
 	} else {
-		<li class={ "tree-row " + FamilyClass(&r.Symbol), templ.KV("selected", r.Selected) } role="treeitem"
+		<li class={ "tree-row " + FamilyClass(&r.Symbol), StatusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
 			data-name={ r.Symbol.Name }
 			data-oid={ r.Symbol.OID }>
 			<div class="tree-row-head">
@@ -731,7 +734,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 				{{ oidPre, oidLast := SplitOIDLast(s.OID) }}
 				{{ rowURL := WorkspaceRowURL(view, &s) }}
 				<tr
-					class={ "list-row " + FamilyClass(&s), templ.KV("selected", selectedOID != "" && s.OID == selectedOID) }
+					class={ "list-row " + FamilyClass(&s), StatusModifier(s.Status), templ.KV("selected", selectedOID != "" && s.OID == selectedOID) }
 					data-name={ s.Name }
 					data-oid={ s.OID }
 					data-kind={ string(s.Kind) }
@@ -747,6 +750,9 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 								@templ.Raw(SplitNameHTML(s.Name))
 							</code>
 						</a>
+						if pill := StatusPillLabel(s.Status); pill != "" {
+							<span class={ "status-pill", string(s.Status) }>{ pill }</span>
+						}
 					</td>
 					<td class="list-cell-syntax">{ SyntaxShort(s.Syntax) }</td>
 					<td class={ "list-cell-access " + AccessClass(s.Access) }>{ AccessLabel(s.Access) }</td>

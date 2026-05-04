@@ -2337,6 +2337,59 @@ func TestTypeDefsBarRawFallback(t *testing.T) {
 	}
 }
 
+// TestDeprecatedSymbolRendersStatusPill seeds a module mixing
+// `current` and `deprecated` symbols across kinds (column, TC)
+// and asserts the rendered HTML carries the per-row status
+// modifier class plus the inline `deprecated` pill on the
+// affected rows.
+func TestDeprecatedSymbolRendersStatusPill(t *testing.T) {
+	url := seedModuleWithSymbols(t, "MIXED-MIB", "1.3.6.1.4.1.42",
+		[]model.Symbol{
+			{
+				ModuleName: "MIXED-MIB", Name: "currentScalar",
+				OID: "1.3.6.1.4.1.42.1", ParentOID: "1.3.6.1.4.1.42",
+				Kind: model.KindScalar, Syntax: "INTEGER",
+				Status: model.StatusCurrent,
+			},
+			{
+				ModuleName: "MIXED-MIB", Name: "deprecatedScalar",
+				OID: "1.3.6.1.4.1.42.2", ParentOID: "1.3.6.1.4.1.42",
+				Kind: model.KindScalar, Syntax: "Counter32",
+				Status: model.StatusDeprecated,
+			},
+			{
+				ModuleName: "MIXED-MIB", Name: "DeprecatedTC",
+				Kind: model.KindTextualConvention, Syntax: "OctetString",
+				Status: model.StatusDeprecated,
+			},
+		},
+	)
+	resp, err := http.Get(url + "/m/MIXED-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bodyString(t, resp)
+
+	wants := []string{
+		// Per-row modifier on the deprecated list-pane row.
+		`status-deprecated`,
+		// Inline pill text — appears at least twice
+		// (deprecated scalar in the list, deprecated TC in
+		// the type-defs bar).
+		`>deprecated</span>`,
+		// Pill class chains with the status string from
+		// model.Status — matches the CSS rules.
+		`class="status-pill deprecated"`,
+	}
+	for _, w := range wants {
+		if !strings.Contains(body, w) {
+			t.Errorf("rendered HTML missing %q; body excerpt:\n%s",
+				w, snippet(body, "deprecated", 800))
+		}
+	}
+
+}
+
 // TestTypeDefsBarEnumValuesEmbedded pins that an enum TC's named
 // values reach the rendered DOM as `<li>name(number)</li>`
 // entries inside the row's enum list. The toggle is client-side

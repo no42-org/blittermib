@@ -2864,6 +2864,64 @@ main.page:has(.workspace-grid) .content-inner,
   background: color-mix(in oklch, var(--accent) 28%, transparent);
 }
 
+/* Status pill — small uppercase badge that flags a symbol's
+ * SMI STATUS when it's not `current`. Surfaces on the workspace
+ * list rows and the type-definitions bar (the workspace tree
+ * dims deprecated/obsolete rows but is too narrow to carry the
+ * pill cleanly).
+ *
+ * deprecated → muted grey, says "use the replacement"
+ * obsolete   → warmer orange tint, says "may be removed entirely"
+ *
+ * The selectors `.deprecated` / `.obsolete` apply via the
+ * status string emitted from `model.Status` (`StatusDeprecated`
+ * = "deprecated", `StatusObsolete` = "obsolete"), keeping the
+ * Go-side string and CSS class in lockstep.
+ */
+.status-pill {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.status-pill.deprecated {
+  background: color-mix(in oklch, var(--fg-3) 22%, transparent);
+  color: var(--fg-3);
+}
+.status-pill.obsolete {
+  background: color-mix(in oklch, oklch(72% 0.16 30) 24%, transparent);
+  color: oklch(72% 0.16 30);
+}
+
+/* Dim deprecated and obsolete rows uniformly across the three
+ * surfaces that surface SMI status (workspace tree, list pane,
+ * type-definitions bar) so the row visually recedes — the user
+ * can still read it but the active eye-attractors are the
+ * supported symbols. Selected rows recover most of the opacity
+ * so the selection highlight stays visible.
+ */
+.list-row.status-deprecated,
+.list-row.status-obsolete,
+.tree-row.status-deprecated,
+.tree-row.status-obsolete,
+.type-defs-row.status-deprecated,
+.type-defs-row.status-obsolete {
+  opacity: 0.6;
+}
+.list-row.status-deprecated.selected,
+.list-row.status-obsolete.selected,
+.tree-row.status-deprecated.selected,
+.tree-row.status-obsolete.selected {
+  opacity: 0.9;
+}
+
 /* Type Definitions bar — sibling of `.module-info`. Lists the
  * module's Textual Conventions with a parsed base-type pill and
  * a constraint phrase per row. Hidden when the module declares
@@ -2932,12 +2990,13 @@ main.page:has(.workspace-grid) .content-inner,
   padding: 6px 10px;
   background: var(--bg);
 }
-/* Five-column grid:
+/* Six-column grid:
  *   1. name        (min 180px so short names align across rows)
- *   2. pill        (base-type token, content-sized)
- *   3. constraint  (range/size/enum phrase, content-sized)
- *   4. toggle      (chevron, sits adjacent to its constraint)
- *   5. spacer (1fr) absorbs the remaining width so columns 1-4
+ *   2. status pill (deprecated/obsolete badge; collapses to 0 when absent)
+ *   3. base pill   (Integer32, OctetString, OID, BITS, …)
+ *   4. constraint  (range/size/enum phrase, content-sized)
+ *   5. toggle      (chevron, sits adjacent to its constraint)
+ *   6. spacer (1fr) absorbs remaining width so columns 1-5
  *      cluster on the left rather than spreading edge-to-edge
  *
  * Each child names its column explicitly so a missing optional
@@ -2946,7 +3005,7 @@ main.page:has(.workspace-grid) .content-inner,
  */
 .type-defs-row {
   display: grid;
-  grid-template-columns: minmax(180px, auto) auto auto auto 1fr;
+  grid-template-columns: minmax(180px, auto) auto auto auto auto 1fr;
   gap: 4px 12px;
   align-items: baseline;
   padding: 3px 2px;
@@ -2967,8 +3026,15 @@ main.page:has(.workspace-grid) .content-inner,
   color: var(--accent);
   text-decoration: underline;
 }
-.type-defs-pill {
+/* Status pill in column 2 — between name and base-type pill.
+ * Empty when the TC's status is `current`, taking 0 width so
+ * the row layout collapses cleanly. */
+.type-defs-row > .status-pill {
   grid-column: 2;
+  align-self: center;
+}
+.type-defs-pill {
+  grid-column: 3;
   display: inline-block;
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
@@ -2982,7 +3048,7 @@ main.page:has(.workspace-grid) .content-inner,
   align-self: center;
 }
 .type-defs-constraint {
-  grid-column: 3;
+  grid-column: 4;
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
   font-size: 11px;
@@ -2991,7 +3057,7 @@ main.page:has(.workspace-grid) .content-inner,
   white-space: nowrap;
 }
 .type-defs-enum-toggle {
-  grid-column: 4;
+  grid-column: 5;
   background: transparent;
   border: 0;
   padding: 0 4px;

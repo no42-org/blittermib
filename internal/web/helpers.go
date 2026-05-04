@@ -631,6 +631,40 @@ func TrapTypeLetter(syntax string) string {
 	return "s"
 }
 
+// StatusModifier returns the row-class modifier for an SMI status,
+// or "" for normal states (current / mandatory / optional). The
+// workspace tree, list, and type-definitions bar attach this
+// modifier to their row element so a single CSS rule can dim
+// deprecated and obsolete rows uniformly.
+//
+// The dimming complements `StatusPillLabel`'s text badge —
+// together they signal "this symbol exists in the MIB but is
+// flagged as legacy by its author" without burying the row.
+func StatusModifier(s model.Status) string {
+	switch s {
+	case model.StatusDeprecated:
+		return "status-deprecated"
+	case model.StatusObsolete:
+		return "status-obsolete"
+	}
+	return ""
+}
+
+// StatusPillLabel returns the text rendered in the small status
+// pill that appears alongside a symbol's name on surfaces that
+// surface deprecated / obsolete status (list pane, type-defs
+// bar). Returns "" for normal states so the templ can omit the
+// pill entirely with a `len(...) > 0` gate.
+func StatusPillLabel(s model.Status) string {
+	switch s {
+	case model.StatusDeprecated:
+		return "deprecated"
+	case model.StatusObsolete:
+		return "obsolete"
+	}
+	return ""
+}
+
 // AccessClass returns the abbreviated CSS class used in the
 // workspace list-pane access column: "ro" (read-only / cyan), "rw"
 // (read-write / read-create / amber), or "na" (not-accessible /
@@ -1060,6 +1094,7 @@ type TypeDef struct {
 	Name       string
 	Base       string
 	Constraint string
+	Status     model.Status
 	EnumValues []model.EnumValue
 }
 
@@ -1085,6 +1120,7 @@ func CollectTypeDefs(syms []model.Symbol) []TypeDef {
 			Name:       s.Name,
 			Base:       base,
 			Constraint: constraint,
+			Status:     s.Status,
 			EnumValues: s.EnumValues,
 		})
 	}
