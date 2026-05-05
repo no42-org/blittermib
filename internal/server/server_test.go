@@ -2148,6 +2148,225 @@ func TestBuildNotifyVarbindsIpAddressIndex(t *testing.T) {
 	}
 }
 
+// TestBuildNotifyVarbindsFixedOctetStringIndex covers the Tier 2
+// fixed-size OCTET STRING path: a notification whose OBJECTS share
+// a parent entry indexed by a single `MacAddress` column should
+// classify to Mode "indexed" with one OCTET STRING column
+// descriptor carrying SizeMin=SizeMax=6 — the modal will render a
+// hex-bytes input and compose `.{b0}.{b1}.…` (six segments).
+func TestBuildNotifyVarbindsFixedOctetStringIndex(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "BRIDGE-MIB", OIDRoot: "1.3.6.1.2.1.17", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "BRIDGE-MIB", Name: "dot1dTpFdbEntry",
+				OID: "1.3.6.1.2.1.17.4.3.1", ParentOID: "1.3.6.1.2.1.17.4.3",
+				Kind: model.KindTableEntry, Syntax: "Dot1dTpFdbEntry",
+				IndexColumns: []string{"dot1dTpFdbAddress"},
+			},
+			{
+				ModuleName: "BRIDGE-MIB", Name: "dot1dTpFdbAddress",
+				OID: "1.3.6.1.2.1.17.4.3.1.1", ParentOID: "1.3.6.1.2.1.17.4.3.1",
+				Kind: model.KindColumn, Syntax: "MacAddress",
+			},
+			{
+				ModuleName: "BRIDGE-MIB", Name: "dot1dTpFdbStatus",
+				OID: "1.3.6.1.2.1.17.4.3.1.3", ParentOID: "1.3.6.1.2.1.17.4.3.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "BRIDGE-MIB", Name: "newRoot",
+				OID: "1.3.6.1.2.1.17.0.1", ParentOID: "1.3.6.1.2.1.17.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "BRIDGE-MIB", SourceName: "newRoot",
+				TargetModule: "BRIDGE-MIB", TargetName: "dot1dTpFdbStatus",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "BRIDGE-MIB", SourceName: "newRoot",
+			TargetModule: "BRIDGE-MIB", TargetName: "dot1dTpFdbStatus",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Errorf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1; Columns = %#v", len(idx.Columns), idx.Columns)
+	}
+	col := idx.Columns[0]
+	if col.Name != "dot1dTpFdbAddress" {
+		t.Errorf("Columns[0].Name = %q, want %q", col.Name, "dot1dTpFdbAddress")
+	}
+	if col.Syntax != "OCTET STRING" {
+		t.Errorf("Columns[0].Syntax = %q, want %q", col.Syntax, "OCTET STRING")
+	}
+	if col.SizeMin != 6 || col.SizeMax != 6 {
+		t.Errorf("Columns[0] size = (%d, %d), want (6, 6)", col.SizeMin, col.SizeMax)
+	}
+}
+
+// TestBuildNotifyVarbindsExplicitFixedSizeIndex covers the
+// SIZE(N)-on-OCTET-STRING path without going through a TC name —
+// e.g. a vendor MIB that writes `OCTET STRING (SIZE(8))` directly
+// on the index column. The classifier should still emit an
+// OCTET STRING descriptor with SizeMin=SizeMax=8.
+func TestBuildNotifyVarbindsExplicitFixedSizeIndex(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorEntry",
+				IndexColumns: []string{"vendorKey"},
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorKey",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "OCTET STRING (SIZE(8))",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorState",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Errorf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1", len(idx.Columns))
+	}
+	if idx.Columns[0].SizeMin != 8 || idx.Columns[0].SizeMax != 8 {
+		t.Errorf("size = (%d, %d), want (8, 8)",
+			idx.Columns[0].SizeMin, idx.Columns[0].SizeMax)
+	}
+}
+
+// TestBuildNotifyVarbindsVariableOctetStringFallsBack pins the
+// commit-1 boundary: a single-column OCTET STRING index with a
+// variable SIZE range (e.g. SIZE(0..255)) must NOT classify as
+// indexed yet — composing the suffix correctly depends on the
+// IMPLIED keyword, which isn't propagated through `model.Symbol`
+// in this commit. The classifier degrades to raw-suffix until a
+// follow-on commit wires IMPLIED end-to-end.
+func TestBuildNotifyVarbindsVariableOctetStringFallsBack(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorEntry",
+				IndexColumns: []string{"vendorName"},
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorName",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "OCTET STRING (SIZE(0..255))",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorState",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "raw-suffix" {
+		t.Errorf("Mode = %q, want %q (variable OCTET STRING needs IMPLIED-aware composer)",
+			idx.Mode, "raw-suffix")
+	}
+}
+
 // seedModuleWithSymbols is a small helper used by the type-defs
 // integration tests to build an in-memory store and an httptest
 // server with one module's symbols. Returns the test server URL.

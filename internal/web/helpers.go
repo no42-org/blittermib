@@ -829,9 +829,35 @@ type NotifyVarbind struct {
 // column (numeric for INTEGER, dotted-quad for IpAddress, etc.)
 // and composes each varbind's column-OID suffix from the per-
 // column composers.
+//
+// `SizeMin` / `SizeMax` carry SMI SIZE-constraint bounds for
+// OCTET STRING / BITS columns. Equal values mean a fixed-length
+// field (e.g. `MacAddress` resolves to 6 / 6); unequal means a
+// variable range (e.g. `OCTET STRING (SIZE(0..255))` is 0 / 255);
+// both zero means unbounded or not applicable.
+//
+// `IsImplied` mirrors the SMIv2 IMPLIED keyword on the last (or
+// only) index column. Variable-length OCTET STRING / OID indexes
+// are length-prefixed when not IMPLIED and bare-bytes when
+// IMPLIED — composing the suffix correctly requires this bit.
+// The Tier 2 server-classifier ships only fixed-size OCTET STRING
+// columns (where IMPLIED is semantically inert) and pins the
+// field to literal `false`. A follow-on that propagates `Implied`
+// from `XMLLinkage` through `model.Symbol` will populate it for
+// the variable path.
+//
+// `omitempty` is intentionally NOT used on the size / implied
+// fields: a `SizeMin` of `0` is meaningful (the lower bound of
+// `OCTET STRING (SIZE(0..255))`) and would be indistinguishable
+// from "field absent" if elided. Emitting the zero values keeps
+// the JSON contract unambiguous — every column descriptor
+// carries the same set of keys regardless of syntax.
 type TrapIndexColumn struct {
-	Name   string `json:"name"`
-	Syntax string `json:"syntax"`
+	Name      string `json:"name"`
+	Syntax    string `json:"syntax"`
+	SizeMin   int    `json:"sizeMin"`
+	SizeMax   int    `json:"sizeMax"`
+	IsImplied bool   `json:"isImplied"`
 }
 
 // TrapIndexStrategy describes how the trap simulator modal should
