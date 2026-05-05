@@ -3606,9 +3606,31 @@ main.page:has(.workspace-grid) .content-inner,
   color: var(--severity-red);
   font-size: 11px;
 }
+/* Row-identity rows: label on the left, input + error stacked
+   in a column on the right. align-items: center vertically
+   centers the label text on the input field, and the error
+   span flows naturally below the input rather than crowding it
+   on the right. */
+.simulate-row-identity {
+  align-items: center;
+}
+.simulate-row-identity > label {
+  flex: 0 0 auto;
+}
+.simulate-input-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.simulate-input-cell > input,
+.simulate-input-cell > select {
+  width: 100%;
+  box-sizing: border-box;
+}
 .simulate-column-error {
   display: block;
-  margin-top: 2px;
 }
 .simulate-hint {
   font-size: 11px;
@@ -3623,6 +3645,22 @@ main.page:has(.workspace-grid) .content-inner,
 .simulate-preview code {
   font-family: var(--mono, monospace);
   color: var(--fg-1);
+}
+.simulate-warning {
+  background: var(--severity-yellow-bg, #3a2e0d);
+  color: var(--severity-yellow, #f0b429);
+  border: 1px solid var(--severity-yellow, #f0b429);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.simulate-warning code {
+  font-family: var(--mono, monospace);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0 4px;
+  border-radius: 3px;
 }
 .simulate-varbind {
   display: flex;

@@ -214,35 +214,43 @@ templ trapSimulatorModal() {
 			<div class="simulate-section" x-show="indexMode === 'indexed'">
 				<label class="simulate-label">Row identity</label>
 				<template x-for="col in indexColumns" :key="col.name">
-					<div class="simulate-field-row">
+					<div class="simulate-field-row simulate-row-identity">
 						<label x-text="col.name"></label>
-						<template x-if="col.syntax === 'IpAddress'">
-							<input type="text" x-model="col.value" placeholder="10.0.0.1"/>
-						</template>
-						<template x-if="col.syntax === 'OCTET STRING' || col.syntax === 'BITS'">
-							<input type="text" x-model="col.value" :placeholder="octetPlaceholder(col)"/>
-						</template>
-						<template x-if="col.syntax === 'OBJECT IDENTIFIER'">
-							<input type="text" x-model="col.value" placeholder=".1.3.6.1.4.1.9"/>
-						</template>
-						<template x-if="col.syntax === 'InetAddressType'">
-							<select x-model.number="col.value">
-								<option value="0">unknown(0)</option>
-								<option value="1">ipv4(1)</option>
-								<option value="2">ipv6(2)</option>
-								<option value="3">ipv4z(3)</option>
-								<option value="4">ipv6z(4)</option>
-								<option value="16">dns(16)</option>
-							</select>
-						</template>
-						<template x-if="col.syntax !== 'IpAddress' && col.syntax !== 'OCTET STRING' && col.syntax !== 'OBJECT IDENTIFIER' && col.syntax !== 'BITS' && col.syntax !== 'InetAddressType'">
-							<input type="number" x-model.number="col.value"/>
-						</template>
-						<span class="simulate-error simulate-column-error" x-show="validateColumn(col)" x-text="validateColumn(col)"></span>
+						<div class="simulate-input-cell">
+							<template x-if="col.syntax === 'IpAddress'">
+								<input type="text" x-model="col.value" placeholder="10.0.0.1"/>
+							</template>
+							<template x-if="col.syntax === 'OCTET STRING' || col.syntax === 'BITS'">
+								<input type="text" x-model="col.value" :placeholder="octetPlaceholder(col)"/>
+							</template>
+							<template x-if="col.syntax === 'OBJECT IDENTIFIER'">
+								<input type="text" x-model="col.value" placeholder=".1.3.6.1.4.1.9"/>
+							</template>
+							<template x-if="col.syntax === 'InetAddressType'">
+								<select x-model.number="col.value">
+									<option value="0">unknown(0)</option>
+									<option value="1">ipv4(1)</option>
+									<option value="2">ipv6(2)</option>
+									<option value="3">ipv4z(3)</option>
+									<option value="4">ipv6z(4)</option>
+									<option value="16">dns(16)</option>
+								</select>
+							</template>
+							<template x-if="col.syntax !== 'IpAddress' && col.syntax !== 'OCTET STRING' && col.syntax !== 'OBJECT IDENTIFIER' && col.syntax !== 'BITS' && col.syntax !== 'InetAddressType'">
+								<input type="number" x-model.number="col.value"/>
+							</template>
+							<span class="simulate-error simulate-column-error" x-show="validateColumn(col)" x-text="validateColumn(col)"></span>
+						</div>
 					</div>
 				</template>
-				<p class="simulate-preview">
+				<p class="simulate-preview" x-show="!hasValidationErrors()">
 					Composed suffix: <code x-text="composedSuffixPreview() || '(empty)'"></code>
+				</p>
+				<p class="simulate-warning" x-show="hasValidationErrors()" role="alert">
+					Row identity has validation errors — fix the
+					highlighted inputs above before running this
+					command. The suffix has been replaced with
+					<code>&lt;ERROR&gt;</code>.
 				</p>
 			</div>
 

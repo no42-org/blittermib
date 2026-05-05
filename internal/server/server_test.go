@@ -2919,6 +2919,82 @@ func TestBuildNotifyVarbindsCompositeImpliedAppliesOnlyToLast(t *testing.T) {
 	}
 }
 
+// TestBuildNotifyVarbindsInetAddressTypeAlone pins the
+// classifier branch ordering: a single-column `InetAddressType`
+// INDEX must classify as Syntax="InetAddressType", NOT as plain
+// "INTEGER". InetAddressType is an enum-typed integer TC; if a
+// future drive-by change adds it to `isIntegerSyntax` (a
+// reasonable-looking simplification), the dedicated branch
+// becomes unreachable, the modal renders a numeric input
+// instead of the typed `<select>`, and no other test catches
+// the regression.
+func TestBuildNotifyVarbindsInetAddressTypeAlone(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorAddrEntry",
+				IndexColumns: []string{"vendorAddrType"},
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrType",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "InetAddressType",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrState",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorAddrChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorAddrState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorAddrChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorAddrState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Fatalf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1", len(idx.Columns))
+	}
+	if idx.Columns[0].Syntax != "InetAddressType" {
+		t.Errorf("Columns[0].Syntax = %q, want %q (branch ordering: InetAddressType MUST be caught before isIntegerSyntax)",
+			idx.Columns[0].Syntax, "InetAddressType")
+	}
+}
+
 // TestBuildNotifyVarbindsInetAddressFamilyComposite covers the
 // canonical RFC 4001 discriminator pattern: a two-column INDEX
 // of `{ InetAddressType, InetAddress }`. The first column should

@@ -254,6 +254,47 @@ func TestBitsBytes(t *testing.T) {
 			},
 			want: 3,
 		},
+		{
+			// Negative bit numbers are illegal per SMI; defensive
+			// guard. Returning 0 drops the column to raw-suffix
+			// rather than fabricating a size from corrupt data.
+			name: "all-negative bit numbers — rejected as 0",
+			enums: []model.EnumValue{
+				{Name: "broken", Number: -1},
+			},
+			want: 0,
+		},
+		{
+			// Last legal value just under the cap (511 → 64 bytes).
+			name: "max bit 511 still inside the sanity cap",
+			enums: []model.EnumValue{
+				{Name: "edge", Number: 511},
+			},
+			want: 64,
+		},
+		{
+			// First value the cap rejects. Without the cap the
+			// modal would build a 64-pair hex placeholder string
+			// — already sizable but tractable. The cap protects
+			// against pathological inputs (e.g. `BITS { x(2147483647) }`)
+			// that would derive a 268M-byte size and hang the browser
+			// in the placeholder loop.
+			name: "max bit 512 rejected by sanity cap",
+			enums: []model.EnumValue{
+				{Name: "huge", Number: 512},
+			},
+			want: 0,
+		},
+		{
+			// Pathological case from the corpus-validation review.
+			// Without the cap this would derive a 268,435,456-byte
+			// size and the JS placeholder builder would hang.
+			name: "max bit 2_147_483_647 rejected (DoS shape)",
+			enums: []model.EnumValue{
+				{Name: "attack", Number: 2147483647},
+			},
+			want: 0,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -200,19 +200,42 @@ func isBitsSyntax(s string) bool {
 // bitsBytes returns the byte length of a BITS-typed value given
 // its named-bits list. The wire encoding of BITS is a fixed-
 // length OCTET STRING whose length covers the highest-numbered
-// bit — `ceil((maxBit + 1) / 8)`. Returns 0 when the bit list
-// is empty (an empty BITS definition is malformed; the caller
-// drops to raw-suffix in that case rather than emit a size-0
-// indexed descriptor that the modal can't render usefully).
+// bit — `ceil((maxBit + 1) / 8)`.
+//
+// Returns 0 in three degenerate cases that all drop the column
+// to raw-suffix mode:
+//   - empty bit list (malformed BITS definition)
+//   - negative bit numbers (illegal per SMI; defensive guard)
+//   - max bit ≥ `bitsMaxBit` (sanity cap — see below)
+//
+// `bitsMaxBit` is set so the derived size never exceeds 64 bytes.
+// Real-world BITS index columns have at most a few dozen named
+// bits; a vendor MIB (or a corrupted import) emitting `BITS {
+// x(2147483647) }` would otherwise derive `SizeMin=268435456`,
+// and the trap-simulator modal would loop 268M times building
+// the placeholder string and hang the browser. 64 bytes is
+// generous (512 named bits) without enabling the DoS shape.
+const bitsMaxBit = 512
+
 func bitsBytes(enums []model.EnumValue) int {
 	if len(enums) == 0 {
 		return 0
 	}
-	var maxBit int64
+	// `-1` is a sentinel meaning "no valid bit seen yet" so the
+	// all-negative degenerate case is distinguishable from a
+	// legitimate `maxBit == 0` (a single bit at position zero,
+	// which is `BITS { x(0) }` and resolves to 1 byte).
+	maxBit := int64(-1)
 	for _, e := range enums {
+		if e.Number < 0 {
+			continue
+		}
 		if e.Number > maxBit {
 			maxBit = e.Number
 		}
+	}
+	if maxBit < 0 || maxBit >= bitsMaxBit {
+		return 0
 	}
 	return int(maxBit/8) + 1
 }

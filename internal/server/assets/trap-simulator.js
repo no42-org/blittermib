@@ -255,6 +255,17 @@ window.trapSimulator = (function () {
 			suffix: function (vb) {
 				if (vb.isColumn) {
 					if (this.indexMode === 'indexed') {
+						// design.md Decision 6: when ANY column has a
+						// validation error, the entire row identity
+						// collapses to a single `<ERROR>` sentinel.
+						// Concatenating per-column outputs would
+						// produce something like `.10.0.0.1.<ERROR>.5`
+						// that looks plausible to a copy-paster but
+						// fails downstream — better to short-circuit
+						// to one obviously-broken token paired with
+						// the warning banner above the generated
+						// command.
+						if (this.hasValidationErrors()) return '.<ERROR>';
 						var parts = '';
 						for (var i = 0; i < this.indexColumns.length; i++) {
 							parts += this.composeColumn(this.indexColumns[i]);
@@ -270,6 +281,23 @@ window.trapSimulator = (function () {
 				}
 				// Scalars (or columns in scalar-only mode) use .0
 				return '.0';
+			},
+
+			// hasValidationErrors reports whether any indexed column's
+			// `validateColumn` returns a non-empty error string. Used by
+			// `suffix(vb)` and `composedSuffixPreview()` to short-circuit
+			// to a single `<ERROR>` sentinel and by the templ to surface
+			// the Decision 6 warning banner above the generated command.
+			//
+			// Returns false in scalar-only / raw-suffix modes — those
+			// modes don't carry per-column validation; raw-suffix uses
+			// freeform input and is the user's responsibility.
+			hasValidationErrors: function () {
+				if (this.indexMode !== 'indexed') return false;
+				for (var i = 0; i < this.indexColumns.length; i++) {
+					if (this.validateColumn(this.indexColumns[i]) !== '') return true;
+				}
+				return false;
 			},
 
 			// composeColumn dispatches per-column suffix composition
@@ -463,26 +491,41 @@ window.trapSimulator = (function () {
 			},
 
 			// octetPlaceholder builds a colon-separated hex hint for
-			// OCTET STRING inputs. Fixed-size columns (`sizeMin ===
-			// sizeMax > 0`) get an exact-N-pair hint
-			// (`00:11:22:33:44:55` for sizeMin=6) so the user
-			// immediately sees the required byte count. Variable
-			// columns get a generic four-pair example regardless of
-			// any lower-bound constraint — the user can type any
-			// length within the SIZE range, and the placeholder is
-			// just a formatting illustration. The bytes step by
-			// 0x11 each so the hint is visually distinct from real-
-			// looking addresses (avoids the trap of users thinking
-			// the placeholder is a default value to keep).
+			// OCTET STRING inputs. The pair count is chosen by the
+			// column's SIZE constraint:
+			//
+			//   sizeMin === sizeMax > 0  →  exact N pairs
+			//                               (fixed-size: shows the
+			//                                required byte count)
+			//   sizeMin > 0              →  sizeMin pairs
+			//                               (variable with lower
+			//                                bound: shows the
+			//                                minimum the validator
+			//                                will accept — matches
+			//                                copy-the-placeholder
+			//                                user behaviour)
+			//   else                     →  generic 4-pair example
+			//                               (unbounded / zero-min)
+			//
+			// The bytes step by 0x11 each so the hint is visually
+			// distinct from real-looking addresses (avoids the trap
+			// of users thinking the placeholder is a default value
+			// to keep). The pair count is also clamped so a
+			// pathological size (corrupt JSON, vendor BITS misuse)
+			// can't loop millions of times — see `bitsMaxBit` on
+			// the server side; this is the JS-side mirror.
 			octetPlaceholder: function (col) {
 				var lo = Number(col && col.sizeMin) || 0;
 				var hi = Number(col && col.sizeMax) || 0;
 				var n;
 				if (lo > 0 && lo === hi) {
 					n = lo;
+				} else if (lo > 0) {
+					n = lo;
 				} else {
 					n = 4;
 				}
+				if (n > 64) n = 64;
 				var parts = [];
 				for (var i = 0; i < n; i++) {
 					var v = (i * 0x11) % 256;
@@ -563,8 +606,16 @@ window.trapSimulator = (function () {
 			// appended to every column varbind's OID. Empty when the
 			// modal isn't in indexed mode (scalar-only and raw-suffix
 			// have no per-column row identity to preview).
+			//
+			// design.md Decision 6: when any column has a validation
+			// error, the preview collapses to a single `<ERROR>`
+			// sentinel rather than stitching per-column outputs into
+			// a plausible-looking but broken dotted string. Pairs
+			// with the warning banner the templ shows above the
+			// generated command.
 			composedSuffixPreview: function () {
 				if (this.indexMode !== 'indexed') return '';
+				if (this.hasValidationErrors()) return '<ERROR>';
 				var parts = '';
 				for (var i = 0; i < this.indexColumns.length; i++) {
 					parts += this.composeColumn(this.indexColumns[i]);
