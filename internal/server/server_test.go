@@ -2299,14 +2299,14 @@ func TestBuildNotifyVarbindsExplicitFixedSizeIndex(t *testing.T) {
 	}
 }
 
-// TestBuildNotifyVarbindsVariableOctetStringFallsBack pins the
-// commit-1 boundary: a single-column OCTET STRING index with a
-// variable SIZE range (e.g. SIZE(0..255)) must NOT classify as
-// indexed yet — composing the suffix correctly depends on the
-// IMPLIED keyword, which isn't propagated through `model.Symbol`
-// in this commit. The classifier degrades to raw-suffix until a
-// follow-on commit wires IMPLIED end-to-end.
-func TestBuildNotifyVarbindsVariableOctetStringFallsBack(t *testing.T) {
+// TestBuildNotifyVarbindsVariableOctetStringNotImplied covers the
+// Tier 2 commit 3 variable OCTET STRING path WITHOUT IMPLIED: a
+// single-column OCTET STRING index with a variable SIZE range
+// (e.g. SIZE(0..255)) classifies as indexed with IsImplied=false,
+// SizeMin/SizeMax carrying the constraint bounds. The JS composer
+// length-prefixes the encoding (`.{len}.{b0}.{b1}…`) for
+// non-IMPLIED variable OCTET STRING.
+func TestBuildNotifyVarbindsVariableOctetStringNotImplied(t *testing.T) {
 	st, err := store.OpenInMemory(context.Background())
 	if err != nil {
 		t.Fatalf("OpenInMemory: %v", err)
@@ -2322,6 +2322,7 @@ func TestBuildNotifyVarbindsVariableOctetStringFallsBack(t *testing.T) {
 				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
 				Kind: model.KindTableEntry, Syntax: "VendorEntry",
 				IndexColumns: []string{"vendorName"},
+				IndexImplied: false,
 			},
 			{
 				ModuleName: "VENDOR-MIB", Name: "vendorName",
@@ -2361,9 +2362,240 @@ func TestBuildNotifyVarbindsVariableOctetStringFallsBack(t *testing.T) {
 	}
 	_, idx := srv.buildNotifyVarbinds(ctx, refs)
 
-	if idx.Mode != "raw-suffix" {
-		t.Errorf("Mode = %q, want %q (variable OCTET STRING needs IMPLIED-aware composer)",
-			idx.Mode, "raw-suffix")
+	if idx.Mode != "indexed" {
+		t.Errorf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1; Columns = %#v", len(idx.Columns), idx.Columns)
+	}
+	col := idx.Columns[0]
+	if col.Syntax != "OCTET STRING" {
+		t.Errorf("Syntax = %q, want %q", col.Syntax, "OCTET STRING")
+	}
+	if col.SizeMin != 0 || col.SizeMax != 255 {
+		t.Errorf("size = (%d, %d), want (0, 255)", col.SizeMin, col.SizeMax)
+	}
+	if col.IsImplied {
+		t.Errorf("IsImplied = true, want false (entry has IndexImplied=false)")
+	}
+}
+
+// TestBuildNotifyVarbindsVariableOctetStringImplied is the
+// IMPLIED variant: same syntax, but the parent entry's
+// `IndexImplied` flag is set, so the column descriptor must
+// surface IsImplied=true. The JS composer drops the length
+// prefix and emits bare bytes for IMPLIED variable OCTET STRING.
+func TestBuildNotifyVarbindsVariableOctetStringImplied(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorEntry",
+				IndexColumns: []string{"vendorName"},
+				IndexImplied: true,
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorName",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "OCTET STRING",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorState",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Errorf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1", len(idx.Columns))
+	}
+	if !idx.Columns[0].IsImplied {
+		t.Errorf("IsImplied = false, want true (entry has IndexImplied=true)")
+	}
+}
+
+// TestBuildNotifyVarbindsOIDIndex covers a single-column
+// OBJECT IDENTIFIER index without IMPLIED. The classifier emits
+// an indexed descriptor with Syntax="OBJECT IDENTIFIER" and
+// IsImplied=false; the JS composer length-prefixes the dotted
+// segments.
+func TestBuildNotifyVarbindsOIDIndex(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorEntry",
+				IndexColumns: []string{"vendorOID"},
+				IndexImplied: false,
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorOID",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "OBJECT IDENTIFIER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorState",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Errorf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1", len(idx.Columns))
+	}
+	col := idx.Columns[0]
+	if col.Syntax != "OBJECT IDENTIFIER" {
+		t.Errorf("Syntax = %q, want %q", col.Syntax, "OBJECT IDENTIFIER")
+	}
+	if col.IsImplied {
+		t.Errorf("IsImplied = true, want false")
+	}
+}
+
+// TestBuildNotifyVarbindsOIDIndexImplied is the IMPLIED variant
+// of the OID test: parent entry's IndexImplied flag flows through
+// to the column descriptor, telling the JS composer to drop the
+// length prefix.
+func TestBuildNotifyVarbindsOIDIndexImplied(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorEntry",
+				IndexColumns: []string{"vendorOID"},
+				IndexImplied: true,
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorOID",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "OBJECT IDENTIFIER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorState",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Errorf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1", len(idx.Columns))
+	}
+	if !idx.Columns[0].IsImplied {
+		t.Errorf("IsImplied = false, want true (entry has IndexImplied=true)")
 	}
 }
 

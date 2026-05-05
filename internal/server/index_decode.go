@@ -116,9 +116,12 @@ func tcFixedSize(syntax string) (int, bool) {
 
 // isOctetStringSyntax reports whether `s` resolves to an SMI
 // `OCTET STRING` base type, ignoring any SIZE constraint.
-// Recognises the canonical SMI spelling and the smidump XML
-// basetype spelling (`OctetString`), plus fixed-size TCs covered
-// by `tcFixedSize`.
+// Recognises the canonical SMI spelling, the smidump XML
+// basetype spelling (`OctetString`), fixed-size TCs (covered by
+// `tcFixedSize`), and the well-known variable-size TCs
+// `PhysAddress` and `DateAndTime`. Variable-size TCs round-trip
+// through the indexed-mode path with IsImplied determining
+// length-prefix vs bare-bytes composition.
 func isOctetStringSyntax(s string) bool {
 	if _, ok := tcFixedSize(s); ok {
 		return true
@@ -128,7 +131,25 @@ func isOctetStringSyntax(s string) bool {
 		t = strings.TrimSpace(t[:i])
 	}
 	switch t {
-	case "OCTET STRING", "OctetString":
+	case "OCTET STRING", "OctetString",
+		"PhysAddress", "DateAndTime":
+		return true
+	}
+	return false
+}
+
+// isOIDSyntax reports whether `s` resolves to an SMI
+// `OBJECT IDENTIFIER` base type. Recognises the canonical SMI
+// spelling and the smidump XML basetype spelling
+// (`ObjectIdentifier`). Constraints on OID columns are
+// vanishingly rare and not parsed here.
+func isOIDSyntax(s string) bool {
+	t := strings.TrimSpace(s)
+	if i := strings.IndexByte(t, '('); i >= 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	switch t {
+	case "OBJECT IDENTIFIER", "ObjectIdentifier":
 		return true
 	}
 	return false

@@ -77,8 +77,9 @@ func TestExtractSizeConstraint(t *testing.T) {
 }
 
 // TestIsOctetStringSyntax pins the helper's classification —
-// SMI canonical, smidump XML basetype, and known fixed-size TCs
-// all classify as OCTET STRING; everything else does not.
+// SMI canonical, smidump XML basetype, fixed-size TCs, and the
+// well-known variable-size TCs (PhysAddress, DateAndTime) all
+// classify as OCTET STRING; everything else does not.
 func TestIsOctetStringSyntax(t *testing.T) {
 	yes := []string{
 		"OCTET STRING",
@@ -88,6 +89,8 @@ func TestIsOctetStringSyntax(t *testing.T) {
 		"MacAddress",
 		"InetAddressIPv4",
 		"InetAddressIPv6",
+		"PhysAddress",
+		"DateAndTime",
 	}
 	no := []string{
 		"INTEGER",
@@ -105,6 +108,34 @@ func TestIsOctetStringSyntax(t *testing.T) {
 	for _, s := range no {
 		if isOctetStringSyntax(s) {
 			t.Errorf("isOctetStringSyntax(%q) = true; want false", s)
+		}
+	}
+}
+
+// TestIsOIDSyntax pins the OBJECT IDENTIFIER classifier — the
+// canonical SMI spelling and smidump's basetype spelling both
+// classify as OID; everything else falls through.
+func TestIsOIDSyntax(t *testing.T) {
+	yes := []string{
+		"OBJECT IDENTIFIER",
+		"ObjectIdentifier",
+		"  OBJECT IDENTIFIER  ",
+	}
+	no := []string{
+		"INTEGER",
+		"OCTET STRING",
+		"IpAddress",
+		"BITS",
+		"MacAddress",
+	}
+	for _, s := range yes {
+		if !isOIDSyntax(s) {
+			t.Errorf("isOIDSyntax(%q) = false; want true", s)
+		}
+	}
+	for _, s := range no {
+		if isOIDSyntax(s) {
+			t.Errorf("isOIDSyntax(%q) = true; want false", s)
 		}
 	}
 }

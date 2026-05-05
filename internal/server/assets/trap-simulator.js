@@ -50,7 +50,8 @@ window.trapSimulator = (function () {
 			if (!col || typeof col !== 'object') continue;
 			var syntax = String(col.syntax || '');
 			var defaultValue;
-			if (syntax === 'IpAddress' || syntax === 'OCTET STRING') {
+			if (syntax === 'IpAddress' || syntax === 'OCTET STRING' ||
+				syntax === 'OBJECT IDENTIFIER') {
 				// Text-shaped columns start blank so the user
 				// sees the placeholder hint rather than a
 				// numeric `0` they have to clear before typing.
@@ -266,9 +267,21 @@ window.trapSimulator = (function () {
 			},
 
 			// composeColumn dispatches per-column suffix composition
-			// by `col.syntax`. Tier 1 covers INTEGER (and Integer32-
-			// like base types) and IpAddress. Tier 2 commit 2 adds
-			// fixed-size OCTET STRING (MacAddress and friends).
+			// by `col.syntax`. The classifier ladder by tier:
+			//
+			//   Tier 1            INTEGER / Integer32-like, IpAddress
+			//   Tier 2 commit 2   OCTET STRING (fixed-size)
+			//   Tier 2 commit 3   OCTET STRING (variable),
+			//                     OBJECT IDENTIFIER
+			//
+			// For OCTET STRING columns the fixed-vs-variable split
+			// is detected from the descriptor: `sizeMin === sizeMax > 0`
+			// means a fixed-length field that uses the
+			// hex-bytes-with-byte-count composer; everything else
+			// (variable range, unbounded) routes to the IMPLIED-
+			// aware variable composer that consumes `col.isImplied`
+			// to choose length-prefix vs bare-bytes encoding.
+			//
 			// Unknown syntaxes are composed as a numeric integer —
 			// a safe fallback for integer-shaped TCs that the
 			// server-side classifier resolved as `indexed` even
@@ -279,7 +292,13 @@ window.trapSimulator = (function () {
 					return this.composeIpAddress(col.value);
 				}
 				if (col.syntax === 'OCTET STRING') {
-					return this.composeOctetStringFixed(col);
+					if (col.sizeMin > 0 && col.sizeMin === col.sizeMax) {
+						return this.composeOctetStringFixed(col);
+					}
+					return this.composeOctetStringVariable(col);
+				}
+				if (col.syntax === 'OBJECT IDENTIFIER') {
+					return this.composeOID(col);
 				}
 				return this.composeInteger(col.value);
 			},
@@ -351,16 +370,96 @@ window.trapSimulator = (function () {
 				return out;
 			},
 
-			// octetPlaceholder builds a colon-separated hex hint
-			// (`00:11:22:33:44:55` for sizeMin=6) so the input's
-			// placeholder shows the user the exact byte count and
-			// formatting expected. The bytes step by 0x11 each so
-			// the hint is visually distinct from real-looking
-			// addresses (avoids the trap of users thinking the
-			// placeholder is a default value to keep).
+			// composeOctetStringVariable handles the variable-length
+			// OCTET STRING path — both unbounded (no SIZE clause) and
+			// ranged (`OCTET STRING (SIZE(0..255))`). The encoding
+			// depends on `col.isImplied`:
+			//
+			//   not IMPLIED  →  ".{len}.{b0}.{b1}…"   (length-prefixed)
+			//   IMPLIED      →  ".{b0}.{b1}…"         (bare bytes)
+			//
+			// `col.sizeMax > 0` enforces an upper-bound check (the
+			// SIZE constraint's max). Anything outside that range,
+			// or non-hex, or odd-length hex yields ".<ERROR>" so the
+			// command surfaces the problem rather than emitting a
+			// malformed OID.
+			composeOctetStringVariable: function (col) {
+				var raw = String(col.value == null ? '' : col.value).trim();
+				if (raw === '') return '.<ERROR>';
+				var hex = raw.replace(/[\s:\-]/g, '');
+				if (hex.length === 0 || hex.length % 2 !== 0) return '.<ERROR>';
+				if (!/^[0-9a-fA-F]+$/.test(hex)) return '.<ERROR>';
+				var bytes = hex.length / 2;
+				var maxBytes = Number(col.sizeMax) || 0;
+				if (maxBytes > 0 && bytes > maxBytes) return '.<ERROR>';
+				var minBytes = Number(col.sizeMin) || 0;
+				if (minBytes > 0 && bytes < minBytes) return '.<ERROR>';
+				var out = '';
+				if (!col.isImplied) {
+					out = '.' + bytes;
+				}
+				for (var i = 0; i < hex.length; i += 2) {
+					out += '.' + parseInt(hex.substring(i, i + 2), 16);
+				}
+				return out;
+			},
+
+			// composeOID handles an OBJECT IDENTIFIER index column.
+			// The user types a dotted-OID (`.1.3.6.1.4.1.9` or
+			// `1.3.6.1.4.1.9` — leading dot is optional and stripped
+			// before parsing). Encoding depends on `col.isImplied`:
+			//
+			//   not IMPLIED  →  ".{len}.{seg0}.{seg1}…"
+			//   IMPLIED      →  ".{seg0}.{seg1}…"
+			//
+			// Each segment must be a non-negative decimal integer.
+			// Empty segments (back-to-back dots, leading-trailing
+			// stray dot) and non-numeric content yield ".<ERROR>".
+			composeOID: function (col) {
+				var raw = String(col.value == null ? '' : col.value).trim();
+				if (raw === '') return '.<ERROR>';
+				if (raw.charAt(0) === '.') raw = raw.substring(1);
+				if (raw === '') return '.<ERROR>';
+				var parts = raw.split('.');
+				var segs = [];
+				for (var i = 0; i < parts.length; i++) {
+					var p = parts[i];
+					if (p === '' || /[^0-9]/.test(p)) return '.<ERROR>';
+					var n = Number(p);
+					if (!isFinite(n) || n < 0) return '.<ERROR>';
+					segs.push(n);
+				}
+				var out = '';
+				if (!col.isImplied) {
+					out = '.' + segs.length;
+				}
+				for (var i = 0; i < segs.length; i++) {
+					out += '.' + segs[i];
+				}
+				return out;
+			},
+
+			// octetPlaceholder builds a colon-separated hex hint for
+			// OCTET STRING inputs. Fixed-size columns (`sizeMin ===
+			// sizeMax > 0`) get an exact-N-pair hint
+			// (`00:11:22:33:44:55` for sizeMin=6) so the user
+			// immediately sees the required byte count. Variable
+			// columns get a generic four-pair example regardless of
+			// any lower-bound constraint — the user can type any
+			// length within the SIZE range, and the placeholder is
+			// just a formatting illustration. The bytes step by
+			// 0x11 each so the hint is visually distinct from real-
+			// looking addresses (avoids the trap of users thinking
+			// the placeholder is a default value to keep).
 			octetPlaceholder: function (col) {
-				var n = Number(col && col.sizeMin) || 0;
-				if (n <= 0) return '';
+				var lo = Number(col && col.sizeMin) || 0;
+				var hi = Number(col && col.sizeMax) || 0;
+				var n;
+				if (lo > 0 && lo === hi) {
+					n = lo;
+				} else {
+					n = 4;
+				}
 				var parts = [];
 				for (var i = 0; i < n; i++) {
 					var v = (i * 0x11) % 256;

@@ -1027,13 +1027,13 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 		// the guard the next access panics.
 		if err == nil && entry != nil && len(entry.IndexColumns) == 1 {
 			// Look up the index column's syntax to classify it.
-			// Tier 1 recognises single-INTEGER and single-IpAddress
-			// indexes; Tier 2 (this commit) adds fixed-size OCTET
-			// STRING (MacAddress, InetAddressIPv4/IPv6, explicit
-			// SIZE(N)). Variable OCTET STRING / OID / BITS /
-			// composite / vendor TCs drop to raw-suffix until
-			// follow-on commits extend this classifier with
-			// IMPLIED-aware handling.
+			// Single-column INDEX classification ladder:
+			//   INTEGER / IpAddress           — Tier 1
+			//   OCTET STRING (fixed)          — Tier 2 commit 1
+			//   OCTET STRING (variable) / OID — Tier 2 commit 3
+			// BITS, composite (multi-column), and vendor TCs the
+			// classifier doesn't recognise still drop to
+			// raw-suffix mode.
 			if idx, err := s.store.GetSymbol(ctx, entry.ModuleName, entry.IndexColumns[0]); err == nil && idx != nil {
 				switch {
 				case isIntegerSyntax(idx.Syntax):
@@ -1051,14 +1051,16 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 						},
 					}
 				case isOctetStringSyntax(idx.Syntax):
-					// Fixed-size only in this commit. IsImplied is
-					// set explicitly to make the descriptor's shape
-					// self-documenting for the JS consumer; for
-					// fixed-size columns the bit is semantically
-					// inert (length-prefix is absent regardless),
-					// but pinning it to a literal value matches
-					// the field's documented contract.
-					if lo, hi, ok := extractSizeConstraint(idx.Syntax); ok && lo == hi && lo > 0 {
+					// Fixed-size when SIZE(N) resolves equal lo/hi;
+					// otherwise variable. IMPLIED is irrelevant for
+					// fixed-size (no length prefix either way), so
+					// it pins to literal `false` on that path.
+					// Variable inherits the parent entry's IMPLIED
+					// bit so the JS composer can choose between
+					// length-prefixed and bare-bytes encoding.
+					lo, hi, sizeOk := extractSizeConstraint(idx.Syntax)
+					fixed := sizeOk && lo == hi && lo > 0
+					if fixed {
 						return out, web.TrapIndexStrategy{
 							Mode: "indexed",
 							Columns: []web.TrapIndexColumn{
@@ -1071,6 +1073,33 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 								},
 							},
 						}
+					}
+					return out, web.TrapIndexStrategy{
+						Mode: "indexed",
+						Columns: []web.TrapIndexColumn{
+							{
+								Name:      entry.IndexColumns[0],
+								Syntax:    "OCTET STRING",
+								SizeMin:   lo,
+								SizeMax:   hi,
+								IsImplied: entry.IndexImplied,
+							},
+						},
+					}
+				case isOIDSyntax(idx.Syntax):
+					// OBJECT IDENTIFIER index — variable-length by
+					// nature. IMPLIED follows the parent entry; the
+					// JS composer length-prefixes when not IMPLIED
+					// and emits bare segments when IMPLIED.
+					return out, web.TrapIndexStrategy{
+						Mode: "indexed",
+						Columns: []web.TrapIndexColumn{
+							{
+								Name:      entry.IndexColumns[0],
+								Syntax:    "OBJECT IDENTIFIER",
+								IsImplied: entry.IndexImplied,
+							},
+						},
 					}
 				}
 			}
