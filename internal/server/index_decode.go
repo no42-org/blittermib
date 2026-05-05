@@ -121,9 +121,12 @@ func tcFixedSize(syntax string) (int, bool) {
 // Recognises the canonical SMI spelling, the smidump XML
 // basetype spelling (`OctetString`), fixed-size TCs (covered by
 // `tcFixedSize`), and the well-known variable-size TCs
-// `PhysAddress` and `DateAndTime`. Variable-size TCs round-trip
-// through the indexed-mode path with IsImplied determining
-// length-prefix vs bare-bytes composition.
+// `PhysAddress`, `DateAndTime`, plus the RFC 4001 generic
+// `InetAddress` and `InetAddressDNS` (the typed-variant TCs
+// `InetAddressIPv4`/`IPv6` are fixed-size and live in
+// `tcFixedSize`). Variable-size TCs round-trip through the
+// indexed-mode path with IsImplied determining length-prefix vs
+// bare-bytes composition.
 func isOctetStringSyntax(s string) bool {
 	if _, ok := tcFixedSize(s); ok {
 		return true
@@ -134,10 +137,28 @@ func isOctetStringSyntax(s string) bool {
 	}
 	switch t {
 	case "OCTET STRING", "OctetString",
-		"PhysAddress", "DateAndTime":
+		"PhysAddress", "DateAndTime",
+		"InetAddress", "InetAddressDNS":
 		return true
 	}
 	return false
+}
+
+// isInetAddressTypeSyntax reports whether `s` is the SMIv2 RFC
+// 4001 `InetAddressType` Textual Convention. It's an enumerated
+// integer (`unknown(0), ipv4(1), ipv6(2), ipv4z(3), ipv6z(4),
+// dns(16)`) used as the FIRST column of the discriminator pair
+// `INDEX { InetAddressType, InetAddress* }`. The trap-simulator
+// modal renders a `<select>` for this syntax with the standard
+// enum options hardcoded — RFC 4001 freezes the set, so a
+// per-MIB lookup of the underlying `EnumValues` would be wasted
+// work.
+func isInetAddressTypeSyntax(s string) bool {
+	t := strings.TrimSpace(s)
+	if i := strings.IndexByte(t, '('); i >= 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	return t == "InetAddressType"
 }
 
 // isOIDSyntax reports whether `s` resolves to an SMI

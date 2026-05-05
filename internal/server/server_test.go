@@ -2919,6 +2919,167 @@ func TestBuildNotifyVarbindsCompositeImpliedAppliesOnlyToLast(t *testing.T) {
 	}
 }
 
+// TestBuildNotifyVarbindsInetAddressFamilyComposite covers the
+// canonical RFC 4001 discriminator pattern: a two-column INDEX
+// of `{ InetAddressType, InetAddress }`. The first column should
+// classify with Syntax="InetAddressType" (so the modal renders
+// a typed `<select>` of the standard enum), the second should
+// classify as variable OCTET STRING with IsImplied honoring the
+// parent entry's IndexImplied bit.
+func TestBuildNotifyVarbindsInetAddressFamilyComposite(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorAddrEntry",
+				IndexColumns: []string{"vendorAddrType", "vendorAddrValue"},
+				IndexImplied: true,
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrType",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "InetAddressType",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrValue",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "InetAddress",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrState",
+				OID: "1.3.6.1.4.1.99999.1.1.3", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorAddrChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorAddrChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorAddrState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorAddrChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorAddrState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Fatalf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 2 {
+		t.Fatalf("Columns len = %d, want 2", len(idx.Columns))
+	}
+	if idx.Columns[0].Syntax != "InetAddressType" {
+		t.Errorf("Columns[0].Syntax = %q, want %q", idx.Columns[0].Syntax, "InetAddressType")
+	}
+	if idx.Columns[0].IsImplied {
+		t.Errorf("Columns[0] (InetAddressType, mid) IsImplied = true, want false")
+	}
+	if idx.Columns[1].Syntax != "OCTET STRING" {
+		t.Errorf("Columns[1].Syntax = %q, want %q", idx.Columns[1].Syntax, "OCTET STRING")
+	}
+	if !idx.Columns[1].IsImplied {
+		t.Errorf("Columns[1] (InetAddress, last) IsImplied = false, want true (entry has IndexImplied=true)")
+	}
+}
+
+// TestBuildNotifyVarbindsInetAddressIPv4UsesIpAddressUI pins
+// the UX shortcut: InetAddressIPv4 columns are fixed 4 bytes
+// just like IpAddress, so the classifier emits Syntax="IpAddress"
+// to give the user a friendly dotted-quad input rather than a
+// 4-byte hex input. The dotted-suffix encoding is byte-for-byte
+// identical (`.{a}.{b}.{c}.{d}`), so there's no correctness cost.
+func TestBuildNotifyVarbindsInetAddressIPv4UsesIpAddressUI(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.ReplaceModule(ctx,
+		&model.Module{Name: "VENDOR-MIB", OIDRoot: "1.3.6.1.4.1.99999", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorEntry",
+				OID: "1.3.6.1.4.1.99999.1.1", ParentOID: "1.3.6.1.4.1.99999.1",
+				Kind: model.KindTableEntry, Syntax: "VendorEntry",
+				IndexColumns: []string{"vendorIPv4Addr"},
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorIPv4Addr",
+				OID: "1.3.6.1.4.1.99999.1.1.1", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "InetAddressIPv4",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorState",
+				OID: "1.3.6.1.4.1.99999.1.1.2", ParentOID: "1.3.6.1.4.1.99999.1.1",
+				Kind: model.KindColumn, Syntax: "INTEGER",
+			},
+			{
+				ModuleName: "VENDOR-MIB", Name: "vendorChange",
+				OID: "1.3.6.1.4.1.99999.0.1", ParentOID: "1.3.6.1.4.1.99999.0",
+				Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			},
+		},
+		[]model.Reference{
+			{
+				SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+				TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+				Kind: model.RefNotificationObject,
+			},
+		},
+		nil,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	refs := []model.Reference{
+		{
+			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
+			TargetModule: "VENDOR-MIB", TargetName: "vendorState",
+			Kind: model.RefNotificationObject,
+		},
+	}
+	_, idx := srv.buildNotifyVarbinds(ctx, refs)
+
+	if idx.Mode != "indexed" {
+		t.Fatalf("Mode = %q, want %q", idx.Mode, "indexed")
+	}
+	if len(idx.Columns) != 1 {
+		t.Fatalf("Columns len = %d, want 1", len(idx.Columns))
+	}
+	if idx.Columns[0].Syntax != "IpAddress" {
+		t.Errorf("Columns[0].Syntax = %q, want %q (UX shortcut: dotted-quad input)",
+			idx.Columns[0].Syntax, "IpAddress")
+	}
+}
+
 // TestBuildNotifyVarbindsCompositeUnknownColumnFallsBack pins
 // the all-or-nothing classifier contract: if any column in a
 // multi-column INDEX has a syntax the classifier doesn't

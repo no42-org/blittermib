@@ -1086,12 +1086,33 @@ func (s *Server) classifyIndexColumn(
 		return web.TrapIndexColumn{}, false
 	}
 	switch {
+	case isInetAddressTypeSyntax(idx.Syntax):
+		// RFC 4001 InetAddressType — enumerated integer. The
+		// modal renders a `<select>` with the standard enum
+		// options instead of a plain numeric input. Caught
+		// before `isIntegerSyntax` so the descriptor preserves
+		// the InetAddressType-ness for the templ branch.
+		return web.TrapIndexColumn{
+			Name:   columnName,
+			Syntax: "InetAddressType",
+		}, true
 	case isIntegerSyntax(idx.Syntax):
 		return web.TrapIndexColumn{
 			Name:   columnName,
 			Syntax: "INTEGER",
 		}, true
 	case isIPAddressSyntax(idx.Syntax):
+		return web.TrapIndexColumn{
+			Name:   columnName,
+			Syntax: "IpAddress",
+		}, true
+	case strings.TrimSpace(idx.Syntax) == "InetAddressIPv4":
+		// InetAddressIPv4 is fixed 4 bytes, identical to IpAddress
+		// in dotted-suffix encoding — emit IpAddress so the modal
+		// renders a friendly dotted-quad input rather than a
+		// 4-byte hex input. The wire encoding is byte-for-byte
+		// identical (`.{a}.{b}.{c}.{d}`), so there's no
+		// correctness cost.
 		return web.TrapIndexColumn{
 			Name:   columnName,
 			Syntax: "IpAddress",

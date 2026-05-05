@@ -116,6 +116,55 @@ func TestIsOctetStringSyntax(t *testing.T) {
 	}
 }
 
+// TestIsInetAddressTypeSyntax pins the RFC 4001
+// `InetAddressType` recognition — exact-match on the TC name
+// after stripping any trailing constraint group. The
+// classifier surfaces this as a distinct `Syntax` value so the
+// modal can render an enum-aware `<select>` instead of a plain
+// numeric input.
+func TestIsInetAddressTypeSyntax(t *testing.T) {
+	yes := []string{
+		"InetAddressType",
+		"  InetAddressType  ",
+		"InetAddressType (1..16)",
+	}
+	no := []string{
+		"INTEGER",
+		"InetAddress",
+		"InetAddressIPv4",
+		"InetAddressIPv6",
+		"IpAddress",
+	}
+	for _, s := range yes {
+		if !isInetAddressTypeSyntax(s) {
+			t.Errorf("isInetAddressTypeSyntax(%q) = false; want true", s)
+		}
+	}
+	for _, s := range no {
+		if isInetAddressTypeSyntax(s) {
+			t.Errorf("isInetAddressTypeSyntax(%q) = true; want false", s)
+		}
+	}
+}
+
+// TestIsOctetStringSyntaxRecognisesInetAddressFamily pins the
+// extension that covers RFC 4001's variable-size address TCs.
+// `InetAddress` (any-family) and `InetAddressDNS` are
+// variable-length OCTET STRING-shaped on the wire; the
+// classifier routes them through the variable-OCTET-STRING
+// path.
+func TestIsOctetStringSyntaxRecognisesInetAddressFamily(t *testing.T) {
+	yes := []string{
+		"InetAddress",
+		"InetAddressDNS",
+	}
+	for _, s := range yes {
+		if !isOctetStringSyntax(s) {
+			t.Errorf("isOctetStringSyntax(%q) = false; want true", s)
+		}
+	}
+}
+
 // TestIsBitsSyntax pins the BITS classifier — canonical SMI
 // spelling, smidump basetype spelling, and trailing `{ name(n),
 // … }` bodies all classify as BITS; everything else falls through.

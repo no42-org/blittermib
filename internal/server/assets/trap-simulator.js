@@ -56,6 +56,12 @@ window.trapSimulator = (function () {
 				// sees the placeholder hint rather than a
 				// numeric `0` they have to clear before typing.
 				defaultValue = '';
+			} else if (syntax === 'InetAddressType') {
+				// RFC 4001 InetAddressType — default to ipv4(1)
+				// since it's the most common variant in real
+				// deployments. The user can change to ipv6(2),
+				// dns(16), etc. via the select.
+				defaultValue = 1;
 			} else {
 				defaultValue = 0;
 			}
@@ -308,6 +314,14 @@ window.trapSimulator = (function () {
 					// Same parsing + validation as fixed OCTET STRING
 					// — the only delta is the source of the size.
 					return this.composeOctetStringFixed(col);
+				}
+				if (col.syntax === 'InetAddressType') {
+					// RFC 4001 InetAddressType — encodes on the wire
+					// as a plain integer (the enum value). Reuses
+					// composeInteger; the modal renders a `<select>`
+					// of the standard enum options so the user picks
+					// by name.
+					return this.composeInteger(col.value);
 				}
 				return this.composeInteger(col.value);
 			},
