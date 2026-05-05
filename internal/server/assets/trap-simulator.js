@@ -25,13 +25,14 @@ window.trapSimulator = (function () {
 
 	// readIndexColumns parses the notify-objects list's
 	// `data-trap-index-columns` attribute (a JSON array of
-	// {name, syntax} entries emitted by the Go template) and
-	// initialises a per-column `value` field with a sensible
-	// default — empty string for IpAddress (so the placeholder
-	// shows), zero for INTEGER (so the generated command is
-	// valid before the user types anything). Returns [] when
-	// the attribute is missing or malformed; the modal then
-	// falls back to its scalar-only / raw-suffix UI based on
+	// {name, syntax, sizeMin, sizeMax, isImplied} entries
+	// emitted by the Go template) and initialises a per-column
+	// `value` field with a sensible default — empty string for
+	// IpAddress and OCTET STRING (so the placeholder shows),
+	// zero for INTEGER (so the generated command is valid
+	// before the user types anything). Returns [] when the
+	// attribute is missing or malformed; the modal then falls
+	// back to its scalar-only / raw-suffix UI based on
 	// indexMode.
 	function readIndexColumns(ul) {
 		var raw = ul.dataset.trapIndexColumns;
@@ -47,15 +48,22 @@ window.trapSimulator = (function () {
 		for (var i = 0; i < parsed.length; i++) {
 			var col = parsed[i];
 			if (!col || typeof col !== 'object') continue;
+			var syntax = String(col.syntax || '');
 			var defaultValue;
-			if (col.syntax === 'IpAddress') {
+			if (syntax === 'IpAddress' || syntax === 'OCTET STRING') {
+				// Text-shaped columns start blank so the user
+				// sees the placeholder hint rather than a
+				// numeric `0` they have to clear before typing.
 				defaultValue = '';
 			} else {
 				defaultValue = 0;
 			}
 			out.push({
 				name: String(col.name || ''),
-				syntax: String(col.syntax || ''),
+				syntax: syntax,
+				sizeMin: Number(col.sizeMin) || 0,
+				sizeMax: Number(col.sizeMax) || 0,
+				isImplied: Boolean(col.isImplied),
 				value: defaultValue,
 			});
 		}
@@ -259,14 +267,19 @@ window.trapSimulator = (function () {
 
 			// composeColumn dispatches per-column suffix composition
 			// by `col.syntax`. Tier 1 covers INTEGER (and Integer32-
-			// like base types) and IpAddress. Unknown syntaxes are
-			// composed as a numeric integer — a safe fallback for
-			// integer-shaped TCs that the server-side classifier
-			// resolved as `indexed` even though the JS doesn't
-			// recognise the literal syntax string.
+			// like base types) and IpAddress. Tier 2 commit 2 adds
+			// fixed-size OCTET STRING (MacAddress and friends).
+			// Unknown syntaxes are composed as a numeric integer —
+			// a safe fallback for integer-shaped TCs that the
+			// server-side classifier resolved as `indexed` even
+			// though the JS doesn't recognise the literal syntax
+			// string.
 			composeColumn: function (col) {
 				if (col.syntax === 'IpAddress') {
 					return this.composeIpAddress(col.value);
+				}
+				if (col.syntax === 'OCTET STRING') {
+					return this.composeOctetStringFixed(col);
 				}
 				return this.composeInteger(col.value);
 			},
@@ -299,6 +312,63 @@ window.trapSimulator = (function () {
 					out += '.' + n;
 				}
 				return out;
+			},
+
+			// composeOctetStringFixed validates a hex-bytes string
+			// against the column's expected fixed length and emits
+			// ".N0.N1.…" — N decimal segments, one per byte. The
+			// caller's classifier guarantees `col.sizeMin === col.sizeMax`
+			// for fixed-size columns; variable-length OCTET STRING
+			// indexes use a different code path (raw-suffix today,
+			// IMPLIED-aware composer in the next tier).
+			//
+			// Accepted input shapes (canonicalised before parse):
+			//
+			//   00:11:22:33:44:55     colon-separated   (preferred)
+			//   00 11 22 33 44 55     space-separated
+			//   00-11-22-33-44-55     dash-separated
+			//   001122334455          no separators
+			//
+			// All separators are stripped together, so mixed forms
+			// like `00:11 22-33:44 55` parse the same. Anything else
+			// — wrong byte count, non-hex characters, odd hex length
+			// — yields ".<ERROR>" rather than a malformed OID, so
+			// the generated command surfaces the problem instead of
+			// silently composing garbage.
+			composeOctetStringFixed: function (col) {
+				var raw = String(col.value == null ? '' : col.value).trim();
+				if (raw === '') return '.<ERROR>';
+				var hex = raw.replace(/[\s:\-]/g, '');
+				if (hex.length === 0 || hex.length % 2 !== 0) return '.<ERROR>';
+				if (!/^[0-9a-fA-F]+$/.test(hex)) return '.<ERROR>';
+				var bytes = hex.length / 2;
+				var want = Number(col.sizeMin) || 0;
+				if (want > 0 && bytes !== want) return '.<ERROR>';
+				var out = '';
+				for (var i = 0; i < hex.length; i += 2) {
+					out += '.' + parseInt(hex.substring(i, i + 2), 16);
+				}
+				return out;
+			},
+
+			// octetPlaceholder builds a colon-separated hex hint
+			// (`00:11:22:33:44:55` for sizeMin=6) so the input's
+			// placeholder shows the user the exact byte count and
+			// formatting expected. The bytes step by 0x11 each so
+			// the hint is visually distinct from real-looking
+			// addresses (avoids the trap of users thinking the
+			// placeholder is a default value to keep).
+			octetPlaceholder: function (col) {
+				var n = Number(col && col.sizeMin) || 0;
+				if (n <= 0) return '';
+				var parts = [];
+				for (var i = 0; i < n; i++) {
+					var v = (i * 0x11) % 256;
+					var hex = v.toString(16);
+					if (hex.length === 1) hex = '0' + hex;
+					parts.push(hex);
+				}
+				return parts.join(':');
 			},
 
 			formatValue: function (vb) {
