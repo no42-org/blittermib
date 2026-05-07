@@ -7,13 +7,6 @@ a directory of MIBs and get a typographically-disciplined web UI that
 lets you search, navigate, and understand them — without sending
 anything to a third party.
 
-```
-                  blittermib.
-       Browse SNMP MIBs, beautifully.
-            [ Search...    ⌘K ]
-        287 modules · 85,432 symbols
-```
-
 ## Features
 
 - **Search-first navigation** — `⌘K` palette over symbol names, OIDs,
@@ -147,14 +140,6 @@ make check-tools    verify libsmi (smidump/smilint) is installed
 - **AI-assisted, human-reviewed** — every commit carries an
   `Assisted-by` trailer; the human submitter is responsible for
   reviewing AI-generated code
-
-## Sister project
-
-blittermib shares its visual system with
-[blitsbom](https://blitsbom.eu) — a self-hostable, browser-only viewer
-for CycloneDX SBOM files by the same author. Topbar layout, footer,
-typography rules, and the family tagline pattern (`Pixelperfect …`)
-are intentionally consistent.
 
 ## License
 
