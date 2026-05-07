@@ -343,9 +343,9 @@ func moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int) te
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var11 string
-				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs("Download " + mod.Name + " plus its imports as a ZIP bundle")
+				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Download %s plus its transitive import closure as a ZIP (%d .mib files)", mod.Name, bundleFileCount))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 366, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 366, Col: 128}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {

@@ -363,7 +363,7 @@ templ moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int) {
 							x-on:keydown.stop>↓ MIB</a>
 						<span class="module-info-download-sep" aria-hidden="true">·</span>
 						<a class="module-info-download-link" href={ moduleBundleURL(mod.Name) }
-							title={ "Download " + mod.Name + " plus its imports as a ZIP bundle" }
+							title={ fmt.Sprintf("Download %s plus its transitive import closure as a ZIP (%d .mib files)", mod.Name, bundleFileCount) }
 							x-on:click.stop
 							x-on:keydown.stop>↓ bundle ({ fmt.Sprintf("%d", bundleFileCount) })</a>
 					</span>
