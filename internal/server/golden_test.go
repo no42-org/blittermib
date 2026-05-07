@@ -75,7 +75,7 @@ func TestGoldenEmptyState(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -230,7 +230,7 @@ func newGoldenServer(t *testing.T) *httptest.Server {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts

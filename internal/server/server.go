@@ -12,29 +12,25 @@ import (
 
 // Server is the blittermib HTTP server.
 type Server struct {
-	store           *store.Store
-	version         string
-	mibsDir         string
-	standardMibsDir string
-	mux             *http.ServeMux
-	http            *http.Server
+	store   *store.Store
+	version string
+	mibsDir string
+	mux     *http.ServeMux
+	http    *http.Server
 }
 
 // New constructs a Server bound to addr backed by the given store.
-// mibsDir is shown to the user on the empty-state landing page so
-// they know where to drop MIB files; standardMibsDir is the staging
-// directory for the embedded MIB bundle (typically
-// `{dataDir}/standard-mibs`) and is used as the second allowed root
-// for the module-download path-traversal guard. version is surfaced
-// at /version and in the /healthz body.
-func New(st *store.Store, addr, version, mibsDir, standardMibsDir string) *Server {
+// mibsDir is the corpus root — shown to the user on the empty-state
+// landing page so they know where to drop MIB files, and used as the
+// allowed root for the module-download path-traversal guard. version
+// is surfaced at /version and in the /healthz body.
+func New(st *store.Store, addr, version, mibsDir string) *Server {
 	mux := http.NewServeMux()
 	s := &Server{
-		store:           st,
-		version:         version,
-		mibsDir:         mibsDir,
-		standardMibsDir: standardMibsDir,
-		mux:             mux,
+		store:   st,
+		version: version,
+		mibsDir: mibsDir,
+		mux:     mux,
 		http: &http.Server{
 			Addr:              addr,
 			Handler:           mux,

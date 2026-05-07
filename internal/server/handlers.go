@@ -293,7 +293,7 @@ func (s *Server) handleModuleDownload(w http.ResponseWriter, r *http.Request, na
 		s.notFound(w, r)
 		return
 	}
-	if !pathUnderAny(mod.SourcePath, []string{s.standardMibsDir, s.mibsDir}) {
+	if !pathUnderAny(mod.SourcePath, []string{s.mibsDir}) {
 		s.notFound(w, r)
 		return
 	}
@@ -353,7 +353,7 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 	}
 	ctx := r.Context()
 
-	roots := []string{s.standardMibsDir, s.mibsDir}
+	roots := []string{s.mibsDir}
 
 	// Pre-walk the root before committing any response state — the
 	// bundle endpoint must return 404 (not 200 with a MISSING.txt
@@ -649,7 +649,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 	// flatten to "not downloadable".
 	downloadable := false
 	if mod.SourcePath != "" &&
-		pathUnderAny(mod.SourcePath, []string{s.standardMibsDir, s.mibsDir}) {
+		pathUnderAny(mod.SourcePath, []string{s.mibsDir}) {
 		if _, err := os.Stat(mod.SourcePath); err == nil {
 			downloadable = true
 		}
@@ -672,7 +672,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		if err != nil {
 			slog.Warn("workspace: import-closure count failed", "module", name, "err", err)
 		} else {
-			roots := []string{s.standardMibsDir, s.mibsDir}
+			roots := []string{s.mibsDir}
 			for _, e := range closure {
 				if e.Loaded && e.SourcePath != "" && pathUnderAny(e.SourcePath, roots) {
 					bundleFileCount++

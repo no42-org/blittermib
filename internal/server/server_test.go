@@ -76,7 +76,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatalf("seed store: %v", err)
 	}
 
-	s := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	s := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts
@@ -291,16 +291,13 @@ func TestAPITreeFragmentMissingParent(t *testing.T) {
 
 // downloadTestServer seeds a closure A → B → unloaded C with real
 // source files for A and B inside the test temp dir, returning the
-// httptest.Server bound to those paths as allowed roots.
+// httptest.Server bound to the corpus root.
 func downloadTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	dir := t.TempDir()
 	mibsDir := filepath.Join(dir, "mibs")
-	stdDir := filepath.Join(dir, "data", "standard-mibs")
-	if err := os.MkdirAll(mibsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
+	stdSubdir := filepath.Join(mibsDir, "ietf", "core")
+	if err := os.MkdirAll(stdSubdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -308,7 +305,7 @@ func downloadTestServer(t *testing.T) (*httptest.Server, string) {
 	if err := os.WriteFile(aPath, []byte("A-MIB DEFINITIONS ::= BEGIN\nimports b;\nEND\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bPath := filepath.Join(stdDir, "B-MIB")
+	bPath := filepath.Join(stdSubdir, "B-MIB")
 	if err := os.WriteFile(bPath, []byte("B-MIB DEFINITIONS ::= BEGIN\nimports c;\nEND\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +337,7 @@ func downloadTestServer(t *testing.T) (*httptest.Server, string) {
 		t.Fatal(err)
 	}
 
-	srv := New(st, "", "test", mibsDir, stdDir)
+	srv := New(st, "", "test", mibsDir)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, dir
@@ -370,16 +367,12 @@ func TestModuleDownloadServesSource(t *testing.T) {
 func TestModuleDownloadPathTraversalRefused(t *testing.T) {
 	dir := t.TempDir()
 	mibsDir := filepath.Join(dir, "mibs")
-	stdDir := filepath.Join(dir, "data", "standard-mibs")
 	if err := os.MkdirAll(mibsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 
-	// SourcePath outside both roots — write a real file there so a
-	// missing guard would actually leak the bytes.
+	// SourcePath outside the corpus root — write a real file there so
+	// a missing guard would actually leak the bytes.
 	outsideDir := filepath.Join(dir, "outside")
 	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -404,7 +397,7 @@ func TestModuleDownloadPathTraversalRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(st, "", "test", mibsDir, stdDir)
+	srv := New(st, "", "test", mibsDir)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -510,11 +503,7 @@ func TestModuleDownloadBundleMissingImports(t *testing.T) {
 func TestModuleDownloadBundlePathTraversalRefused(t *testing.T) {
 	dir := t.TempDir()
 	mibsDir := filepath.Join(dir, "mibs")
-	stdDir := filepath.Join(dir, "data", "standard-mibs")
 	if err := os.MkdirAll(mibsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	outsideDir := filepath.Join(dir, "outside")
@@ -541,7 +530,7 @@ func TestModuleDownloadBundlePathTraversalRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(st, "", "test", mibsDir, stdDir)
+	srv := New(st, "", "test", mibsDir)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -590,11 +579,7 @@ func TestModuleDownloadInvalidName(t *testing.T) {
 func TestModuleDownloadStaleSourceNoPathLeak(t *testing.T) {
 	dir := t.TempDir()
 	mibsDir := filepath.Join(dir, "mibs")
-	stdDir := filepath.Join(dir, "data", "standard-mibs")
 	if err := os.MkdirAll(mibsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Recorded path inside the allowed mibsDir but the file is
@@ -617,7 +602,7 @@ func TestModuleDownloadStaleSourceNoPathLeak(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(st, "", "test", mibsDir, stdDir)
+	srv := New(st, "", "test", mibsDir)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -644,11 +629,7 @@ func TestModuleDownloadStaleSourceNoPathLeak(t *testing.T) {
 func TestModuleDownloadBundleAlwaysEmitsMissing(t *testing.T) {
 	dir := t.TempDir()
 	mibsDir := filepath.Join(dir, "mibs")
-	stdDir := filepath.Join(dir, "data", "standard-mibs")
 	if err := os.MkdirAll(mibsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	soloPath := filepath.Join(mibsDir, "SOLO-MIB.txt")
@@ -671,7 +652,7 @@ func TestModuleDownloadBundleAlwaysEmitsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(st, "", "test", mibsDir, stdDir)
+	srv := New(st, "", "test", mibsDir)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -831,7 +812,7 @@ func TestWorkspaceEmptyModulePill(t *testing.T) {
 		nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -1168,7 +1149,7 @@ func TestLandingEmptyState(t *testing.T) {
 		t.Fatalf("OpenInMemory: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	s := New(st, "", "test", "/srv/mibs", "/srv/data/standard-mibs")
+	s := New(st, "", "test", "/srv/mibs")
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 
@@ -1409,7 +1390,7 @@ func TestSymbolPlainLanguageSummaryFallback(t *testing.T) {
 		}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -1468,7 +1449,7 @@ func TestSymbolDisambiguationChooser(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -1523,7 +1504,7 @@ func TestModuleSourceRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -1926,7 +1907,7 @@ func TestNotificationPageContainsDataAttributes(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
@@ -2049,7 +2030,7 @@ func TestBuildNotifyVarbindsSingleIntegerIndex(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "IF-MIB", SourceName: "linkDown",
@@ -2124,7 +2105,7 @@ func TestBuildNotifyVarbindsIpAddressIndex(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "IP-MIB", SourceName: "ipAddrChange",
@@ -2199,7 +2180,7 @@ func TestBuildNotifyVarbindsFixedOctetStringIndex(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "BRIDGE-MIB", SourceName: "newRoot",
@@ -2277,7 +2258,7 @@ func TestBuildNotifyVarbindsExplicitFixedSizeIndex(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2352,7 +2333,7 @@ func TestBuildNotifyVarbindsVariableOctetStringNotImplied(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2431,7 +2412,7 @@ func TestBuildNotifyVarbindsVariableOctetStringImplied(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2503,7 +2484,7 @@ func TestBuildNotifyVarbindsOIDIndex(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2586,7 +2567,7 @@ func TestBuildNotifyVarbindsBitsIndex(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2667,7 +2648,7 @@ func TestBuildNotifyVarbindsBitsIndexEmptyFallsBack(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2733,7 +2714,7 @@ func TestBuildNotifyVarbindsOIDIndexImplied(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2809,7 +2790,7 @@ func TestBuildNotifyVarbindsCompositeIntegerIpAddress(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "IP-MIB", SourceName: "arpChange",
@@ -2895,7 +2876,7 @@ func TestBuildNotifyVarbindsCompositeImpliedAppliesOnlyToLast(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -2973,7 +2954,7 @@ func TestBuildNotifyVarbindsInetAddressTypeAlone(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorAddrChange",
@@ -3053,7 +3034,7 @@ func TestBuildNotifyVarbindsInetAddressFamilyComposite(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorAddrChange",
@@ -3134,7 +3115,7 @@ func TestBuildNotifyVarbindsInetAddressIPv4UsesIpAddressUI(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -3213,7 +3194,7 @@ func TestBuildNotifyVarbindsCompositeUnknownColumnFallsBack(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	refs := []model.Reference{
 		{
 			SourceModule: "VENDOR-MIB", SourceName: "vendorChange",
@@ -3248,7 +3229,7 @@ func seedModuleWithSymbols(t *testing.T, modName, oidRoot string, syms []model.S
 	); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs", "/var/lib/blittermib/data/standard-mibs")
+	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts.URL
