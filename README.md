@@ -39,7 +39,8 @@ anything to a third party.
 ```bash
 git clone https://github.com/no42-org/blittermib.git
 cd blittermib
-mkdir mibs && cp /path/to/your/mibs/* mibs/
+# Drop your own MIBs into mibs/ (any depth — the loader walks recursively).
+# The repo ships an empty corpus skeleton; contributors PR new MIBs in.
 docker compose up
 ```
 
@@ -98,13 +99,17 @@ URL surfaces:
 
 ```
    cmd/blittermib       entry point, signal handling, orchestration
+   cmd/mib-migrate      one-shot tool: flat MIB collection → PEN-vendor layout
+   cmd/mib-index        regenerate mibs/INDEX.yaml metadata catalog
    internal/compile     libsmi subprocess wrappers + XML → model
+   internal/iana        embedded IANA Private Enterprise Number registry
    internal/model       normalised in-memory types
    internal/store       SQLite schema, FTS5, transactional reload
    internal/server      HTTP, routes, templ, JSON API, embedded assets
    internal/web         templ templates and the design system CSS
    internal/watch       fsnotify hot-reload with debounce + recover
    internal/mibsbundle  embedded standard IETF/IANA MIBs
+   mibs/                curated corpus (PEN-vendor + IETF-functional layout)
    prototype/           static HTML/CSS source-of-truth for the visuals
 ```
 
@@ -112,10 +117,13 @@ URL surfaces:
 
 - [docs/self-host.md](docs/self-host.md) — Docker, bare-metal, systemd,
   reverse proxy with TLS, backups, troubleshooting
+- [mibs/README.md](mibs/README.md) — corpus directory layout
+- [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md) — adding a MIB:
+  4-step workflow, license-tag matrix, 4-tier CI expectations
 - [prototype/](prototype/) — static HTML reference for the design system
   (open `prototype/index.html` directly)
-- [openspec/changes/add-mib-browser/](openspec/changes/add-mib-browser/)
-  — change proposal, design notes, requirement spec, task list
+- `openspec/changes/` and `openspec/specs/` — proposals, design notes,
+  requirement specs, and task lists for landed + in-flight features
 
 ## Build from source
 
@@ -123,6 +131,9 @@ URL surfaces:
 make verify         gofmt-check + vet + race tests
 make build          ./blittermib
 make generate       regenerate templ-generated files (after editing .templ)
+make index          regenerate mibs/INDEX.yaml from the corpus
+make verify-mibs    local MIB-corpus checks (lexical + naming + parse)
+make refresh-pen    refresh the IANA Private Enterprise Number snapshot
 make dist           cross-build release archives into dist/
 make docker-build   build the production Docker image (TAG=...)
 make hooks          install pre-commit git hooks
