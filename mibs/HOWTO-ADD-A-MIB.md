@@ -24,61 +24,79 @@ go version
 brew install grep
 ```
 
-## 1. Inspect the source
+## 1. Drop the file in `mibs/upload/` and run `make ingest`
 
-Open the MIB and find three things:
+```bash
+cp ~/Downloads/CISCO-RTTMON-MIB.mib mibs/upload/
+make ingest
+```
 
-1. **Module name** — the identifier in `<NAME> DEFINITIONS ::= BEGIN`.
-   Example: `CISCO-RTTMON-MIB`.
-2. **Module OID** — the `::= { ... }` at the end of the
-   `MODULE-IDENTITY` block. Example: `::= { ciscoMgmt 42 }` resolving
-   to `.1.3.6.1.4.1.9.9.42`.
-3. **Copyright owner** — usually a `-- Copyright (c) <year> <Vendor>`
-   line near the top.
+The ingest tool walks `mibs/upload/`, parses each MIB via libsmi,
+classifies its destination per the routing rules below, and moves
+the file to the canonical corpus path with the extension stripped.
+After all moves complete it auto-runs `make index` so
+`mibs/INDEX.yaml` stays in sync.
 
-Get the file from an authoritative source (vendor's MIB distribution
-page, RFC archive). Don't reverse-engineer from a commercial product
-without permission.
+Outcomes by classification confidence:
 
-## 2. Decide where the file goes
+| Outcome                           | What happens                              |
+|-----------------------------------|-------------------------------------------|
+| **high** (clean parse, PEN known) | move to `mibs/vendors/{PEN}-{slug}/<NAME>` (or `mibs/ietf/{group}/<NAME>`, etc.) |
+| **medium** (PEN not in curated registry) | move to `mibs/vendors/{PEN}-unknown/<NAME>` with a warning |
+| **low** (OID outside known prefixes) | move to `mibs/unsorted/<original-filename>` for operator review |
+| destination already exists        | refuse + leave in `mibs/upload/`; operator resolves manually |
+| no MIB marker / parse failed      | leave in `mibs/upload/`; check the log for the reason |
 
-Match the MIB's OID against the routing table:
+Useful flags (run the binary directly rather than `make ingest`):
+
+```bash
+go run ./cmd/mib-ingest --dry-run     # preview without touching files
+go run ./cmd/mib-ingest --git-add     # stage moved files via `git add`
+go run ./cmd/mib-ingest --no-index    # skip the post-ingest make index
+```
+
+`--git-add` is opt-in — the default leaves moves unstaged so you can
+review with `git status` before staging.
+
+## 2. (Optional) Routing reference
+
+You don't need to know the routing rules for normal use — the
+ingest tool handles them. The reference is here for two cases:
+
+- A file ends up in `mibs/unsorted/` and you want to know why.
+- You want to extend the routing rules
+  (`internal/mibcorpus/classify.go::Classify`).
 
 | OID prefix              | Destination                              |
 |-------------------------|------------------------------------------|
 | `.1.3.6.1.4.1.{PEN}.*`  | `mibs/vendors/{PEN}-{slug}/`             |
-| `.1.3.6.1.2.1.*`        | `mibs/ietf/{group}/`                     |
+| `.1.3.6.1.2.1.*`        | `mibs/ietf/{group}/` per `_groups.yaml`  |
 | `.1.3.6.1.6.*`          | `mibs/iana/`                             |
 | `.1.3.6.1.3.*`          | `mibs/experimental/`                     |
-| anything else           | `mibs/unsorted/` — open a discussion     |
+| anything else           | `mibs/unsorted/`                         |
 
-**Vendor case (most common):**
+Vendor slug rules: lowercase the IANA registry name, strip suffix
+words (`Inc`, `Corp`, `Networks`, `Systems`, …), kebab-case,
+truncate to 20 chars. See `internal/iana/pen.go::Slug` for the
+canonical implementation. Existing examples: `9-cisco`,
+`22610-a10`, `2636-juniper`.
 
-- PEN is the 7th dotted segment of the OID.
-- Look it up in `internal/iana/pen.txt` or at
-  <https://www.iana.org/assignments/enterprise-numbers/>.
-- Slug is the kebab-cased vendor name with suffix words stripped
-  (`Inc`, `Corp`, `Networks`, `Systems`, …). See
-  `internal/iana/pen.go::Slug` for the canonical rules. Existing
-  examples: `9-cisco`, `22610-a10`, `2636-juniper`.
-- If the vendor's directory doesn't exist yet, just create it.
+## 3. Manual placement (fallback when ingest can't classify)
 
-**IETF case:**
+If your MIB ends up in `mibs/upload/` (parse failed, no marker)
+or `mibs/unsorted/` (OID outside known prefixes), you can resolve
+it manually:
 
-- Look up the module name in `mibs/_groups.yaml`. Drop the file in
-  that group's directory.
-- Not listed? Either add an entry to `_groups.yaml` for the right
-  group, or place under `mibs/ietf/other/`.
-
-## 3. Place the file with the canonical filename
-
-The filename must equal the MODULE-IDENTITY name with **no extension**.
-CI Tier 2 enforces this.
+1. Open the file and find the `MODULE-IDENTITY` declaration.
+2. Look up the destination in the routing table above.
+3. Move + rename:
 
 ```bash
-cp ~/Downloads/CISCO-RTTMON-MIB.mib mibs/vendors/9-cisco/CISCO-RTTMON-MIB
+mv mibs/upload/CISCO-RTTMON-MIB.mib mibs/vendors/9-cisco/CISCO-RTTMON-MIB
 #                    extension dropped ──────────────────────────────────^
 ```
+
+Then run `make index` to update the catalog.
 
 ## 4. Regenerate the metadata index
 
@@ -168,9 +186,11 @@ A green CI + maintainer review = merge.
 
 | Symptom                                                       | Cause                                                  | Fix                                                       |
 |---------------------------------------------------------------|--------------------------------------------------------|-----------------------------------------------------------|
-| Tier 2: filename mismatch                                      | left the `.mib` / `.txt` extension on                   | rename the file                                            |
+| `make ingest` left my file in `mibs/upload/`                  | parse failed, no `DEFINITIONS ::= BEGIN`, or destination already exists | check the ingest log for the per-file reason; resolve manually then run again |
+| `make ingest` moved my file to `mibs/unsorted/`               | OID is outside the known prefixes (`.1.3.6.1.{2,3,4,6}`) | move manually to the right directory, OR extend `internal/mibcorpus/classify.go::Classify` if the prefix should be supported |
+| Tier 2: filename mismatch                                      | left the `.mib` / `.txt` extension on (only happens with the manual fallback flow) | rename the file (or use `make ingest`, which strips it) |
 | Tier 3: "module 'X' not found"                                 | imported MIB isn't in the corpus                        | add the parent MIB to the same PR                          |
-| Drift check fails                                              | forgot `make index` after placing the MIB               | run `make index`, commit the diff                          |
+| Drift check fails                                              | forgot `make index` (after manual placement)            | run `make index`, commit the diff. `make ingest` runs it automatically. |
 | Sticky comment lists your MIB as `unknown`                     | header doesn't match any auto-detect pattern            | add an entry to `_overrides.yaml`                          |
 | Tier 4 fails on a MIB you didn't touch                         | your new MIB redefines a symbol the existing MIB uses   | rename the conflict, or coordinate with the maintainer    |
 | `make verify-mibs-lexical` fails on macOS with `grep: invalid option -- P` | macOS BSD grep doesn't support PCRE                  | `brew install grep`, put GNU grep first on PATH           |

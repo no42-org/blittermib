@@ -6,12 +6,20 @@
 > behind it: license-tag rules, override semantics, the canonical CI
 > tier description.
 
-Adding a MIB takes four steps:
+Adding a MIB takes three steps in the common case:
 
-1. **Place the file in the correct directory.**
-2. **Regenerate `INDEX.yaml`** with `make index`.
-3. **Tag the license** (in `_overrides.yaml` if auto-detection misses).
-4. **Submit the PR.**
+1. **Drop the file in `mibs/upload/`** and run `make ingest`. The
+   tool classifies each MIB, moves it to the canonical destination
+   (with the extension stripped), and re-runs `make index`. Files
+   that don't classify cleanly stay in `mibs/upload/` or land in
+   `mibs/unsorted/` for manual review.
+2. **Tag the license** (in `_overrides.yaml` if the auto-detector
+   produced `unknown`).
+3. **Submit the PR.**
+
+The manual flow (place file → run `make index` → tag license)
+remains available as a fallback for files the ingest tool can't
+classify; see [HOWTO-ADD-A-MIB.md](HOWTO-ADD-A-MIB.md).
 
 ## 1. Where does the file go?
 
