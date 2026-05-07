@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/a-h/templ v0.3.1001
-	github.com/fsnotify/fsnotify v1.10.0
+	github.com/fsnotify/fsnotify v1.10.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.50.0
 )
