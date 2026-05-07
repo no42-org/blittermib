@@ -2216,7 +2216,7 @@ main.page:has(.workspace-grid) .content-inner,
 }
 .workspace-list .list-table {
   display: grid;
-  grid-template-columns: 28px minmax(220px, 1.6fr) 110px 70px minmax(180px, 1fr);
+  grid-template-columns: 28px minmax(220px, 1.6fr) minmax(110px, max-content) 70px minmax(180px, 1fr);
   align-items: stretch;
   align-content: start;
 }
