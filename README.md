@@ -26,8 +26,8 @@ anything to a third party.
   it appears in seconds (recursive `fsnotify` + 250 ms debounce +
   transactional ingest)
 - **Self-hosted** — single binary, no telemetry, no phone-home
-- **Standard MIBs bundled** — IETF/IANA core MIBs ship inside the binary
-  so the tool is useful before you supply anything yourself
+- **Standard MIBs included** — IETF/IANA core MIBs ship in the corpus
+  alongside vendor MIBs; refresh via `make fetch-standard-mibs && make ingest`
 - **Diagnostics surface** — parse failures show file, line, severity,
   and code; failed MIBs never block successful ones
 - **Two interactive islands** — virtualised `⌘K` palette over the
@@ -66,7 +66,7 @@ make build
 
 ```
 Flags:
-  -mibs PATH      directory of user MIB files       (./mibs)
+  -mibs PATH      MIB corpus directory              (./mibs)
   -data PATH      directory for SQLite + state      (./data)
   -listen ADDR    HTTP listen address               (:8080)
   -v              verbose logging                   (DEBUG level)
@@ -109,8 +109,7 @@ URL surfaces:
    internal/server      HTTP, routes, templ, JSON API, embedded assets
    internal/web         templ templates and the design system CSS
    internal/watch       fsnotify hot-reload with debounce + recover
-   internal/mibsbundle  embedded standard IETF/IANA MIBs
-   mibs/                curated corpus (PEN-vendor + IETF-functional layout)
+   mibs/                curated corpus — vendors/, ietf/, iana/, experimental/, unsorted/
    prototype/           static HTML/CSS source-of-truth for the visuals
 ```
 

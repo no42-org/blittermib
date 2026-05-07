@@ -6,11 +6,15 @@ covers Docker, bare-metal, reverse-proxy, backup, and troubleshooting.
 ## Choosing a deployment method
 
 - **Docker (recommended)** — easiest, self-contained, atomic upgrades
-  via `docker compose pull`. The image bundles libsmi.
+  via `docker compose pull`. The image bundles libsmi and ships the
+  corpus from the repository.
 - **Bare-metal binary** — useful for systemd-managed deployments,
-  air-gapped systems, or hosts with unusual constraints.
-- **From source** — for development or a custom build (e.g. with the
-  full standard MIB bundle baked in).
+  air-gapped systems, or hosts with unusual constraints. Requires the
+  `mibs/` corpus directory to be reachable via `-mibs PATH` (the
+  binary no longer embeds standard MIBs; everything ships in the
+  corpus).
+- **From source** — for development or to refresh the corpus from
+  upstream (`make fetch-standard-mibs && make ingest`).
 
 ## libsmi requirement
 
@@ -49,8 +53,7 @@ The shipped `compose.yml`:
 - Builds the image locally (or pulls `ghcr.io/no42-org/blittermib:latest`
   if available)
 - Mounts `./mibs/` (read-only) into `/var/lib/blittermib/mibs`
-- Creates a named volume `blittermib-data` for the SQLite database and
-  staged standard MIBs
+- Creates a named volume `blittermib-data` for the SQLite database
 - Exposes port 8080 on the host
 - Sets `stop_grace_period: 35s` so graceful shutdown completes (the
   server's drain window is 30 s)
@@ -98,7 +101,10 @@ The schema is idempotent — the SQLite database survives upgrades.
 ### Linux + systemd
 
 Place the binary at `/usr/local/bin/blittermib`. Install libsmi.
-Create a service unit:
+The corpus must live somewhere readable by the service user — the
+binary no longer ships standard MIBs internally, so a bare deploy
+needs `mibs/` (clone or copy from the repo) at `-mibs PATH`. Create
+a service unit:
 
 ```ini
 # /etc/systemd/system/blittermib.service
@@ -216,22 +222,22 @@ by row IDs.
 If a reload fails (parse error), the previous version stays loaded
 and the failure shows on `/diagnostics`.
 
-## Standard MIB bundle
+## Standard MIBs
 
-The IETF/IANA standard MIB collection ships embedded inside the binary.
-To populate it before building:
+The IETF/IANA standard MIB collection ships in the corpus alongside
+vendor MIBs — there is no embedded bundle and no `{data}/standard-mibs/`
+staging directory. To refresh against a newer upstream snapshot:
 
 ```bash
-make fetch-standard-mibs    # downloads libsmi 0.5.0 + copies its MIBs
-make build                  # next build embeds them
+make fetch-standard-mibs    # downloads libsmi 0.5.0 -> mibs/upload/
+make ingest                 # classifies into mibs/ietf/ + mibs/iana/
 ```
 
-The bundle stages into `{data}/standard-mibs/` on every startup.
-Files that already exist there are not overwritten — a user who edits
-a staged standard MIB has their copy preserved across restarts.
-
-User MIBs in `-mibs` take precedence on filename collision (loaded
-last; `ReplaceModule` is per-module so the user's compile run wins).
+Review the resulting diff via PR (the same workflow as
+`make refresh-pen` for the IANA registry). User-supplied MIBs and
+standard MIBs share the same root and the same loader; collisions
+are resolved at ingest time (refused with `destination already exists`
+unless the operator removes the prior copy).
 
 ## Backups
 
@@ -288,8 +294,9 @@ only affects bare-metal installs.
 Some vendor MIBs are stricter than libsmi accepts at default severity.
 Check the file/line of each error; common causes:
 
-- Missing IMPORTS — the imported module isn't in `-mibs` or in the
-  embedded bundle. Drop the missing module into `-mibs` and reload.
+- Missing IMPORTS — the imported module isn't in `-mibs`. Drop the
+  missing module into `mibs/upload/` and run `make ingest`, or add
+  the file directly under the appropriate corpus subdirectory.
 - Identifier not found — typo or unsupported SMI extension.
 - Compliance issues — these are warnings, not errors; the module
   still loads.
@@ -299,22 +306,6 @@ Check the file/line of each error; common causes:
 The FTS index is populated by every successful `ReplaceModule`. If
 no MIBs have loaded successfully, the index is empty. Check
 `/diagnostics` and the server logs for compile failures.
-
-### Stale standard MIBs after upgrading libsmi
-
-`mibsbundle.Stage` skips files that already exist in
-`{data}/standard-mibs/`. After upgrading the embedded bundle, force
-a re-extract:
-
-```bash
-# docker
-docker compose exec blittermib rm -rf /var/lib/blittermib/data/standard-mibs
-docker compose restart
-
-# bare-metal
-sudo rm -rf /var/lib/blittermib/data/standard-mibs
-sudo systemctl restart blittermib
-```
 
 ### Hot reload doesn't fire
 
@@ -344,5 +335,4 @@ sudo rm -rf /var/lib/blittermib/data
 sudo systemctl start blittermib
 ```
 
-The server will re-stage the standard MIBs and re-index everything in
-`-mibs` on next start.
+The server will re-index everything in `-mibs` on next start.

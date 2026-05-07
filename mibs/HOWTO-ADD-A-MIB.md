@@ -31,6 +31,12 @@ cp ~/Downloads/CISCO-RTTMON-MIB.mib mibs/upload/
 make ingest
 ```
 
+> **Refreshing standard MIBs?** `make fetch-standard-mibs` is the
+> same flow: it downloads the upstream libsmi snapshot into
+> `mibs/upload/`, and `make ingest` then routes the standard IETF/IANA
+> MIBs into `mibs/ietf/{group}/` + `mibs/iana/` exactly like a
+> contributor MIB. There is no separate "bundle" path.
+
 The ingest tool walks `mibs/upload/`, parses each MIB via libsmi,
 classifies its destination per the routing rules below, and moves
 the file to the canonical corpus path with the extension stripped.
