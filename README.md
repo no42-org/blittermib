@@ -52,9 +52,9 @@ Open <http://localhost:8080>.
 Requires Go 1.26+ and libsmi (`smidump`, `smilint`):
 
 ```bash
-brew install libsmi                # macOS
-sudo apt install libsmi2-dev       # Debian / Ubuntu
-sudo dnf install libsmi-devel      # Fedora / RHEL
+brew install libsmi                       # macOS
+sudo apt install libsmi2-dev smitools     # Debian / Ubuntu
+sudo dnf install libsmi-devel             # Fedora / RHEL
 
 git clone https://github.com/no42-org/blittermib.git
 cd blittermib
