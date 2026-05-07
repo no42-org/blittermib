@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine refresh-pen dist docker-build
+.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine refresh-pen index dist docker-build
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -117,6 +117,12 @@ refresh-pen:
 	trap - EXIT && \
 	echo "fetched IANA PEN registry ($$size bytes) -> internal/iana/pen.txt"
 
+# index regenerates mibs/INDEX.yaml from the corpus. Idempotent —
+# running twice on the same corpus produces no diff. Honours
+# `mibs/_overrides.yaml` for license tags.
+index:
+	$(GO) run ./cmd/mib-index --root mibs --out mibs/INDEX.yaml --overrides mibs/_overrides.yaml
+
 check-tools:
 	@command -v smidump >/dev/null 2>&1 || { echo "smidump not found. Install libsmi >= $(LIBSMI_MIN) (brew install libsmi)"; exit 1; }
 	@command -v smilint >/dev/null 2>&1 || { echo "smilint not found. Install libsmi >= $(LIBSMI_MIN) (brew install libsmi)"; exit 1; }
@@ -191,3 +197,4 @@ help:
 	@echo "make fetch-htmx  re-vendor htmx.min.js"
 	@echo "make fetch-standard-mibs  populate the embedded standard MIB bundle"
 	@echo "make refresh-pen refresh the IANA PEN registry snapshot"
+	@echo "make index       regenerate mibs/INDEX.yaml from the corpus"
