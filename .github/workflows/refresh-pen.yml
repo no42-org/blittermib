@@ -1,0 +1,84 @@
+name: refresh-pen
+
+# Quarterly refresh of internal/iana/pen.txt from the upstream IANA
+# Private Enterprise Number registry. Opens a PR with the diff so the
+# change is reviewable; never pushes directly to main.
+#
+# The PR is opened with PEN_REFRESH_PAT (a personal access token with
+# `repo` + `workflow` scope) when configured, falling back to the
+# default GITHUB_TOKEN otherwise. The fallback is functional but PRs
+# created by GITHUB_TOKEN do NOT trigger downstream `pull_request`
+# workflows on themselves — i.e. CI won't run automatically on the
+# auto-PR. Configure the PAT secret to get auto-CI on the refresh PR;
+# without it, push an empty commit to the PR branch to kick CI manually.
+#
+# Manual trigger via workflow_dispatch when an out-of-band refresh is
+# needed (e.g., a new vendor's PEN that we want to vendor early).
+
+on:
+  workflow_dispatch:
+  schedule:
+    # First day of January, April, July, October at 04:00 UTC.
+    - cron: '0 4 1 1,4,7,10 *'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Avoid races between manual + scheduled triggers — they'd otherwise
+# collide on the branch name and one push would fail.
+concurrency:
+  group: refresh-pen
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    # Don't try to push from forks — they don't have write access to
+    # the upstream and the scheduled trigger would otherwise spam
+    # failing runs in every fork.
+    if: github.repository == 'no42-org/blittermib'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Refresh PEN registry
+        run: make refresh-pen
+
+      - name: Open PR if changed
+        env:
+          # Prefer the dedicated PAT so PRs trigger downstream CI;
+          # fall back to GITHUB_TOKEN (PR opens but CI must be kicked
+          # manually).
+          GH_TOKEN: ${{ secrets.PEN_REFRESH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- internal/iana/pen.txt; then
+            echo "no changes; nothing to PR"
+            exit 0
+          fi
+          # Append run_id so a same-day re-run doesn't collide on the
+          # remote branch / PR head.
+          branch="chore/refresh-iana-pen-$(date -u +%Y%m%d)-${{ github.run_id }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add internal/iana/pen.txt
+          # Pass the message via a tmp file so YAML block-scalar
+          # indentation can't leak leading whitespace into the body
+          # (which would break trailer parsing).
+          msg=$(mktemp)
+          {
+            printf 'chore(iana): refresh PEN registry snapshot\n'
+            printf '\n'
+            printf 'Auto-refresh by .github/workflows/refresh-pen.yml.\n'
+            printf '\n'
+            printf 'Assisted-by: ClaudeCode:claude-opus-4-7\n'
+          } > "$msg"
+          git commit -F "$msg"
+          rm -f "$msg"
+          git push -u origin "$branch"
+          gh pr create \
+            --title "chore(iana): refresh PEN registry snapshot" \
+            --body "Quarterly auto-refresh of \`internal/iana/pen.txt\` from https://www.iana.org/assignments/enterprise-numbers/." \
+            --head "$branch" \
+            --base main

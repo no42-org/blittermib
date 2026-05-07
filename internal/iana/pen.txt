@@ -1,0 +1,90 @@
+# IANA Private Enterprise Number registry — curated v1.0 snapshot.
+#
+# Format: lines starting at column 0 with a decimal PEN, followed by
+# at least one indented line whose trimmed content is the organization
+# name. Additional indented lines (contact, email) are tolerated and
+# ignored by the parser. Comment lines (^#) are skipped.
+#
+# This file is overwritten verbatim by `make refresh-pen`, which fetches
+# https://www.iana.org/assignments/enterprise-numbers/enterprise-numbers
+# (~7 MB, ~70k entries). The curated v1.0 snapshot below covers the
+# vendors most commonly seen in real-world MIB walks plus the project
+# owner's PEN (61509). Anything not in this list resolves as "unknown
+# PEN" until the first refresh-pen run lands.
+#
+# Keep entries sorted by PEN ascending.
+
+0
+  Reserved
+9
+  Cisco Systems, Inc.
+11
+  Hewlett-Packard Company
+14
+  BBN
+25
+  Yale University
+42
+  Sun Microsystems
+311
+  Microsoft Corporation
+664
+  Hewlett-Packard
+1916
+  Extreme Networks
+1991
+  Foundry Networks, Inc.
+2011
+  Huawei Technologies Co.,Ltd
+2272
+  Nortel Networks
+2434
+  Marconi
+2636
+  Juniper Networks, Inc.
+3375
+  F5 Networks, Inc.
+4413
+  Broadcom
+4526
+  Netgear
+4874
+  Lucent Technologies
+5624
+  Enterasys Networks
+6027
+  Force10 Networks, Inc.
+6486
+  Alcatel-Lucent
+6527
+  Nokia
+6876
+  VMware Inc.
+8072
+  Net-SNMP
+9148
+  Allied Telesis, Inc.
+12356
+  Fortinet, Inc.
+12532
+  EMC Corporation
+14179
+  Aruba Wireless Networks
+14823
+  Aruba Networks
+14988
+  MikroTik
+22610
+  A10 Networks
+25461
+  Palo Alto Networks
+25506
+  H3C Technologies Co., Limited
+30065
+  Arista Networks, Inc.
+33049
+  Mellanox Technologies
+41112
+  Ubiquiti Networks, Inc.
+61509
+  no42.org

@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine dist docker-build
+.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine refresh-pen dist docker-build
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -81,6 +81,42 @@ fetch-standard-mibs:
 	count=$$(ls internal/mibsbundle/bundle/ | grep -v '^README' | wc -l | tr -d ' ') && \
 	echo "fetched $$count standard MIBs -> internal/mibsbundle/bundle/"
 
+# refresh-pen pulls the upstream IANA Private Enterprise Number registry
+# and overwrites internal/iana/pen.txt. Run quarterly via the
+# .github/workflows/refresh-pen.yml scheduled workflow, which opens a
+# PR with the diff.
+#
+# Multiple sanity gates protect against captive portals and proxies
+# returning "200 OK" with HTML:
+#   - --max-time / --connect-timeout bound the curl call so a stalled
+#     TLS handshake doesn't hang the runner up to the GHA 6h cap.
+#   - PEN_MIN_BYTES rejects implausibly small responses.
+#   - PEN_SENTINEL must appear in the body — guards against HTML pages
+#     large enough to pass the size floor.
+#   - mktemp targets internal/iana/ so the final mv is intra-filesystem
+#     (atomic), and an EXIT trap cleans up the tmp file on every path.
+PEN_URL := https://www.iana.org/assignments/enterprise-numbers/enterprise-numbers
+PEN_MIN_BYTES := 512000
+PEN_SENTINEL := ^9$$
+refresh-pen:
+	@tmp=$$(mktemp internal/iana/pen.txt.XXXXXX) && \
+	trap 'rm -f "$$tmp"' EXIT && \
+	curl -fL --silent --show-error \
+		--connect-timeout 10 --max-time 120 --retry 2 \
+		-o "$$tmp" $(PEN_URL) && \
+	size=$$(wc -c < "$$tmp" | tr -d ' ') && \
+	if [ $$size -lt $(PEN_MIN_BYTES) ]; then \
+		echo "ERROR: PEN download is $$size bytes, expected >= $(PEN_MIN_BYTES)" >&2; \
+		exit 1; \
+	fi && \
+	if ! grep -qE '$(PEN_SENTINEL)' "$$tmp"; then \
+		echo "ERROR: PEN download missing sentinel pattern '$(PEN_SENTINEL)' (HTML proxy capture?)" >&2; \
+		exit 1; \
+	fi && \
+	mv "$$tmp" internal/iana/pen.txt && \
+	trap - EXIT && \
+	echo "fetched IANA PEN registry ($$size bytes) -> internal/iana/pen.txt"
+
 check-tools:
 	@command -v smidump >/dev/null 2>&1 || { echo "smidump not found. Install libsmi >= $(LIBSMI_MIN) (brew install libsmi)"; exit 1; }
 	@command -v smilint >/dev/null 2>&1 || { echo "smilint not found. Install libsmi >= $(LIBSMI_MIN) (brew install libsmi)"; exit 1; }
@@ -154,3 +190,4 @@ help:
 	@echo "make docker-build build the production Docker image (TAG=...)"
 	@echo "make fetch-htmx  re-vendor htmx.min.js"
 	@echo "make fetch-standard-mibs  populate the embedded standard MIB bundle"
+	@echo "make refresh-pen refresh the IANA PEN registry snapshot"
