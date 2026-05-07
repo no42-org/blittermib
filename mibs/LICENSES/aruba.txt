@@ -1,0 +1,17 @@
+Aruba Networks
+==============
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Aruba Networks (now an HPE subsidiary).
+
+The notice typically reads:
+
+  "Copyright (c) <year> Aruba Networks, Inc. All rights reserved."
+
+followed by terms governing redistribution. Aruba's MIB collection
+lives at:
+
+  https://asp.arubanetworks.com/
+
+For the authoritative license terms, see the MIB's own header
+comment block.

@@ -1,0 +1,19 @@
+Mellanox Technologies
+=====================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Mellanox Technologies (now part of NVIDIA
+since the 2020 acquisition).
+
+The notice typically reads:
+
+  "Copyright (c) <year> Mellanox Technologies. All rights reserved."
+
+followed by terms governing redistribution. Some post-acquisition
+MIBs may carry NVIDIA copyright notices instead — those should
+either map to this tag (when the MIB file lineage is clearly
+Mellanox) or be tagged `unknown` and disambiguated in
+`_overrides.yaml`.
+
+For the authoritative license terms, see the MIB's own header
+comment block.

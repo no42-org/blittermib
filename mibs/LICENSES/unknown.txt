@@ -1,0 +1,22 @@
+Unknown / Sentinel
+==================
+
+Tag emitted by the auto-detector (`cmd/mib-index/license.go`) when a
+MIB's first 200 lines don't match any known `Copyright` pattern.
+This is a sentinel — there is no upstream license text to point at,
+because we genuinely don't know what license the MIB is under.
+
+CI surfaces the count of `unknown`-tagged MIBs in a sticky PR
+comment. The maintainer reviews and either:
+
+  - accepts the tag (the MIB legitimately has no detectable
+    copyright),
+  - asks the contributor to add an entry to
+    `mibs/_overrides.yaml` mapping the module name to a more
+    accurate tag, or
+  - extends the auto-detector with a new pattern in
+    `cmd/mib-index/license.go::licensePatterns` (and adds a
+    matching `LICENSES/<tag>.txt` reference) when the unknown
+    tag pattern is recurring.
+
+`unknown` does NOT block merge; it surfaces for review only.

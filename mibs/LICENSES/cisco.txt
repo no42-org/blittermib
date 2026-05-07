@@ -1,0 +1,17 @@
+Cisco Systems
+=============
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Cisco Systems, Inc.
+
+The license text varies by MIB but typically appears as:
+
+  "Copyright (c) <year> Cisco Systems, Inc. All rights reserved."
+
+followed by terms governing redistribution within Cisco's published
+SNMP framework. Cisco publishes its MIB collection at:
+
+  https://www.cisco.com/c/en/us/support/web/tools/snmp/mibs.html
+
+For the authoritative license terms, see the MIB's own header
+comment block.

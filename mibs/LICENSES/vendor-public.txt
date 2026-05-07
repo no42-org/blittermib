@@ -1,0 +1,18 @@
+Vendor Public (catch-all)
+=========================
+
+Tag applied via `_overrides.yaml` to MIB files where:
+
+  1. The vendor's copyright notice doesn't match any of the more
+     specific starter-set tags (cisco, juniper, hpe, hp, aruba,
+     huawei, a10, mellanox, brocade, extreme), AND
+  2. The vendor's published MIB carries terms permitting public
+     redistribution.
+
+This is a maintainer-curated tag; the auto-detector NEVER produces
+`vendor-public`. Use it sparingly — prefer adding a vendor-specific
+pattern to `cmd/mib-index/license.go::licensePatterns` when a new
+vendor accumulates several MIBs in the corpus.
+
+For the authoritative license terms of any individual MIB, see
+the MIB's own header comment block.

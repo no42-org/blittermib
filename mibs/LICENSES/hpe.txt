@@ -1,0 +1,18 @@
+Hewlett Packard Enterprise
+==========================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Hewlett Packard Enterprise (the post-2015
+enterprise spinoff covering networking, server, and storage
+products).
+
+The notice typically reads:
+
+  "Copyright (c) <year> Hewlett Packard Enterprise Development LP."
+
+followed by terms governing redistribution. Pre-2015 HP networking
+MIBs and the HP Inc. (consumer + printer) line use the `hp` tag —
+see `hp.txt`.
+
+For the authoritative license terms, see the MIB's own header
+comment block.

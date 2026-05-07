@@ -1,0 +1,18 @@
+Extreme Networks
+================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Extreme Networks, Inc.
+
+The notice typically reads:
+
+  "Copyright (c) <year> Extreme Networks, Inc. All rights reserved."
+
+followed by terms governing redistribution. MIBs originating from
+acquired companies (Enterasys, Aerohive, Brocade IP networking)
+that retain the original vendor's copyright notice can be tagged
+`vendor-public` via `_overrides.yaml` when the lineage is clear,
+or left at `unknown` for maintainer review.
+
+For the authoritative license terms, see the MIB's own header
+comment block.

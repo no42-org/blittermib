@@ -1,0 +1,18 @@
+Huawei Technologies
+===================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Huawei Technologies Co., Ltd.
+
+The notice typically reads:
+
+  "Copyright (c) <year> Huawei Technologies Co., Ltd. All rights
+   reserved."
+
+followed by terms governing redistribution. Huawei publishes MIBs
+through its support portal at:
+
+  https://support.huawei.com/
+
+For the authoritative license terms, see the MIB's own header
+comment block.

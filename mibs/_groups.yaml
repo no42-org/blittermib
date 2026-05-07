@@ -1,0 +1,38 @@
+# IETF MIB functional grouping. Maps module name → directory bucket.
+# Consumed by `cmd/mib-migrate` (which routes a parsed MIB into its
+# group) and by CI Tier 2 (which cross-checks the filesystem layout
+# against this map).
+#
+# Append entries when a new IETF MIB lands. New buckets require:
+#   - a matching directory under `mibs/ietf/<bucket>/`
+#   - an updated test in `cmd/mib-migrate/classify_test.go`
+#   - the `core/transport/.../other` enumeration in
+#     `openspec/specs/mib-corpus/spec.md` extended.
+#
+# Modules not present here fall through to `ietf/other/`.
+
+core: [SNMPv2-SMI, SNMPv2-TC, SNMPv2-CONF, SNMP-MIB,
+       SNMP-FRAMEWORK-MIB, SNMP-USM-AES-MIB,
+       SNMP-USER-BASED-SM-MIB]
+
+transport: [TCP-MIB, UDP-MIB, IP-MIB, IPV6-MIB, IP-FORWARD-MIB,
+            INET-ADDRESS-MIB, IPV6-TC]
+
+interfaces: [IF-MIB, EtherLike-MIB, IFINVENTORY-MIB]
+
+routing: [OSPF-MIB, BGP4-MIB, RIP2-MIB, ROUTING-MIB,
+          IPV6-FLOW-LABEL-MIB]
+
+monitoring: [RMON-MIB, RMON2-MIB, TOKEN-RING-RMON-MIB,
+             HOST-RESOURCES-MIB]
+
+management: [DISMAN-EVENT-MIB, DISMAN-EXPRESSION-MIB,
+             ENTITY-MIB, ENTITY-SENSOR-MIB]
+
+security: [USM-MIB, VACM-MIB, TLS-MIB,
+           RADIUS-AUTH-CLIENT-MIB]
+
+application: [APPLICATION-MIB, NETWORK-SERVICES-MIB,
+              MAIL-MONITORING-MIB]
+
+other: []  # default for unclassified RFC MIBs

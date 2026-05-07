@@ -1,0 +1,17 @@
+Hewlett-Packard Company
+=======================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Hewlett-Packard (the pre-2015-split entity)
+or its consumer-and-printer successor HP Inc.
+
+The notice typically reads:
+
+  "Copyright (c) <year> Hewlett-Packard Company. All rights reserved."
+
+followed by terms governing redistribution. The post-2015 enterprise
+network products (ProCurve, ProLiant) live under the HPE tag — see
+`hpe.txt`.
+
+For the authoritative license terms, see the MIB's own header
+comment block.

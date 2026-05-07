@@ -1,0 +1,15 @@
+A10 Networks
+============
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to A10 Networks, Inc.
+
+The notice typically reads:
+
+  "Copyright (c) <year> A10 Networks. All rights reserved."
+
+followed by terms governing redistribution. A10's MIB collection
+ships with the ACOS / Thunder product lines.
+
+For the authoritative license terms, see the MIB's own header
+comment block.

@@ -1,0 +1,20 @@
+# Sparse, hand-maintained companion to INDEX.yaml. Consulted by
+# `make index` AFTER the auto-detector — any module name listed
+# under `licenses:` overrides the detector's tag.
+#
+# Empty in v1.0 — add entries only when the auto-detector mis-tags
+# a license, or when a MIB's header doesn't match any of the
+# starter patterns and you want to ship a more accurate tag than
+# `unknown`.
+#
+# License tags MUST appear in `mibs/LICENSES/`. Common values:
+#   rfc-editor, cisco, juniper, hp, hpe, aruba, huawei, a10,
+#   mellanox, brocade, extreme, vendor-public, unknown.
+#
+# Example (commented out):
+#
+# licenses:
+#   WEIRD-VENDOR-MIB: vendor-public
+#   ANCIENT-RFC-MIB:  rfc-editor
+
+licenses: {}

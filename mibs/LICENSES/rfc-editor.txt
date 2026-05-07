@@ -1,0 +1,20 @@
+RFC Editor / IETF Trust
+=======================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to The Internet Society or IETF Trust. These
+MIBs are published as part of an RFC (or Internet-Draft) and are
+governed by the IETF Trust's Trust Legal Provisions ("TLP").
+
+The TLP allows verbatim distribution and re-publication subject to
+attribution requirements. The current revision is at:
+
+  https://trustee.ietf.org/license-info/
+
+Each MIB's verbatim copyright notice in its own header is the
+authoritative source. The notice typically reads:
+
+  "Copyright (c) <year> IETF Trust and the persons identified as
+   authors of the code. All rights reserved."
+
+followed by terms permitting redistribution.

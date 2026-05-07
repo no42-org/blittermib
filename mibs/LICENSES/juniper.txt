@@ -1,0 +1,17 @@
+Juniper Networks
+================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Juniper Networks, Inc.
+
+The notice typically reads:
+
+  "Copyright (c) <year> Juniper Networks, Inc. All rights reserved."
+
+followed by terms governing redistribution. Juniper publishes its
+MIB collection at:
+
+  https://www.juniper.net/documentation/mib
+
+For the authoritative license terms, see the MIB's own header
+comment block.

@@ -1,0 +1,14 @@
+Brocade Communications
+======================
+
+Tag applied to MIB files whose first 200 lines contain a copyright
+notice attributable to Brocade Communications Systems (now split
+across Broadcom for storage networking and Extreme Networks for
+the Ruckus / IP-networking line).
+
+The notice typically reads:
+
+  "Copyright (c) <year> Brocade Communications Systems, Inc."
+
+followed by terms governing redistribution. For the authoritative
+license terms, see the MIB's own header comment block.
