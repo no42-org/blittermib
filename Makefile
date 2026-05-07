@@ -64,22 +64,24 @@ fetch-fonts:
 	@rm -f internal/server/assets/fonts/Geist*.woff2 internal/server/assets/fonts/GeistMono*.woff2
 	@echo "fetched Inter + JetBrains Mono -> internal/server/assets/fonts/"
 
-# Fetch IETF/IANA standard MIBs from libsmi's source distribution
-# into internal/mibsbundle/bundle/. The next `go build` embeds them
-# so they ship inside the binary and are usable on first run.
+# Fetch IETF/IANA standard MIBs from libsmi's source distribution into
+# mibs/upload/. They are then classified and committed into the corpus
+# the same way as contributor MIBs: run `make ingest` after this and
+# review the resulting tree under mibs/ietf/ + mibs/iana/.
 LIBSMI_TARBALL := https://www.ibr.cs.tu-bs.de/projects/libsmi/download/libsmi-0.5.0.tar.gz
 fetch-standard-mibs:
-	@mkdir -p internal/mibsbundle/bundle
+	@mkdir -p mibs/upload
 	@tmp=$$(mktemp -d) && \
 	curl -fL --silent --show-error -o $$tmp/libsmi.tar.gz $(LIBSMI_TARBALL) && \
 	tar -xz -C $$tmp -f $$tmp/libsmi.tar.gz && \
 	src=$$(find $$tmp -maxdepth 2 -type d -name mibs | head -1) && \
-	cp $$src/iana/* internal/mibsbundle/bundle/ 2>/dev/null || true && \
-	cp $$src/ietf/* internal/mibsbundle/bundle/ 2>/dev/null || true && \
-	cp $$src/site/* internal/mibsbundle/bundle/ 2>/dev/null || true && \
+	cp $$src/iana/* mibs/upload/ 2>/dev/null || true && \
+	cp $$src/ietf/* mibs/upload/ 2>/dev/null || true && \
+	cp $$src/site/* mibs/upload/ 2>/dev/null || true && \
 	rm -rf $$tmp && \
-	count=$$(ls internal/mibsbundle/bundle/ | grep -v '^README' | wc -l | tr -d ' ') && \
-	echo "fetched $$count standard MIBs -> internal/mibsbundle/bundle/"
+	count=$$(ls mibs/upload/ | grep -v '^\.gitkeep$$' | wc -l | tr -d ' ') && \
+	echo "fetched $$count standard MIBs -> mibs/upload/" && \
+	echo "next: run 'make ingest' to classify them into the corpus"
 
 # refresh-pen pulls the upstream IANA Private Enterprise Number registry
 # and overwrites internal/iana/pen.txt. Run quarterly via the
@@ -224,4 +226,4 @@ help:
 	@echo "make verify-mibs run the local MIB-corpus checks (lexical + naming + parse)"
 	@echo "make ingest      classify and route MIBs in mibs/upload/ into the corpus"
 	@echo "                 (flags: 'go run ./cmd/mib-ingest --dry-run|--git-add|--no-index')"
-	@echo "make fetch-standard-mibs  populate the embedded standard MIB bundle"
+	@echo "make fetch-standard-mibs  download IETF/IANA standard MIBs into mibs/upload/ (then run make ingest)"
