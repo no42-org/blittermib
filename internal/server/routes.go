@@ -19,6 +19,8 @@ import (
 //	/api/v1/search                 palette JSON
 //	/api/v1/symbol/{module}/{name} symbol detail JSON
 //	/static/*                      embedded CSS, fonts, JS islands
+//	/imprint                       operator disclosure (§ 5 TMG)
+//	/privacy                       data-handling notice (GDPR)
 //	/healthz                       liveness check
 //	/version                       build info
 func (s *Server) routes() {
@@ -26,6 +28,8 @@ func (s *Server) routes() {
 
 	s.mux.Handle("/healthz", chain(http.HandlerFunc(s.handleHealth), withLogging, withRecover))
 	s.mux.Handle("/version", chain(http.HandlerFunc(s.handleVersion), withLogging, withRecover))
+	s.mux.Handle("/imprint", chain(http.HandlerFunc(s.handleImprint), withLogging, withRecover))
+	s.mux.Handle("/privacy", chain(http.HandlerFunc(s.handlePrivacy), withLogging, withRecover))
 
 	s.mux.Handle("/m/", chain(http.HandlerFunc(s.handleModule), withLogging, withRecover))
 	s.mux.Handle("/s/", chain(http.HandlerFunc(s.handleSymbol), withLogging, withRecover))

@@ -170,6 +170,14 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(s.version + "\n"))
 }
 
+func (s *Server) handleImprint(w http.ResponseWriter, r *http.Request) {
+	render(w, r, http.StatusOK, web.Imprint())
+}
+
+func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
+	render(w, r, http.StatusOK, web.Privacy())
+}
+
 // --- page handlers ---------------------------------------------------
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {

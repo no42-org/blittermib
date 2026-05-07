@@ -1,0 +1,37 @@
+package web
+
+// Privacy renders the GDPR-compliant data-handling notice. Adapted
+// from blitsbom.eu/privacy for the blittermib deployment context —
+// blittermib is self-hosted by definition, so the privacy story
+// describes only what THIS canonical instance (operated by no42.org)
+// does. Self-hosted deployments inherit none of the server-log
+// claims and may want to adapt the page to their own infrastructure.
+templ Privacy() {
+	@Base("Privacy — blittermib") {
+		<article class="legal-page">
+			<h1>Privacy notice</h1>
+			<p><code>blittermib</code> is a self-hostable, server-rendered application with minimal data processing. This notice describes what the canonical public instance (operated by no42.org, see the <a href="/imprint">imprint</a>) does. If you self-host blittermib, the server-log section below applies to your deployment and you should adapt this page to match your own infrastructure.</p>
+			<h2 id="data-handling">Data handling</h2>
+			<ul>
+				<li>No cookies, no analytics, no tracking, no third-party embeds.</li>
+				<li>MIB files are read from the directory passed via <code>-mibs</code> on the server — they live on disk, are parsed locally by libsmi, and are never transmitted off the host.</li>
+				<li>Theme preference (light / dark) is stored in your browser's <code>localStorage</code> only. It never leaves the browser.</li>
+			</ul>
+			<h2 id="server-logs">Server logs</h2>
+			<p>The reverse proxy fronting the canonical instance retains standard access logs for <strong>14 days</strong> containing:</p>
+			<ul>
+				<li>IP address, timestamp, requested URL, HTTP method</li>
+				<li>Status code, response size, user agent and referrer headers</li>
+			</ul>
+			<p>These serve operational purposes only (debugging, abuse mitigation) and are then automatically deleted.</p>
+			<h2 id="legal-basis">Legal basis</h2>
+			<p>Processing of the connection data above relies on Art. 6 (1) (f) GDPR — legitimate interest in the secure and reliable operation of the service.</p>
+			<h2 id="infrastructure">Infrastructure</h2>
+			<p>The canonical instance is hosted by IONOS SE in Germany. TLS encryption uses Let's Encrypt certificates.</p>
+			<h2 id="user-rights">Your rights</h2>
+			<p>Under the GDPR you have the right to access, rectify, erase, restrict processing of, and port your personal data, and to lodge complaints with a supervisory authority. Contact details for exercising these rights are in the <a href="/imprint">imprint</a>.</p>
+			<h2 id="no-third-parties">No third parties</h2>
+			<p>The site loads no external fonts, analytics scripts, or embedded widgets. The only outbound connections from your browser are the ones you explicitly click on.</p>
+		</article>
+	}
+}

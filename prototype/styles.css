@@ -3719,3 +3719,51 @@ main.page:has(.workspace-grid) .content-inner,
   padding-top: 8px;
   border-top: 1px solid var(--line-soft);
 }
+
+/* --- legal pages (imprint, privacy) ---------------------------------- */
+
+.legal-page {
+  max-width: 64ch;
+  margin: 0 auto;
+  color: var(--fg-1);
+}
+.legal-page h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 12px;
+}
+.legal-page h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 28px 0 8px;
+  color: var(--fg-1);
+}
+.legal-page p,
+.legal-page address,
+.legal-page ul {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  margin: 0 0 12px;
+}
+.legal-page address {
+  font-style: normal;
+}
+.legal-page ul {
+  padding-left: 1.25rem;
+}
+.legal-page li + li {
+  margin-top: 4px;
+}
+.legal-page a {
+  color: var(--accent);
+}
+.legal-page code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line-soft);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+}
