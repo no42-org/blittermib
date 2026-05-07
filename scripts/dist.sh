@@ -21,9 +21,6 @@ LDFLAGS="-s -w -X main.version=${VERSION}"
 PLATFORMS=(
     linux/amd64
     linux/arm64
-    darwin/amd64
-    darwin/arm64
-    windows/amd64
 )
 
 rm -rf "$DIST"
@@ -33,7 +30,6 @@ for plat in "${PLATFORMS[@]}"; do
     os=${plat%/*}
     arch=${plat#*/}
     bin="$BIN"
-    [[ "$os" == "windows" ]] && bin="${BIN}.exe"
 
     name="${BIN}-${VERSION}-${os}-${arch}"
     workdir="$DIST/$name"
@@ -51,16 +47,12 @@ for plat in "${PLATFORMS[@]}"; do
 
     (
         cd "$DIST"
-        if [[ "$os" == "windows" ]]; then
-            zip -qr "${name}.zip" "$name"
-        else
-            tar -czf "${name}.tar.gz" "$name"
-        fi
+        tar -czf "${name}.tar.gz" "$name"
         rm -rf "$name"
     )
 done
 
 cd "$DIST"
-shasum -a 256 *.tar.gz *.zip 2>/dev/null > SHA256SUMS || \
-    sha256sum *.tar.gz *.zip > SHA256SUMS
+shasum -a 256 *.tar.gz 2>/dev/null > SHA256SUMS || \
+    sha256sum *.tar.gz > SHA256SUMS
 ls -la

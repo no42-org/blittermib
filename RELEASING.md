@@ -32,14 +32,14 @@ A push of any tag matching `v*.*.*` triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml),
 which runs two jobs in sequence:
 
-1. **artifacts** — `make dist` cross-builds five archives:
+1. **artifacts** — `make dist` cross-builds two archives:
    - `blittermib-vX.Y.Z-linux-amd64.tar.gz`
    - `blittermib-vX.Y.Z-linux-arm64.tar.gz`
 
    Each archive contains the binary plus `README.md` and `LICENSE`.
-   `SHA256SUMS` is generated alongside. All six files are attached to
-   the GitHub Release with auto-generated release notes (commits since
-   the previous tag, grouped by Conventional Commit type).
+   `SHA256SUMS` is generated alongside. All three files are attached
+   to the GitHub Release with auto-generated release notes (commits
+   since the previous tag, grouped by Conventional Commit type).
 
 2. **docker** — Multi-arch Docker image built for `linux/amd64` and
    `linux/arm64`, pushed to GHCR with two tags:

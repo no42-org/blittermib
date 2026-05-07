@@ -306,7 +306,7 @@ so cross-compile works from any Go-enabled host without target SDKs.
 Supported targets:
 
 ```
-linux/amd64  linux/arm64  darwin/amd64  darwin/arm64  windows/amd64
+linux/amd64  linux/arm64
 ```
 
 ## Troubleshooting
