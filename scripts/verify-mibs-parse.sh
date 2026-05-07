@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tier 3 — Parser: every MIB must produce non-empty XML from
-# `smidump -f xml -k --strict` and zero errors from `smilint`.
-# Warnings are tolerated.
+# `smidump -f xml -k` and zero errors from `smilint`. Warnings
+# are tolerated. (smidump has no `--strict` flag in upstream
+# libsmi; the strict-error gate is enforced by smilint below.)
 #
 # The smidump search path is built recursively from the corpus root
 # (sorted via `LC_ALL=C sort` so libsmi resolves IMPORTS
@@ -57,7 +58,7 @@ while IFS= read -r f; do
     # and stderr separately so the empty-XML check operates on the
     # actual XML body (not on stderr diagnostics that a `2>&1`
     # merge would conflate).
-    if ! smidump -f xml -k --strict "${SMI_PATHS[@]}" "$f" >"$xml_out" 2>"$err_out"; then
+    if ! smidump -f xml -k "${SMI_PATHS[@]}" "$f" >"$xml_out" 2>"$err_out"; then
         echo "FAIL [smidump $f]" >&2
         sed 's/^/  /' < "$err_out" >&2
         fail=1
