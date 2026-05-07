@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,6 +15,13 @@ import (
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/store"
 )
+
+// definitionsBeginMarker is the lexical anchor every SMIv2 module
+// must contain. Used as a runtime gate to exclude non-MIB files
+// (LICENSE, README, vendor docs) that share an extension or are
+// extensionless. The first ~8 KB of a file always contains the
+// opener if the file is a valid module.
+var definitionsBeginMarker = []byte("DEFINITIONS ::= BEGIN")
 
 // loader coordinates the compile pipeline and the store: walk the
 // MIB directory, parse each file, build cross-references, and replace
@@ -125,29 +135,99 @@ func rejectReason(r compile.Result) (string, bool) {
 	return "", true
 }
 
-// walkMIBFiles returns absolute paths of MIB-shaped files in dir.
-// Filename heuristics: `.mib`, `.txt`, `.my`, or no extension. Hidden
-// files (dotfiles) and subdirectories are skipped — the watcher only
-// observes the top level so deep recursion would surprise the user.
+// walkMIBFiles returns absolute paths of MIB-shaped files under dir.
+// Walks recursively (post mib-corpus §4): the corpus layout is
+// `mibs/{ietf,iana,vendors}/.../FILE`, so the loader needs to descend
+// past the top level. Skip rules:
+//
+//   - directories whose basename starts with `.` (hidden / `.git` /
+//     `.github`) — `filepath.SkipDir` short-circuits the subtree.
+//   - symlinks (filepath.WalkDir uses Lstat, so symlinked dirs
+//     appear as files and are filtered by the extension/marker
+//     check below; symlinked files fail the extension/marker check
+//     unless they reproduce a valid MIB body, which is fine).
+//   - files whose extension isn't one of `.mib` / `.txt` / `.my` /
+//     "" — the historical filename heuristic.
+//   - files that pass the extension filter but lack the
+//     `DEFINITIONS ::= BEGIN` lexical anchor — keeps non-MIB files
+//     under the corpus (LICENSE, READMEs) from being parsed.
 func walkMIBFiles(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
 	var out []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			// Don't abort the whole walk on a single permission /
+			// stat error — log and continue.
+			slog.Warn("walk error; skipping", "path", path, "err", err)
+			return nil
 		}
-		name := e.Name()
+		name := d.Name()
+		if d.IsDir() {
+			if path != dir && strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if strings.HasPrefix(name, ".") {
-			continue
+			return nil
 		}
-		ext := strings.ToLower(filepath.Ext(name))
-		switch ext {
+		// Skip symlinks and other irregular file types. filepath.WalkDir
+		// uses Lstat, so a symlinked-dir surfaces as a non-dir entry
+		// with type fs.ModeSymlink (we don't follow it — security;
+		// avoids reading outside the corpus root). FIFO/socket/device
+		// would block os.Open or yield meaningless reads.
+		if d.Type()&(fs.ModeSymlink|fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeIrregular) != 0 {
+			return nil
+		}
+		switch strings.ToLower(filepath.Ext(name)) {
 		case ".mib", ".txt", ".my", "":
-			out = append(out, filepath.Join(dir, name))
+		default:
+			return nil
 		}
+		ok, err := hasMIBOpener(path)
+		if err != nil {
+			slog.Warn("read failed; skipping", "path", path, "err", err)
+			return nil
+		}
+		if !ok {
+			return nil
+		}
+		out = append(out, path)
+		return nil
+	})
+	return out, err
+}
+
+// hasMIBOpener returns true when the first 32 KB of the file
+// contains the `DEFINITIONS ::= BEGIN` marker. The 32 KB cap
+// comfortably accommodates real-world Cisco/Juniper headers (which
+// can run several KB of copyright/IPR boilerplate before the
+// opener) while still keeping the per-file cost cheap on a
+// multi-thousand-MIB corpus walk.
+//
+// Reads `sniffBytes + len(marker)-1` to defend against the marker
+// straddling the byte-N boundary — without the overlap we'd miss
+// a marker that spans bytes 32766..32786.
+//
+// Uses `io.ReadFull` to defend against legal short-read behaviour
+// from `os.File.Read` on regular files — a partial read still
+// gives us bytes to scan. An empty file or any short-read EOF
+// flavour is reported as "no marker" without surfacing the EOF
+// itself; those are non-MIBs, not I/O errors.
+func hasMIBOpener(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
 	}
-	return out, nil
+	defer f.Close()
+	const sniffBytes = 32 * 1024
+	buf := make([]byte, sniffBytes+len(definitionsBeginMarker)-1)
+	n, err := io.ReadFull(f, buf)
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		// File shorter than the buffer — scan whatever we got.
+		return bytes.Contains(buf[:n], definitionsBeginMarker), nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return bytes.Contains(buf[:n], definitionsBeginMarker), nil
 }
