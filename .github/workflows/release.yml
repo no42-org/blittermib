@@ -60,6 +60,14 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
 
+      - name: Compute Docker tag (strip leading `v`)
+        id: docker_tag
+        # The git tag is `vX.Y.Z` (semver convention); the Docker
+        # image tag is `X.Y.Z` (Docker tag convention). The binary
+        # build still gets the full `vX.Y.Z` via VERSION below so
+        # `./blittermib -version` matches the git tag.
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Build & push multi-arch image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
         with:
@@ -67,7 +75,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository_owner }}/blittermib:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/blittermib:${{ steps.docker_tag.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/blittermib:latest
           build-args: |
             VERSION=${{ github.ref_name }}

@@ -43,7 +43,8 @@ which runs two jobs in sequence:
 
 2. **docker** — Multi-arch Docker image built for `linux/amd64` and
    `linux/arm64`, pushed to GHCR with two tags:
-   - `ghcr.io/no42-org/blittermib:vX.Y.Z`
+   - `ghcr.io/no42-org/blittermib:X.Y.Z` (no leading `v` — the
+     workflow strips it from the git tag for Docker tag conventions)
    - `ghcr.io/no42-org/blittermib:latest`
 
 The version string baked into the binary (`./blittermib -version`)
@@ -100,9 +101,9 @@ sha256sum -c SHA256SUMS --ignore-missing
 tar -xzf blittermib-vX.Y.Z-linux-amd64.tar.gz
 ./blittermib-vX.Y.Z-linux-amd64/blittermib -version
 
-# Docker
-docker pull ghcr.io/no42-org/blittermib:vX.Y.Z
-docker run --rm ghcr.io/no42-org/blittermib:vX.Y.Z -version
+# Docker (note: image tag drops the leading `v`)
+docker pull ghcr.io/no42-org/blittermib:X.Y.Z
+docker run --rm ghcr.io/no42-org/blittermib:X.Y.Z -version
 ```
 
 Both should print the tag.
