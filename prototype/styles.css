@@ -3809,3 +3809,99 @@ main.page:has(.workspace-grid) .content-inner,
   padding: 0 4px;
   border-radius: var(--radius-sm);
 }
+
+/* --- drop zone (web upload) ----------------------------------------- */
+
+.drop-zone {
+  margin: 16px auto 0;
+  max-width: 64ch;
+  padding: 18px 20px;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--fg-2);
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.drop-zone[data-state="dragover"] {
+  border-color: var(--accent);
+  background: var(--bg-row-hover);
+}
+.drop-zone[data-state="error"] {
+  border-color: var(--line-strong);
+}
+.drop-zone-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.drop-zone-icon {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--fg-3);
+}
+.drop-zone-headline {
+  font-size: 14px;
+  margin: 0;
+  color: var(--fg-1);
+}
+.drop-zone-browse {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.drop-zone-hint {
+  font-size: 12px;
+  margin: 0;
+  color: var(--fg-3);
+}
+.drop-zone-hint code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.drop-zone-progress {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.drop-zone-results {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  text-align: left;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.drop-zone-results li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 8px;
+  border-top: 1px solid var(--line-soft);
+}
+.drop-zone-results li:first-child { border-top: none; }
+.drop-zone-results li[data-ok="true"]::before  { content: "✓"; color: var(--accent); }
+.drop-zone-results li[data-ok="false"]::before { content: "✗"; color: var(--line-strong); }
+.drop-zone-result-name { color: var(--fg-1); }
+.drop-zone-result-detail { color: var(--fg-3); }
+.drop-zone-result-detail a { color: var(--accent); }
+.drop-zone-replace {
+  margin-left: auto;
+  background: var(--bg);
+  color: var(--fg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+.drop-zone-replace:hover { border-color: var(--accent); }

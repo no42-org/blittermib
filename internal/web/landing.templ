@@ -2,8 +2,11 @@ package web
 
 import "fmt"
 
-// Landing renders the search-first home page with module/symbol counts.
-templ Landing(modules, symbols int) {
+// Landing renders the search-first home page with module/symbol
+// counts. When uploadsEnabled is true (BLITTERMIB_UPLOAD_ENABLED on
+// the server side), a drop zone slots in between the hero search and
+// the stats line per design.md D11.
+templ Landing(modules, symbols int, uploadsEnabled bool) {
 	@Base("blittermib") {
 		<div class="hero">
 			<h1 class="hero-brand">
@@ -28,6 +31,9 @@ templ Landing(modules, symbols int) {
 				<span class="kbd" aria-hidden="true">⌘K</span>
 			</form>
 			<ul class="hero-results" id="hero-results" data-state="hidden" role="listbox"></ul>
+			if uploadsEnabled {
+				@DropZone()
+			}
 			<div class="hero-stats">
 				<strong>{ fmt.Sprintf("%d", modules) }</strong> modules
 				<span class="sep">·</span>
@@ -39,7 +45,7 @@ templ Landing(modules, symbols int) {
 
 // LandingEmpty renders the first-run state when the MIB directory is
 // empty (no user modules loaded). Mirrors prototype/empty.html.
-templ LandingEmpty(mibsDir string) {
+templ LandingEmpty(mibsDir string, uploadsEnabled bool) {
 	@Base("blittermib") {
 		<div class="empty">
 			<div class="brand-large">
@@ -60,6 +66,58 @@ templ LandingEmpty(mibsDir string) {
 				they appear. Standard IETF and IANA MIBs are loaded by
 				default.
 			</p>
+			if uploadsEnabled {
+				@DropZone()
+			}
 		</div>
 	}
+}
+
+// DropZone renders the upload affordance: drag-and-drop area + file
+// picker, talking to /api/v1/upload. The Alpine.js island in
+// /static/upload.js wires the state machine (idle / dragover /
+// uploading / per-file outcomes).
+templ DropZone() {
+	<div class="drop-zone"
+		x-data="dropZone()"
+		x-on:dragenter.prevent="onDragEnter()"
+		x-on:dragover.prevent="onDragOver()"
+		x-on:dragleave.prevent="onDragLeave($event)"
+		x-on:drop.prevent="onDrop($event)"
+		x-bind:data-state="state">
+		<div class="drop-zone-prompt" x-show="state !== 'uploading'">
+			<span class="drop-zone-icon" aria-hidden="true">⤓</span>
+			<p class="drop-zone-headline">Drop MIB files here, or
+				<button type="button" class="drop-zone-browse" x-on:click="$refs.file.click()">click to browse</button>
+			</p>
+			<p class="drop-zone-hint"><code>.mib</code> · <code>.txt</code> · <code>.my</code> — files land in <code>mibs/upload/</code> and load instantly.</p>
+		</div>
+		<div class="drop-zone-progress" x-show="state === 'uploading'" x-cloak>
+			<p>Uploading <span x-text="filesInFlight"></span>&hellip;</p>
+		</div>
+		<input type="file"
+			x-ref="file"
+			multiple
+			accept=".mib,.txt,.my"
+			x-on:change="onPick($event)"
+			hidden/>
+		<ul class="drop-zone-results" x-show="results.length > 0" x-cloak>
+			<template x-for="r in results" x-bind:key="r.name + ':' + r.ts">
+				<li x-bind:data-ok="r.ok ? 'true' : 'false'">
+					<span class="drop-zone-result-name" x-text="r.name"></span>
+					<template x-if="r.ok">
+						<span class="drop-zone-result-detail">
+							<a x-bind:href="'/m/' + encodeURIComponent(r.module)" x-text="r.module + ' · ' + r.symbols + ' symbols'"></a>
+						</span>
+					</template>
+					<template x-if="!r.ok">
+						<span class="drop-zone-result-detail" x-text="r.error"></span>
+					</template>
+					<template x-if="r.canReplace">
+						<button type="button" class="drop-zone-replace" x-on:click="replace(r)">Replace</button>
+					</template>
+				</li>
+			</template>
+		</ul>
+	</div>
 }

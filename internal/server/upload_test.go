@@ -475,6 +475,59 @@ func TestDeleteWhenDisabled(t *testing.T) {
 	}
 }
 
+// TestLandingDropZoneGated asserts the drop zone fragment appears
+// in the landing-page HTML if and only if uploads are enabled. We
+// drive both branches (Landing and LandingEmpty) — the "empty
+// state" path runs when no modules have loaded.
+func TestLandingDropZoneGated(t *testing.T) {
+	t.Run("disabled — no drop zone in landing-empty", func(t *testing.T) {
+		t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "")
+		ts := newTestServerForUpload(t, nil)
+		body := getBody(t, ts.URL+"/")
+		if strings.Contains(body, "drop-zone") {
+			t.Error("disabled state still rendered drop-zone markup")
+		}
+	})
+	t.Run("enabled — drop zone present in landing-empty", func(t *testing.T) {
+		t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+		ts := newTestServerForUpload(t, noopLoad)
+		body := getBody(t, ts.URL+"/")
+		if !strings.Contains(body, `class="drop-zone"`) {
+			t.Errorf("enabled state missing drop-zone class; body excerpt:\n%s",
+				excerpt(body, "hero-tagline", 1500))
+		}
+		if !strings.Contains(body, "/static/upload.js") {
+			t.Error("upload.js script tag missing from the rendered HTML")
+		}
+	})
+}
+
+func getBody(t *testing.T, url string) string {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func excerpt(body, anchor string, n int) string {
+	i := strings.Index(body, anchor)
+	if i < 0 {
+		i = 0
+	}
+	end := i + n
+	if end > len(body) {
+		end = len(body)
+	}
+	return body[i:end]
+}
+
 // TestUploadCompileFailureSurfaced covers the response shape when
 // the file passes the marker gate but the loader reports a compile
 // error (e.g., missing IMPORTS). The per-file outcome flips to
