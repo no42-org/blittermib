@@ -267,6 +267,80 @@ standard MIBs share the same root and the same loader; collisions
 are resolved at ingest time (refused with `destination already exists`
 unless the operator removes the prior copy).
 
+## Web uploads
+
+Operators can opt in to a browser-based upload + delete surface by
+setting `BLITTERMIB_UPLOAD_ENABLED=true` in the environment. When
+enabled:
+
+- A drop zone appears on the landing page; drag-and-drop (or
+  click-to-browse) `.mib`/`.txt`/`.my` files land in
+  `mibs/upload/` and load synchronously, with parse status
+  surfaced inline.
+- `/upload` lists every file currently under `mibs/upload/`
+  (loaded, parse-error, and non-MIB skipped alike) with a delete
+  affordance per row.
+- The `/m/{name}` page renders an inline ✕ button when the loaded
+  module's source resolves under `mibs/upload/`.
+
+When the env var is unset (the default), all of the above is
+absent: routes 404, drop zone is omitted from the rendered HTML,
+inline delete button is omitted from the module page. Same
+binary, two postures.
+
+> **This is an unauthenticated write surface.** blittermib has no
+> built-in auth; turning uploads on means anyone who can reach the
+> HTTP listener can write files into your `-mibs` directory. Enable
+> only on:
+> - a single-user dev box (typically `127.0.0.1:8080`),
+> - a private LAN where you trust everyone with network access, or
+> - a deployment behind a reverse proxy that enforces authentication
+>   (basic auth, OAuth2 proxy, mutual TLS).
+> The canonical public instance keeps uploads off.
+
+### Docker (compose.yml)
+
+Add to the `blittermib` service:
+
+```yaml
+services:
+  blittermib:
+    environment:
+      BLITTERMIB_UPLOAD_ENABLED: "true"
+    volumes:
+      # mibs/upload bind-mount becomes read-write so the container
+      # can persist drops back to the host filesystem.
+      - ./mibs/upload:/var/lib/blittermib/mibs/upload:rw
+```
+
+### systemd
+
+```ini
+[Service]
+Environment=BLITTERMIB_UPLOAD_ENABLED=true
+```
+
+### `docker run`
+
+```bash
+docker run --rm -p 8080:8080 \
+    -e BLITTERMIB_UPLOAD_ENABLED=true \
+    -v "$PWD/my-mibs:/var/lib/blittermib/mibs/upload:rw" \
+    ghcr.io/no42-org/blittermib:latest
+```
+
+### Limits
+
+- 10 MB hard cap per uploaded file (rejected with 413).
+- Per-batch file count and total bytes are unbounded by design —
+  the trusted-operator threat model means there's no anonymous DoS
+  surface to defend against. If you're exposing the surface beyond
+  a trusted boundary, terminate it at a reverse proxy that enforces
+  whatever rate / size limits your deployment needs.
+- Files dropped via the web UI land in `mibs/upload/` and are NOT
+  auto-classified into `mibs/{vendors,ietf,iana,...}/`. Promoting
+  them into the curated tree is a `mib-ingest` CLI concern.
+
 ## Backups
 
 The whole state is in `{data}/blittermib.db`. SQLite's online backup

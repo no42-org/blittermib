@@ -37,6 +37,15 @@ make ingest
 > MIBs into `mibs/ietf/{group}/` + `mibs/iana/` exactly like a
 > contributor MIB. There is no separate "bundle" path.
 
+> **Running blittermib already?** If your deployment has
+> `BLITTERMIB_UPLOAD_ENABLED=true`, you can drop files into
+> `mibs/upload/` straight from the browser via the drop zone on
+> the landing page or `/upload`. Same destination, same loader,
+> same outcome — just no shell needed. The web upload doesn't
+> auto-classify into `mibs/{vendors,ietf,iana,...}/` though, so
+> for contributor MIBs that should land in the corpus tree you
+> still want the `cp` + `make ingest` flow described here.
+
 The ingest tool walks `mibs/upload/`, parses each MIB via libsmi,
 classifies its destination per the routing rules below, and moves
 the file to the canonical corpus path with the extension stripped.

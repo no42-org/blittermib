@@ -475,6 +475,25 @@ func TestDeleteWhenDisabled(t *testing.T) {
 	}
 }
 
+// TestPrivacyMentionsUploads covers §7 / D13: the /privacy page
+// surfaces the uploads-enabled posture so visitors can see how
+// connection data is handled when an operator opts in.
+func TestPrivacyMentionsUploads(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "")
+	ts := newTestServerForUpload(t, nil)
+	body := getBody(t, ts.URL+"/privacy")
+	for _, want := range []string{
+		`id="web-uploads"`,
+		"BLITTERMIB_UPLOAD_ENABLED",
+		"unauthenticated write surface",
+		"verbatim",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/privacy missing %q", want)
+		}
+	}
+}
+
 // TestModulePageInlineDeleteShown covers the 8c surface: when
 // uploads are enabled AND a module's source file resolves under
 // mibs/upload/, the module page renders an inline ✕ button.

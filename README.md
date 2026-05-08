@@ -89,6 +89,18 @@ Flags:
   -version        print version and exit
 ```
 
+Environment variables:
+
+```
+  BLITTERMIB_UPLOAD_ENABLED=true
+       Expose POST /api/v1/upload (drop zone on the landing page)
+       and DELETE /api/v1/upload/{name}. Off by default. This is an
+       UNAUTHENTICATED write surface — only enable on deployments
+       you control end-to-end (private LAN, reverse proxy with auth,
+       single-user dev box). Files land in mibs/upload/ and load
+       through the same watcher pipeline as files copied with `cp`.
+```
+
 URL surfaces:
 
 ```
@@ -102,6 +114,11 @@ URL surfaces:
    /api/v1/symbol/{m}/{n}  symbol JSON
    /static/*               embedded design system + JS islands
    /healthz, /version      ops endpoints
+
+   When BLITTERMIB_UPLOAD_ENABLED=true (off by default):
+   /upload                 management page: drop zone + file list
+   /api/v1/upload          multi-file POST → mibs/upload/, sync compile
+   /api/v1/upload/{name}   DELETE single file from mibs/upload/
 ```
 
 ## Architecture
