@@ -153,6 +153,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 				outcomes[i].OK = false
 				outcomes[i].Error = "compile failed: " + res.Err.Error()
 				outcomes[i].ErrorCode = errCodeCompile
+				outcomes[i].httpStatus = http.StatusUnprocessableEntity
 				continue
 			}
 			if res.Module != nil {
@@ -193,9 +194,12 @@ func (s *Server) processUploadPart(part interface {
 	// Reject path separators and traversal segments BEFORE
 	// filepath.Base — otherwise `../../../etc/passwd` collapses to
 	// `passwd` and silently writes to mibs/upload/passwd.
+	// Reject only the literal traversal forms (`.`, `..`, the empty
+	// string) and characters that have no business in a MIB filename
+	// (path separators, NUL). Don't reject embedded `..` substrings —
+	// names like `MY..DRAFT-MIB` are legitimate per ValidModuleName.
 	if raw == "" || raw == "." || raw == ".." ||
-		strings.ContainsAny(raw, "/\\\x00") ||
-		strings.Contains(raw, "..") {
+		strings.ContainsAny(raw, "/\\\x00") {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
 		return uploadOutcome{
 			Name:       filepath.Base(raw),
@@ -222,6 +226,7 @@ func (s *Server) processUploadPart(part interface {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
 		oc.Error = "stat target: " + err.Error()
+		oc.ErrorCode = errCodeIO
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
 	}
@@ -239,6 +244,7 @@ func (s *Server) processUploadPart(part interface {
 	if err != nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
 		oc.Error = "rand: " + err.Error()
+		oc.ErrorCode = errCodeIO
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
 	}
@@ -247,6 +253,7 @@ func (s *Server) processUploadPart(part interface {
 	if err != nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
 		oc.Error = "create tmp: " + err.Error()
+		oc.ErrorCode = errCodeIO
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
 	}
@@ -258,12 +265,14 @@ func (s *Server) processUploadPart(part interface {
 	if copyErr != nil {
 		_ = os.Remove(tmpPath)
 		oc.Error = "io: " + copyErr.Error()
+		oc.ErrorCode = errCodeIO
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
 	}
 	if syncErr != nil || closeErr != nil {
 		_ = os.Remove(tmpPath)
 		oc.Error = "fsync/close failed"
+		oc.ErrorCode = errCodeIO
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
 	}
@@ -291,15 +300,23 @@ func (s *Server) processUploadPart(part interface {
 		return oc
 	}
 
-	// Atomic claim: Link returns EEXIST if the target already exists.
-	// On the no-replace path that's the collision signal — but we
-	// already checked above, so a Link EEXIST here means a concurrent
-	// upload won the race. Surface it as a refusal too. On the replace
-	// path, Rename clobbers existing.
-	if replace && existed {
+	// Two paths:
+	//   replace=true  → os.Rename (clobbers existing target). The
+	//                   user explicitly asked for replace, so we
+	//                   honour it regardless of whether Lstat saw
+	//                   the file at request start (a concurrent
+	//                   uploader may have created it since).
+	//   replace=false → os.Link (atomic claim). Link returns EEXIST
+	//                   if the target already exists, eliminating
+	//                   the Lstat→Rename TOCTOU. Even though we
+	//                   already checked for collision above, this
+	//                   guards against a concurrent uploader that
+	//                   created the target after our Lstat.
+	if replace {
 		if err := os.Rename(tmpPath, target); err != nil {
 			_ = os.Remove(tmpPath)
 			oc.Error = "rename: " + err.Error()
+			oc.ErrorCode = errCodeIO
 			oc.httpStatus = http.StatusInternalServerError
 			return oc
 		}
@@ -313,11 +330,17 @@ func (s *Server) processUploadPart(part interface {
 				return oc
 			}
 			oc.Error = "link: " + err.Error()
+			oc.ErrorCode = errCodeIO
 			oc.httpStatus = http.StatusInternalServerError
 			return oc
 		}
-		// Link succeeded; remove the now-redundant tmp file.
-		_ = os.Remove(tmpPath)
+		// Link succeeded; remove the now-redundant tmp file. A
+		// remove failure leaks a tmp file but the upload itself
+		// is durable; log once at WARN so the operator can spot
+		// recurring leaks via slog filters.
+		if err := os.Remove(tmpPath); err != nil {
+			slog.Warn("upload tmp cleanup failed", "path", tmpPath, "err", err)
+		}
 	}
 
 	oc.OK = true
@@ -539,9 +562,16 @@ func (s *Server) shadowMap() (map[string]string, error) {
 		if strings.HasPrefix(base, ".") {
 			return nil
 		}
-		// No extension filter — the upload sniffer accepts anything
-		// that passes HasMIBOpener regardless of extension, so
-		// shadow detection must too.
+		// Sniff per file: the upload sniffer accepts anything that
+		// passes HasMIBOpener regardless of extension, so shadow
+		// detection mirrors that policy. Without this, README,
+		// LICENSE, Makefile and other non-MIB corpus files would
+		// generate spurious shadow annotations on uploads with
+		// matching basenames.
+		ok, err := mibcorpus.HasMIBOpener(path)
+		if err != nil || !ok {
+			return nil
+		}
 		rel, err := filepath.Rel(s.mibsDir, path)
 		if err != nil {
 			return nil

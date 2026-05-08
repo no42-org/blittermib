@@ -12,8 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/store"
@@ -308,6 +308,9 @@ func TestUploadCollisionRefused(t *testing.T) {
 	if !strings.Contains(ur.Uploaded[0].Error, "already exists") {
 		t.Errorf("error = %q, want mention of 'already exists'", ur.Uploaded[0].Error)
 	}
+	if ur.Uploaded[0].ErrorCode != "exists" {
+		t.Errorf("errorCode = %q, want \"exists\"", ur.Uploaded[0].ErrorCode)
+	}
 }
 
 // TestUploadCollisionReplace covers D5 explicit override: ?replace=
@@ -366,6 +369,9 @@ func TestUploadNoMarker(t *testing.T) {
 	if !strings.Contains(ur.Uploaded[0].Error, "no MIB marker") {
 		t.Errorf("error = %q, want mention of 'no MIB marker'", ur.Uploaded[0].Error)
 	}
+	if ur.Uploaded[0].ErrorCode != "no-marker" {
+		t.Errorf("errorCode = %q, want \"no-marker\"", ur.Uploaded[0].ErrorCode)
+	}
 }
 
 // TestUploadOver10MB covers D7. A 12 MB part returns 413 and is not
@@ -381,6 +387,9 @@ func TestUploadOver10MB(t *testing.T) {
 	ur := decodeUpload(t, body)
 	if !strings.Contains(ur.Uploaded[0].Error, "10 MB") {
 		t.Errorf("error = %q, want mention of '10 MB'", ur.Uploaded[0].Error)
+	}
+	if ur.Uploaded[0].ErrorCode != "too-large" {
+		t.Errorf("errorCode = %q, want \"too-large\"", ur.Uploaded[0].ErrorCode)
 	}
 }
 
@@ -514,6 +523,9 @@ func TestUploadFilenameTraversalRejected(t *testing.T) {
 		if len(ur.Uploaded) != 1 || ur.Uploaded[0].OK {
 			t.Errorf("filename %q: outcome = %+v, want OK=false", hostile, ur.Uploaded)
 		}
+		if ur.Uploaded[0].ErrorCode != "invalid-name" {
+			t.Errorf("filename %q: errorCode = %q, want \"invalid-name\"", hostile, ur.Uploaded[0].ErrorCode)
+		}
 	}
 }
 
@@ -587,54 +599,56 @@ func TestUploadEmptyMultipartReturns400(t *testing.T) {
 // ?replace=true. With os.Link instead of os.Rename, exactly ONE
 // must win (the loser sees 409 / errorCode "exists"); the winner's
 // file content stays on disk.
+//
+// Sync barrier: a closed `start` channel forces both goroutines
+// past the gate at the same scheduling tick, maximising overlap
+// across runtimes. Repeats N iterations to amortise scheduling
+// luck — under GOMAXPROCS=1 a single iteration could still serialise,
+// but the loop makes a regression to plain Rename detectable across
+// 50 attempts.
 func TestUploadConcurrentNoReplace(t *testing.T) {
 	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
-	ts := newTestServerForUpload(t, fakeLoad("", 0, nil))
+	const iters = 50
+	for i := 0; i < iters; i++ {
+		ts := newTestServerForUpload(t, fakeLoad("", 0, nil))
 
-	const name = "TEST-MIB"
-	contentA := minimalMIB + "\n-- writer A\n"
-	contentB := minimalMIB + "\n-- writer B\n"
-	winners := make(chan string, 2)
-	losers := make(chan int, 2)
-	go func() {
-		resp, body := postUpload(t, ts, "", map[string]string{name: contentA})
-		if resp.StatusCode == http.StatusOK {
-			winners <- "A"
-		} else {
-			losers <- resp.StatusCode
-			_ = body
-		}
-	}()
-	go func() {
-		resp, body := postUpload(t, ts, "", map[string]string{name: contentB})
-		if resp.StatusCode == http.StatusOK {
-			winners <- "B"
-		} else {
-			losers <- resp.StatusCode
-			_ = body
-		}
-	}()
+		const name = "TEST-MIB"
+		contentA := minimalMIB + "\n-- writer A\n"
+		contentB := minimalMIB + "\n-- writer B\n"
+		start := make(chan struct{})
+		results := make(chan int, 2)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			resp, _ := postUpload(t, ts, "", map[string]string{name: contentA})
+			results <- resp.StatusCode
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			resp, _ := postUpload(t, ts, "", map[string]string{name: contentB})
+			results <- resp.StatusCode
+		}()
+		close(start)
+		wg.Wait()
+		close(results)
 
-	// Wait for both responses.
-	finished := 0
-	wins, losses := 0, 0
-	for finished < 2 {
-		select {
-		case <-winners:
-			wins++
-			finished++
-		case status := <-losers:
-			if status != http.StatusConflict {
-				t.Errorf("loser status = %d, want 409", status)
+		wins, losses := 0, 0
+		for status := range results {
+			switch status {
+			case http.StatusOK:
+				wins++
+			case http.StatusConflict:
+				losses++
+			default:
+				t.Fatalf("iter %d: unexpected status %d", i, status)
 			}
-			losses++
-			finished++
-		case <-time.After(5 * time.Second):
-			t.Fatal("upload timeout")
 		}
-	}
-	if wins != 1 || losses != 1 {
-		t.Errorf("concurrent uploads: wins=%d losses=%d, want 1/1 (atomic claim)", wins, losses)
+		if wins != 1 || losses != 1 {
+			t.Fatalf("iter %d: wins=%d losses=%d, want 1/1 (atomic claim regressed?)", i, wins, losses)
+		}
 	}
 }
 
@@ -1039,16 +1053,15 @@ func excerpt(body, anchor string, n int) string {
 // TestUploadCompileFailureSurfaced covers the response shape when
 // the file passes the marker gate but the loader reports a compile
 // error (e.g., missing IMPORTS). The per-file outcome flips to
-// OK=false and surfaces the error.
+// OK=false, surfaces the error, sets errorCode="compile-failed",
+// and (per the post-review patch) the single-file batch status is
+// 422 — distinguishable from a clean 200.
 func TestUploadCompileFailureSurfaced(t *testing.T) {
 	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
 	ts := newTestServerForUpload(t, failLoad())
 	resp, body := postUpload(t, ts, "", map[string]string{"TEST-MIB": minimalMIB})
-	if resp.StatusCode != http.StatusOK {
-		// Multi-stage failure (write OK, compile fail) → the file
-		// landed on disk; status stays 200 and the per-file
-		// outcome carries the failure detail.
-		t.Errorf("status = %d, want 200; body = %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422; body = %s", resp.StatusCode, body)
 	}
 	ur := decodeUpload(t, body)
 	if len(ur.Uploaded) != 1 || ur.Uploaded[0].OK {
@@ -1056,6 +1069,9 @@ func TestUploadCompileFailureSurfaced(t *testing.T) {
 	}
 	if !strings.Contains(ur.Uploaded[0].Error, "compile failed") {
 		t.Errorf("error = %q, want 'compile failed: …'", ur.Uploaded[0].Error)
+	}
+	if ur.Uploaded[0].ErrorCode != "compile-failed" {
+		t.Errorf("errorCode = %q, want \"compile-failed\"", ur.Uploaded[0].ErrorCode)
 	}
 }
 
