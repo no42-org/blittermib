@@ -72,10 +72,15 @@ templ uploadRow(r UploadRow) {
 
 // confirmAndDelete returns the inline JS for the per-row delete
 // button: native window.confirm() (D9) → fetch DELETE → reload on
-// success.
+// success. Adds the X-Blittermib-Upload sentinel header so a
+// cross-origin browser can't fire the DELETE without a CORS
+// preflight (which the server doesn't honour).
 script confirmAndDelete(name string) {
 	if (!window.confirm('Delete ' + name + ' from upload/?')) return;
-	fetch('/api/v1/upload/' + encodeURIComponent(name), { method: 'DELETE' })
+	fetch('/api/v1/upload/' + encodeURIComponent(name), {
+		method: 'DELETE',
+		headers: { 'X-Blittermib-Upload': '1' },
+	})
 		.then(function (resp) {
 			if (resp.status === 204) {
 				window.location.reload();

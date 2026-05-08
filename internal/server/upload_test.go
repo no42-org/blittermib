@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/store"
@@ -196,6 +197,7 @@ func postUpload(t *testing.T, ts *httptest.Server, query string, files map[strin
 	}
 	req, _ := http.NewRequest(http.MethodPost, url, body)
 	req.Header.Set("Content-Type", ct)
+	req.Header.Set("X-Blittermib-Upload", "1")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -206,6 +208,20 @@ func postUpload(t *testing.T, ts *httptest.Server, query string, files map[strin
 		t.Fatal(err)
 	}
 	return resp, out
+}
+
+// deleteUpload issues a DELETE /api/v1/upload/<name> with the
+// sentinel header. Mirrors postUpload's helper shape.
+func deleteUpload(t *testing.T, ts *httptest.Server, name string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/upload/"+name, nil)
+	req.Header.Set("X-Blittermib-Upload", "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp
 }
 
 func decodeUpload(t *testing.T, body []byte) uploadResponse {
@@ -415,20 +431,13 @@ func TestDeleteSuccess(t *testing.T) {
 		t.Fatalf("seed upload: status %d", r.StatusCode)
 	}
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/upload/TEST-MIB", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
+	resp := deleteUpload(t, ts, "TEST-MIB")
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", resp.StatusCode)
 	}
 
 	// A second delete must 404 (the file is gone).
-	req2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/upload/TEST-MIB", nil)
-	resp2, _ := http.DefaultClient.Do(req2)
-	resp2.Body.Close()
+	resp2 := deleteUpload(t, ts, "TEST-MIB")
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Errorf("second delete: status = %d, want 404", resp2.StatusCode)
 	}
@@ -446,12 +455,7 @@ func TestDeleteTraversalRefused(t *testing.T) {
 		"foo bar",
 		"foo;bar",
 	} {
-		req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/upload/"+name, nil)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		resp.Body.Close()
+		resp := deleteUpload(t, ts, name)
 		if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusNotFound {
 			t.Errorf("DELETE %q: status = %d, want 400 or 404", name, resp.StatusCode)
 		}
@@ -464,14 +468,235 @@ func TestDeleteTraversalRefused(t *testing.T) {
 func TestDeleteWhenDisabled(t *testing.T) {
 	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "")
 	ts := newTestServerForUpload(t, nil)
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/upload/TEST-MIB", nil)
+	resp := deleteUpload(t, ts, "TEST-MIB")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// TestUploadFilenameTraversalRejected covers the defensive
+// filename guard plus a documentation of Go's stdlib behaviour:
+//
+//   - Go's mime/multipart already calls filepath.Base on the
+//     Content-Disposition filename internally, so requests like
+//     `../../../etc/passwd` arrive at the handler as `passwd` —
+//     the path-traversal ATTACK surface is closed at the stdlib
+//     boundary, not by our code.
+//   - Our defensive check on the post-Base filename catches the
+//     remaining unsafe shapes: `.` / `..` literals, embedded NUL
+//     bytes, and platform-mismatched separators that Base() on
+//     Linux preserves (e.g., backslashes). These are rare in
+//     practice but rejected on principle.
+//
+// Path-separator inputs that Go normalises away land as legitimate
+// filenames; they're accepted (no escape happened) — operator
+// surprise is the only residual concern, addressed by the
+// non-clobbering 409 collision response on subsequent uploads.
+func TestUploadFilenameTraversalRejected(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+	ts := newTestServerForUpload(t, fakeLoad("", 0, nil))
+	// NUL bytes in filenames are rejected by Go's mime/multipart
+	// layer ("malformed multipart body") with a non-JSON 400 body
+	// before the handler even sees them — that's stronger than our
+	// own check and equally safe (no file written). Cases below
+	// reach our handler and get a structured 400 + JSON.
+	for _, hostile := range []string{
+		"..\\..\\windows.cfg", // backslash preserved by Base on Linux
+		"foo\\bar",
+		"..",
+		".",
+	} {
+		resp, body := postUpload(t, ts, "", map[string]string{hostile: minimalMIB})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("filename %q: status = %d, want 400; body = %s", hostile, resp.StatusCode, body)
+		}
+		ur := decodeUpload(t, body)
+		if len(ur.Uploaded) != 1 || ur.Uploaded[0].OK {
+			t.Errorf("filename %q: outcome = %+v, want OK=false", hostile, ur.Uploaded)
+		}
+	}
+}
+
+// TestUploadStdlibNormalisesPath documents the expected stdlib
+// behaviour: Go's mime/multipart strips path components from
+// filenames, so traversal-shaped inputs arrive as plain basenames
+// and write inside mibs/upload/. The escape attack itself never
+// reaches the handler.
+func TestUploadStdlibNormalisesPath(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+	ts := newTestServerForUpload(t, fakeLoad("1.2.3", 1, nil))
+	resp, body := postUpload(t, ts, "", map[string]string{"../../../etc/passwd": minimalMIB})
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("traversal-shaped filename: status = %d, want 200 (stdlib normalises to 'passwd'); body = %s",
+			resp.StatusCode, body)
+	}
+	ur := decodeUpload(t, body)
+	if len(ur.Uploaded) != 1 || ur.Uploaded[0].Name != "passwd" {
+		t.Errorf("expected single outcome with Name='passwd', got %+v", ur.Uploaded)
+	}
+}
+
+// TestUploadCSRFHeaderRequired covers the sentinel-header gate:
+// requests without `X-Blittermib-Upload` are refused with 403,
+// blocking cross-origin browser fetches that would otherwise reach
+// the handler via the CORS "simple request" allowlist.
+func TestUploadCSRFHeaderRequired(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+	ts := newTestServerForUpload(t, noopLoad)
+
+	// POST without the header → 403.
+	body, ct := buildMultipart(t, map[string]string{"TEST-MIB": minimalMIB})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/upload", body)
+	req.Header.Set("Content-Type", ct)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want 404", resp.StatusCode)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("POST without sentinel header: status = %d, want 403", resp.StatusCode)
+	}
+
+	// DELETE without the header → 403.
+	req2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/upload/X", nil)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Errorf("DELETE without sentinel header: status = %d, want 403", resp2.StatusCode)
+	}
+}
+
+// TestUploadEmptyMultipartReturns400 covers the empty-body path:
+// a multipart POST with no parts yields 400 instead of 200 + empty
+// uploaded[]. Closes the audit gap where clients couldn't
+// distinguish "successful empty batch" from "malformed body".
+func TestUploadEmptyMultipartReturns400(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+	ts := newTestServerForUpload(t, noopLoad)
+	resp, _ := postUpload(t, ts, "", map[string]string{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("empty multipart: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestUploadConcurrentNoReplace covers the atomic-claim contract
+// (D3 patch): two concurrent POSTs of the same filename without
+// ?replace=true. With os.Link instead of os.Rename, exactly ONE
+// must win (the loser sees 409 / errorCode "exists"); the winner's
+// file content stays on disk.
+func TestUploadConcurrentNoReplace(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+	ts := newTestServerForUpload(t, fakeLoad("", 0, nil))
+
+	const name = "TEST-MIB"
+	contentA := minimalMIB + "\n-- writer A\n"
+	contentB := minimalMIB + "\n-- writer B\n"
+	winners := make(chan string, 2)
+	losers := make(chan int, 2)
+	go func() {
+		resp, body := postUpload(t, ts, "", map[string]string{name: contentA})
+		if resp.StatusCode == http.StatusOK {
+			winners <- "A"
+		} else {
+			losers <- resp.StatusCode
+			_ = body
+		}
+	}()
+	go func() {
+		resp, body := postUpload(t, ts, "", map[string]string{name: contentB})
+		if resp.StatusCode == http.StatusOK {
+			winners <- "B"
+		} else {
+			losers <- resp.StatusCode
+			_ = body
+		}
+	}()
+
+	// Wait for both responses.
+	finished := 0
+	wins, losses := 0, 0
+	for finished < 2 {
+		select {
+		case <-winners:
+			wins++
+			finished++
+		case status := <-losers:
+			if status != http.StatusConflict {
+				t.Errorf("loser status = %d, want 409", status)
+			}
+			losses++
+			finished++
+		case <-time.After(5 * time.Second):
+			t.Fatal("upload timeout")
+		}
+	}
+	if wins != 1 || losses != 1 {
+		t.Errorf("concurrent uploads: wins=%d losses=%d, want 1/1 (atomic claim)", wins, losses)
+	}
+}
+
+// TestUploadReplaceOverShadow covers the ?replace=true semantics
+// when the upload would shadow a corpus-tracked file with the same
+// basename. The upload must succeed; the file in mibs/upload/ ends
+// up with the new bytes; the corpus copy is untouched.
+func TestUploadReplaceOverShadow(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	mibsDir := t.TempDir()
+	uploadDir := filepath.Join(mibsDir, "upload")
+	corpusDir := filepath.Join(mibsDir, "ietf", "core")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(corpusDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corpusFile := filepath.Join(corpusDir, "SHADOW-MIB")
+	if err := os.WriteFile(corpusFile, []byte(minimalMIB), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uploadFile := filepath.Join(uploadDir, "SHADOW-MIB")
+	if err := os.WriteFile(uploadFile, []byte(minimalMIB+"\n-- v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(st, "", "test", mibsDir)
+	s.EnableUploads(fakeLoad("", 0, nil))
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+
+	// First POST without ?replace → 409 (collision in upload/).
+	resp1, _ := postUpload(t, ts, "", map[string]string{"SHADOW-MIB": minimalMIB + "\n-- v2\n"})
+	if resp1.StatusCode != http.StatusConflict {
+		t.Errorf("no-replace POST status = %d, want 409", resp1.StatusCode)
+	}
+
+	// Second POST with ?replace=true → 200, upload bytes change,
+	// corpus file untouched.
+	resp2, body := postUpload(t, ts, "replace=true", map[string]string{"SHADOW-MIB": minimalMIB + "\n-- v2\n"})
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("replace POST status = %d, want 200; body = %s", resp2.StatusCode, body)
+	}
+	uploaded, err := os.ReadFile(uploadFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(uploaded), "-- v2") {
+		t.Errorf("upload file did not get v2 content; body = %s", uploaded)
+	}
+	corpusBytes, err := os.ReadFile(corpusFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(corpusBytes), "-- v2") {
+		t.Errorf("corpus shadow file was clobbered; body = %s", corpusBytes)
 	}
 }
 
@@ -720,21 +945,51 @@ func TestUploadIndexGatedOff(t *testing.T) {
 }
 
 // TestLandingDropZoneGated asserts the drop zone fragment appears
-// in the landing-page HTML if and only if uploads are enabled. We
-// drive both branches (Landing and LandingEmpty) — the "empty
-// state" path runs when no modules have loaded.
+// in the populated landing page HTML if and only if uploads are
+// enabled. The empty-state landing (zero modules loaded) does NOT
+// render the drop zone — design.md D11 scopes the drop zone to the
+// populated landing — and the empty branch is covered separately.
 func TestLandingDropZoneGated(t *testing.T) {
-	t.Run("disabled — no drop zone in landing-empty", func(t *testing.T) {
+	seed := func(t *testing.T, st *store.Store) {
+		t.Helper()
+		if err := st.ReplaceModule(context.Background(),
+			&model.Module{Name: "SEED-MIB", ParseStatus: model.ParseStatusClean},
+			nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	build := func(t *testing.T) *httptest.Server {
+		t.Helper()
+		st, err := store.OpenInMemory(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = st.Close() })
+		seed(t, st)
+		mibsDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(mibsDir, "upload"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		s := New(st, "", "test", mibsDir)
+		if uploadEnvEnabled() {
+			s.EnableUploads(noopLoad)
+		}
+		ts := httptest.NewServer(s.Handler())
+		t.Cleanup(ts.Close)
+		return ts
+	}
+
+	t.Run("disabled — no drop zone on populated landing", func(t *testing.T) {
 		t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "")
-		ts := newTestServerForUpload(t, nil)
+		ts := build(t)
 		body := getBody(t, ts.URL+"/")
 		if strings.Contains(body, "drop-zone") {
 			t.Error("disabled state still rendered drop-zone markup")
 		}
 	})
-	t.Run("enabled — drop zone present in landing-empty", func(t *testing.T) {
+	t.Run("enabled — drop zone present on populated landing", func(t *testing.T) {
 		t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
-		ts := newTestServerForUpload(t, noopLoad)
+		ts := build(t)
 		body := getBody(t, ts.URL+"/")
 		if !strings.Contains(body, `class="drop-zone"`) {
 			t.Errorf("enabled state missing drop-zone class; body excerpt:\n%s",
@@ -742,6 +997,15 @@ func TestLandingDropZoneGated(t *testing.T) {
 		}
 		if !strings.Contains(body, "/static/upload.js") {
 			t.Error("upload.js script tag missing from the rendered HTML")
+		}
+	})
+	t.Run("empty-state landing never has drop zone, even when enabled", func(t *testing.T) {
+		t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+		// build() seeds; we want a server with NO modules.
+		ts := newTestServerForUpload(t, noopLoad)
+		body := getBody(t, ts.URL+"/")
+		if strings.Contains(body, "drop-zone") {
+			t.Error("empty-state landing rendered drop zone (D11 scopes it to populated landing only)")
 		}
 	})
 }

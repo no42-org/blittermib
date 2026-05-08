@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,6 +24,24 @@ import (
 // larger is rejected as "definitely not a MIB."
 const maxUploadFileSize = 10 << 20
 
+// uploadCSRFHeader is a same-origin sentinel: any browser fetch from
+// our own pages adds it; cross-origin browser fetches setting custom
+// headers trigger a CORS preflight that our server doesn't honour, so
+// the actual POST/DELETE never fires. Belt-and-braces against the
+// "operator left the tab open while browsing evil.com" failure mode.
+const uploadCSRFHeader = "X-Blittermib-Upload"
+
+// Stable error codes carried alongside the human-readable Error
+// string so client code can branch reliably without sniffing English.
+const (
+	errCodeInvalidName = "invalid-name"
+	errCodeExists      = "exists"
+	errCodeNoMarker    = "no-marker"
+	errCodeTooLarge    = "too-large"
+	errCodeIO          = "io"
+	errCodeCompile     = "compile-failed"
+)
+
 // uploadOutcome is the per-file response shape. JSON tags align with
 // the spec scenarios in
 // openspec/changes/web-upload/specs/web-upload/spec.md.
@@ -41,6 +61,7 @@ type uploadOutcome struct {
 	Diagnostics []model.Diagnostic `json:"diagnostics,omitempty"`
 	Replaced    bool               `json:"replaced,omitempty"`
 	Error       string             `json:"error,omitempty"`
+	ErrorCode   string             `json:"errorCode,omitempty"`
 
 	httpStatus int // not serialised
 }
@@ -68,6 +89,10 @@ type uploadResponse struct {
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Header.Get(uploadCSRFHeader) == "" {
+		http.Error(w, "missing CSRF header", http.StatusForbidden)
 		return
 	}
 
@@ -127,6 +152,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			if res.Err != nil {
 				outcomes[i].OK = false
 				outcomes[i].Error = "compile failed: " + res.Err.Error()
+				outcomes[i].ErrorCode = errCodeCompile
 				continue
 			}
 			if res.Module != nil {
@@ -136,6 +162,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			outcomes[i].Symbols = res.SymbolCount
 			outcomes[i].Diagnostics = res.Diagnostics
 		}
+	}
+
+	if len(outcomes) == 0 {
+		http.Error(w, "no parts in multipart body", http.StatusBadRequest)
+		return
 	}
 
 	status := http.StatusOK
@@ -158,12 +189,28 @@ func (s *Server) processUploadPart(part interface {
 	FileName() string
 	io.Reader
 }, replace bool, tmpDir string) uploadOutcome {
-	name := filepath.Base(part.FileName())
+	raw := part.FileName()
+	// Reject path separators and traversal segments BEFORE
+	// filepath.Base — otherwise `../../../etc/passwd` collapses to
+	// `passwd` and silently writes to mibs/upload/passwd.
+	if raw == "" || raw == "." || raw == ".." ||
+		strings.ContainsAny(raw, "/\\\x00") ||
+		strings.Contains(raw, "..") {
+		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
+		return uploadOutcome{
+			Name:       filepath.Base(raw),
+			Error:      "invalid filename",
+			ErrorCode:  errCodeInvalidName,
+			httpStatus: http.StatusBadRequest,
+		}
+	}
+	name := filepath.Base(raw)
 	oc := uploadOutcome{Name: name}
 
 	if !mibcorpus.ValidModuleName.MatchString(name) {
-		_, _ = io.Copy(io.Discard, part)
+		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
 		oc.Error = "invalid filename"
+		oc.ErrorCode = errCodeInvalidName
 		oc.httpStatus = http.StatusBadRequest
 		return oc
 	}
@@ -172,18 +219,33 @@ func (s *Server) processUploadPart(part interface {
 	existed := false
 	if _, err := os.Lstat(target); err == nil {
 		existed = true
-		if !replace {
-			_, _ = io.Copy(io.Discard, part)
-			oc.Error = "destination already exists"
-			oc.httpStatus = http.StatusConflict
-			return oc
-		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
+		oc.Error = "stat target: " + err.Error()
+		oc.httpStatus = http.StatusInternalServerError
+		return oc
+	}
+	if existed && !replace {
+		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
+		oc.Error = "destination already exists"
+		oc.ErrorCode = errCodeExists
+		oc.httpStatus = http.StatusConflict
+		return oc
 	}
 
-	tmpPath := filepath.Join(tmpDir, name+".upload")
+	// Random suffix in tmp filename so two concurrent uploads of the
+	// same name don't truncate each other mid-write.
+	suffix, err := randHex(8)
+	if err != nil {
+		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
+		oc.Error = "rand: " + err.Error()
+		oc.httpStatus = http.StatusInternalServerError
+		return oc
+	}
+	tmpPath := filepath.Join(tmpDir, name+"."+suffix+".upload")
 	f, err := os.Create(tmpPath)
 	if err != nil {
-		_, _ = io.Copy(io.Discard, part)
+		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
 		oc.Error = "create tmp: " + err.Error()
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
@@ -208,6 +270,7 @@ func (s *Server) processUploadPart(part interface {
 	if n > maxUploadFileSize {
 		_ = os.Remove(tmpPath)
 		oc.Error = "file exceeds 10 MB limit"
+		oc.ErrorCode = errCodeTooLarge
 		oc.httpStatus = http.StatusRequestEntityTooLarge
 		return oc
 	}
@@ -216,26 +279,61 @@ func (s *Server) processUploadPart(part interface {
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		oc.Error = "sniff failed: " + err.Error()
+		oc.ErrorCode = errCodeIO
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
 	}
 	if !ok {
 		_ = os.Remove(tmpPath)
 		oc.Error = "no MIB marker"
+		oc.ErrorCode = errCodeNoMarker
 		oc.httpStatus = http.StatusUnprocessableEntity
 		return oc
 	}
 
-	if err := os.Rename(tmpPath, target); err != nil {
+	// Atomic claim: Link returns EEXIST if the target already exists.
+	// On the no-replace path that's the collision signal — but we
+	// already checked above, so a Link EEXIST here means a concurrent
+	// upload won the race. Surface it as a refusal too. On the replace
+	// path, Rename clobbers existing.
+	if replace && existed {
+		if err := os.Rename(tmpPath, target); err != nil {
+			_ = os.Remove(tmpPath)
+			oc.Error = "rename: " + err.Error()
+			oc.httpStatus = http.StatusInternalServerError
+			return oc
+		}
+	} else {
+		if err := os.Link(tmpPath, target); err != nil {
+			_ = os.Remove(tmpPath)
+			if errors.Is(err, os.ErrExist) {
+				oc.Error = "destination already exists"
+				oc.ErrorCode = errCodeExists
+				oc.httpStatus = http.StatusConflict
+				return oc
+			}
+			oc.Error = "link: " + err.Error()
+			oc.httpStatus = http.StatusInternalServerError
+			return oc
+		}
+		// Link succeeded; remove the now-redundant tmp file.
 		_ = os.Remove(tmpPath)
-		oc.Error = "rename: " + err.Error()
-		oc.httpStatus = http.StatusInternalServerError
-		return oc
 	}
 
 	oc.OK = true
 	oc.Replaced = existed
 	return oc
+}
+
+// randHex returns 2*n hex characters. Used for tmp-file suffixes so
+// concurrent uploads of the same filename don't truncate each
+// other's in-flight writes.
+func randHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // handleUploadDelete removes a single file from mibs/upload/. The
@@ -249,6 +347,10 @@ func (s *Server) processUploadPart(part interface {
 func (s *Server) handleUploadDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Header.Get(uploadCSRFHeader) == "" {
+		http.Error(w, "missing CSRF header", http.StatusForbidden)
 		return
 	}
 	const prefix = "/api/v1/upload/"
@@ -308,8 +410,15 @@ func (s *Server) handleUploadIndex(w http.ResponseWriter, r *http.Request) {
 	render(w, r, http.StatusOK, web.UploadIndex(rows))
 }
 
-// uploadRows lists mibs/upload/ entries (skipping .gitkeep and
-// .tmp/) and decorates each with load state + shadow annotation.
+// uploadRows lists mibs/upload/ entries (skipping .gitkeep, hidden
+// dirs like .tmp/) and decorates each with load state + shadow
+// annotation.
+//
+// Load-state lookup keys by SourcePath, NOT by filename. A MIB's
+// module name (the identifier inside the file) is often unrelated to
+// its filename — `cisco-bgp4.mib` may declare module
+// `CISCO-BGP4-MIB`. Asking the store via GetModule(filename) would
+// silently misclassify those as "parse error".
 //
 // Shadow detection: if the basename appears anywhere else under
 // s.mibsDir (outside upload/), the row carries the corpus-relative
@@ -330,46 +439,51 @@ func (s *Server) uploadRows(ctx context.Context) ([]web.UploadRow, error) {
 		slog.Warn("shadow map walk failed; rows will lack shadow annotations", "err", err)
 		shadows = nil
 	}
+	// Build a path-keyed index of loaded modules so per-row lookup
+	// is O(1) on a path basis (vs the broken filename-based key).
+	bySrc, _ := s.modulesBySourcePath(ctx)
+
 	var rows []web.UploadRow
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || name == ".gitkeep" || strings.HasPrefix(name, ".") {
+		// Skip exactly the staging-only files: .gitkeep and the
+		// .tmp/ directory. Other dotfiles (real ones the operator
+		// dropped) still surface so they can be deleted via the UI.
+		if name == ".gitkeep" || (e.IsDir() && name == ".tmp") {
+			continue
+		}
+		if e.IsDir() {
 			continue
 		}
 		path := filepath.Join(s.uploadDir, name)
 		info, err := e.Info()
 		if err != nil {
+			slog.Warn("upload row stat failed; skipping", "name", name, "err", err)
 			continue
 		}
 		row := web.UploadRow{
 			Name: name,
 			Size: info.Size(),
 		}
-		// Determine load state. The loaded module's name is
-		// usually the basename (Tier 2 naming convention) but
-		// the store keys by module name, so we ask for it.
-		mod, mErr := s.store.GetModule(ctx, name)
-		switch {
-		case mErr == nil && mod != nil && mod.SourcePath == path:
+		if mod, ok := bySrc[path]; ok {
 			row.State = "loaded"
 			row.Module = mod.Name
-			diags, _ := s.store.ListDiagnosticsByModule(ctx, mod.Name)
-			row.DiagCount = len(diags)
-		case mErr == nil && mod != nil && mod.SourcePath != path:
-			// Module loaded from elsewhere; this upload is on
-			// disk but didn't win ReplaceModule (load order or
-			// the file post-dates the last reload).
-			row.State = "loaded (shadowed)"
-			row.Module = mod.Name
-		default:
-			// Either the module is not in the store, or the
-			// store said something else weird. Sniff for the
-			// MIB marker to decide between parse-error and
+			if diags, dErr := s.store.ListDiagnosticsByModule(ctx, mod.Name); dErr == nil {
+				row.DiagCount = len(diags)
+			}
+		} else {
+			// Either nothing loaded for this file, or the loaded
+			// module under this name has a SourcePath elsewhere.
+			// Sniff the marker to decide between parse-error and
 			// non-MIB.
-			ok, _ := mibcorpus.HasMIBOpener(path)
-			if ok {
+			ok, sErr := mibcorpus.HasMIBOpener(path)
+			switch {
+			case sErr != nil:
+				slog.Warn("upload row sniff failed", "name", name, "err", sErr)
 				row.State = "parse error"
-			} else {
+			case ok:
+				row.State = "parse error"
+			default:
 				row.State = "non-MIB skipped"
 			}
 		}
@@ -381,6 +495,25 @@ func (s *Server) uploadRows(ctx context.Context) ([]web.UploadRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// modulesBySourcePath returns a map of canonical source path →
+// module pointer for every loaded module. Used by uploadRows to
+// resolve "is this file loaded?" correctly even when filename and
+// module name diverge.
+func (s *Server) modulesBySourcePath(ctx context.Context) (map[string]*model.Module, error) {
+	mods, err := s.store.ListModules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*model.Module, len(mods))
+	for i := range mods {
+		if mods[i].SourcePath == "" {
+			continue
+		}
+		out[mods[i].SourcePath] = &mods[i]
+	}
+	return out, nil
 }
 
 // shadowMap builds a basename → corpus-relative path index of every
@@ -406,11 +539,9 @@ func (s *Server) shadowMap() (map[string]string, error) {
 		if strings.HasPrefix(base, ".") {
 			return nil
 		}
-		switch strings.ToLower(filepath.Ext(base)) {
-		case ".mib", ".txt", ".my", "":
-		default:
-			return nil
-		}
+		// No extension filter — the upload sniffer accepts anything
+		// that passes HasMIBOpener regardless of extension, so
+		// shadow detection must too.
 		rel, err := filepath.Rel(s.mibsDir, path)
 		if err != nil {
 			return nil

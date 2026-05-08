@@ -1053,12 +1053,19 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 
 // confirmAndDeleteModule is the inline-✕ click handler on the
 // module-info bar. Mirrors the /upload page's row-level affordance
-// (D9 — window.confirm before destruction). On a successful 204,
-// redirects to the landing page; on any other status surfaces a
-// window.alert with the HTTP code.
+// (D9 — window.confirm before destruction). The prompt names the
+// FILENAME (what's actually being deleted), not the module name —
+// they often diverge (file `cisco-bgp4.mib` declaring module
+// `CISCO-BGP4-MIB`). Adds the X-Blittermib-Upload sentinel header
+// so cross-origin browsers can't trigger DELETE without a CORS
+// preflight (which we don't honour). On 204, redirects to /.
 script confirmAndDeleteModule(moduleName, fileName string) {
-	if (!window.confirm('Delete ' + moduleName + ' from mibs/upload/?')) return;
-	fetch('/api/v1/upload/' + encodeURIComponent(fileName), { method: 'DELETE' })
+	var label = fileName === moduleName ? fileName : (fileName + ' (module ' + moduleName + ')');
+	if (!window.confirm('Delete ' + label + ' from mibs/upload/?')) return;
+	fetch('/api/v1/upload/' + encodeURIComponent(fileName), {
+		method: 'DELETE',
+		headers: { 'X-Blittermib-Upload': '1' },
+	})
 		.then(function (resp) {
 			if (resp.status === 204) {
 				window.location.href = '/';

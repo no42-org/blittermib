@@ -45,7 +45,11 @@ templ Landing(modules, symbols int, uploadsEnabled bool) {
 
 // LandingEmpty renders the first-run state when the MIB directory is
 // empty (no user modules loaded). Mirrors prototype/empty.html.
-templ LandingEmpty(mibsDir string, uploadsEnabled bool) {
+// The drop zone is intentionally NOT rendered here — design.md D11
+// scopes the drop zone to the populated landing page; the empty
+// state's "drop your MIB files here:" path block already names
+// mibsDir and the operator can follow that.
+templ LandingEmpty(mibsDir string) {
 	@Base("blittermib") {
 		<div class="empty">
 			<div class="brand-large">
@@ -66,9 +70,6 @@ templ LandingEmpty(mibsDir string, uploadsEnabled bool) {
 				they appear. Standard IETF and IANA MIBs are loaded by
 				default.
 			</p>
-			if uploadsEnabled {
-				@DropZone()
-			}
 		</div>
 	}
 }

@@ -322,12 +322,17 @@ func uploadRow(r UploadRow) templ.Component {
 
 // confirmAndDelete returns the inline JS for the per-row delete
 // button: native window.confirm() (D9) → fetch DELETE → reload on
-// success.
+// success. Adds the X-Blittermib-Upload sentinel header so a
+// cross-origin browser can't fire the DELETE without a CORS
+// preflight (which the server doesn't honour).
 func confirmAndDelete(name string) templ.ComponentScript {
 	return templ.ComponentScript{
-		Name: `__templ_confirmAndDelete_44ae`,
-		Function: `function __templ_confirmAndDelete_44ae(name){if (!window.confirm('Delete ' + name + ' from upload/?')) return;
-	fetch('/api/v1/upload/' + encodeURIComponent(name), { method: 'DELETE' })
+		Name: `__templ_confirmAndDelete_ef8a`,
+		Function: `function __templ_confirmAndDelete_ef8a(name){if (!window.confirm('Delete ' + name + ' from upload/?')) return;
+	fetch('/api/v1/upload/' + encodeURIComponent(name), {
+		method: 'DELETE',
+		headers: { 'X-Blittermib-Upload': '1' },
+	})
 		.then(function (resp) {
 			if (resp.status === 204) {
 				window.location.reload();
@@ -339,8 +344,8 @@ func confirmAndDelete(name string) templ.ComponentScript {
 			window.alert('Delete failed: ' + err);
 		});
 }`,
-		Call:       templ.SafeScript(`__templ_confirmAndDelete_44ae`, name),
-		CallInline: templ.SafeScriptInline(`__templ_confirmAndDelete_44ae`, name),
+		Call:       templ.SafeScript(`__templ_confirmAndDelete_ef8a`, name),
+		CallInline: templ.SafeScriptInline(`__templ_confirmAndDelete_ef8a`, name),
 	}
 }
 

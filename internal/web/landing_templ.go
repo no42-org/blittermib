@@ -99,7 +99,11 @@ func Landing(modules, symbols int, uploadsEnabled bool) templ.Component {
 
 // LandingEmpty renders the first-run state when the MIB directory is
 // empty (no user modules loaded). Mirrors prototype/empty.html.
-func LandingEmpty(mibsDir string, uploadsEnabled bool) templ.Component {
+// The drop zone is intentionally NOT rendered here — design.md D11
+// scopes the drop zone to the populated landing page; the empty
+// state's "drop your MIB files here:" path block already names
+// mibsDir and the operator can follow that.
+func LandingEmpty(mibsDir string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -139,23 +143,13 @@ func LandingEmpty(mibsDir string, uploadsEnabled bool) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(mibsDir)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/landing.templ`, Line: 62, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/landing.templ`, Line: 66, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</span></div><p class=\"helper\">blittermib watches the directory and parses new MIBs as they appear. Standard IETF and IANA MIBs are loaded by default.</p>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			if uploadsEnabled {
-				templ_7745c5c3_Err = DropZone().Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</span></div><p class=\"helper\">blittermib watches the directory and parses new MIBs as they appear. Standard IETF and IANA MIBs are loaded by default.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -194,7 +188,7 @@ func DropZone() templ.Component {
 			templ_7745c5c3_Var8 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div class=\"drop-zone\" x-data=\"dropZone()\" x-on:dragenter.prevent=\"onDragEnter()\" x-on:dragover.prevent=\"onDragOver()\" x-on:dragleave.prevent=\"onDragLeave($event)\" x-on:drop.prevent=\"onDrop($event)\" x-bind:data-state=\"state\"><div class=\"drop-zone-prompt\" x-show=\"state !== 'uploading'\"><span class=\"drop-zone-icon\" aria-hidden=\"true\">⤓</span><p class=\"drop-zone-headline\">Drop MIB files here, or <button type=\"button\" class=\"drop-zone-browse\" x-on:click=\"$refs.file.click()\">click to browse</button></p><p class=\"drop-zone-hint\"><code>.mib</code> · <code>.txt</code> · <code>.my</code> — files land in <code>mibs/upload/</code> and load instantly.</p></div><div class=\"drop-zone-progress\" x-show=\"state === 'uploading'\" x-cloak><p>Uploading <span x-text=\"filesInFlight\"></span>&hellip;</p></div><input type=\"file\" x-ref=\"file\" multiple accept=\".mib,.txt,.my\" x-on:change=\"onPick($event)\" hidden><ul class=\"drop-zone-results\" x-show=\"results.length > 0\" x-cloak><template x-for=\"r in results\" x-bind:key=\"r.name + ':' + r.ts\"><li x-bind:data-ok=\"r.ok ? 'true' : 'false'\"><span class=\"drop-zone-result-name\" x-text=\"r.name\"></span><template x-if=\"r.ok\"><span class=\"drop-zone-result-detail\"><a x-bind:href=\"'/m/' + encodeURIComponent(r.module)\" x-text=\"r.module + ' · ' + r.symbols + ' symbols'\"></a></span></template><template x-if=\"!r.ok\"><span class=\"drop-zone-result-detail\" x-text=\"r.error\"></span></template><template x-if=\"r.canReplace\"><button type=\"button\" class=\"drop-zone-replace\" x-on:click=\"replace(r)\">Replace</button></template></li></template></ul></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"drop-zone\" x-data=\"dropZone()\" x-on:dragenter.prevent=\"onDragEnter()\" x-on:dragover.prevent=\"onDragOver()\" x-on:dragleave.prevent=\"onDragLeave($event)\" x-on:drop.prevent=\"onDrop($event)\" x-bind:data-state=\"state\"><div class=\"drop-zone-prompt\" x-show=\"state !== 'uploading'\"><span class=\"drop-zone-icon\" aria-hidden=\"true\">⤓</span><p class=\"drop-zone-headline\">Drop MIB files here, or <button type=\"button\" class=\"drop-zone-browse\" x-on:click=\"$refs.file.click()\">click to browse</button></p><p class=\"drop-zone-hint\"><code>.mib</code> · <code>.txt</code> · <code>.my</code> — files land in <code>mibs/upload/</code> and load instantly.</p></div><div class=\"drop-zone-progress\" x-show=\"state === 'uploading'\" x-cloak><p>Uploading <span x-text=\"filesInFlight\"></span>&hellip;</p></div><input type=\"file\" x-ref=\"file\" multiple accept=\".mib,.txt,.my\" x-on:change=\"onPick($event)\" hidden><ul class=\"drop-zone-results\" x-show=\"results.length > 0\" x-cloak><template x-for=\"r in results\" x-bind:key=\"r.name + ':' + r.ts\"><li x-bind:data-ok=\"r.ok ? 'true' : 'false'\"><span class=\"drop-zone-result-name\" x-text=\"r.name\"></span><template x-if=\"r.ok\"><span class=\"drop-zone-result-detail\"><a x-bind:href=\"'/m/' + encodeURIComponent(r.module)\" x-text=\"r.module + ' · ' + r.symbols + ' symbols'\"></a></span></template><template x-if=\"!r.ok\"><span class=\"drop-zone-result-detail\" x-text=\"r.error\"></span></template><template x-if=\"r.canReplace\"><button type=\"button\" class=\"drop-zone-replace\" x-on:click=\"replace(r)\">Replace</button></template></li></template></ul></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

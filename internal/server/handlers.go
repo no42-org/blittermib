@@ -189,7 +189,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	modCount, _ := s.store.CountModules(ctx)
 	symCount, _ := s.store.CountSymbols(ctx)
 	if modCount == 0 {
-		render(w, r, http.StatusOK, web.LandingEmpty(s.mibsDir, s.uploadsEnabled))
+		render(w, r, http.StatusOK, web.LandingEmpty(s.mibsDir))
 		return
 	}
 	render(w, r, http.StatusOK, web.Landing(modCount, symCount, s.uploadsEnabled))

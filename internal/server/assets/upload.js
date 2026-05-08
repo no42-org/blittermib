@@ -72,7 +72,11 @@ window.dropZone = function () {
 			self.filesInFlight = fileList.length;
 			self.state = 'uploading';
 			var url = '/api/v1/upload' + (replace ? '?replace=true' : '');
-			fetch(url, { method: 'POST', body: fd })
+			fetch(url, {
+				method: 'POST',
+				body: fd,
+				headers: { 'X-Blittermib-Upload': '1' },
+			})
 				.then(function (resp) {
 					return resp.json().catch(function () { return { uploaded: [] }; });
 				})
@@ -85,7 +89,10 @@ window.dropZone = function () {
 							module: r.module || '',
 							symbols: r.symbols || 0,
 							error: r.error || '',
-							canReplace: !r.ok && r.error && r.error.indexOf('already exists') >= 0,
+							// canReplace is driven by the server's
+							// stable errorCode field (was a fragile
+							// substring match on English error text).
+							canReplace: !r.ok && r.errorCode === 'exists',
 							ts: ts,
 						});
 					});

@@ -2909,14 +2909,21 @@ func workspaceDetailBody(view *WorkspaceView, sv *SymbolView) templ.Component {
 
 // confirmAndDeleteModule is the inline-✕ click handler on the
 // module-info bar. Mirrors the /upload page's row-level affordance
-// (D9 — window.confirm before destruction). On a successful 204,
-// redirects to the landing page; on any other status surfaces a
-// window.alert with the HTTP code.
+// (D9 — window.confirm before destruction). The prompt names the
+// FILENAME (what's actually being deleted), not the module name —
+// they often diverge (file `cisco-bgp4.mib` declaring module
+// `CISCO-BGP4-MIB`). Adds the X-Blittermib-Upload sentinel header
+// so cross-origin browsers can't trigger DELETE without a CORS
+// preflight (which we don't honour). On 204, redirects to /.
 func confirmAndDeleteModule(moduleName, fileName string) templ.ComponentScript {
 	return templ.ComponentScript{
-		Name: `__templ_confirmAndDeleteModule_d008`,
-		Function: `function __templ_confirmAndDeleteModule_d008(moduleName, fileName){if (!window.confirm('Delete ' + moduleName + ' from mibs/upload/?')) return;
-	fetch('/api/v1/upload/' + encodeURIComponent(fileName), { method: 'DELETE' })
+		Name: `__templ_confirmAndDeleteModule_4ae1`,
+		Function: `function __templ_confirmAndDeleteModule_4ae1(moduleName, fileName){var label = fileName === moduleName ? fileName : (fileName + ' (module ' + moduleName + ')');
+	if (!window.confirm('Delete ' + label + ' from mibs/upload/?')) return;
+	fetch('/api/v1/upload/' + encodeURIComponent(fileName), {
+		method: 'DELETE',
+		headers: { 'X-Blittermib-Upload': '1' },
+	})
 		.then(function (resp) {
 			if (resp.status === 204) {
 				window.location.href = '/';
@@ -2928,8 +2935,8 @@ func confirmAndDeleteModule(moduleName, fileName string) templ.ComponentScript {
 			window.alert('Delete failed: ' + err);
 		});
 }`,
-		Call:       templ.SafeScript(`__templ_confirmAndDeleteModule_d008`, moduleName, fileName),
-		CallInline: templ.SafeScriptInline(`__templ_confirmAndDeleteModule_d008`, moduleName, fileName),
+		Call:       templ.SafeScript(`__templ_confirmAndDeleteModule_4ae1`, moduleName, fileName),
+		CallInline: templ.SafeScriptInline(`__templ_confirmAndDeleteModule_4ae1`, moduleName, fileName),
 	}
 }
 

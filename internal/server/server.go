@@ -90,9 +90,16 @@ func New(st *store.Store, addr, version, mibsDir string) *Server {
 // compile newly-written files synchronously (per D3). Passing a
 // nil load function while the env var is truthy is a configuration
 // error; uploads are still disabled in that case so a misconfigured
-// deployment fails closed rather than open.
+// deployment fails closed rather than open. The mismatch is logged
+// at WARN so an operator who set the env var but wired no callback
+// gets a signal in the log instead of silent 404s.
 func (s *Server) EnableUploads(loadFiles LoadFunc) {
-	if !uploadEnvEnabled() || loadFiles == nil {
+	envOn := uploadEnvEnabled()
+	if !envOn {
+		return
+	}
+	if loadFiles == nil {
+		slog.Warn("BLITTERMIB_UPLOAD_ENABLED is true but no load callback was wired; uploads stay disabled")
 		return
 	}
 	s.uploadsEnabled = true
