@@ -5,18 +5,35 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/no42-org/blittermib/internal/store"
 )
+
+// LoadFunc compiles + ingests one or more MIB files into the store.
+// Wired by the parent (cmd/blittermib) when uploads are enabled so
+// the upload handler can compile inline (per design.md D3) without
+// the internal/server package depending on the loader implementation.
+type LoadFunc func(ctx context.Context, paths []string) error
 
 // Server is the blittermib HTTP server.
 type Server struct {
 	store   *store.Store
 	version string
 	mibsDir string
-	mux     *http.ServeMux
-	http    *http.Server
+
+	// Upload surface — wired by EnableUploads when
+	// BLITTERMIB_UPLOAD_ENABLED is true. Both fields stay nil/false
+	// in the default boring configuration.
+	uploadsEnabled bool
+	uploadDir      string
+	loadFiles      LoadFunc
+
+	mux  *http.ServeMux
+	http *http.Server
 }
 
 // New constructs a Server bound to addr backed by the given store.
@@ -24,6 +41,9 @@ type Server struct {
 // landing page so they know where to drop MIB files, and used as the
 // allowed root for the module-download path-traversal guard. version
 // is surfaced at /version and in the /healthz body.
+//
+// New does NOT wire the upload surface. Call EnableUploads after
+// construction (or don't; the default is uploads-off).
 func New(st *store.Store, addr, version, mibsDir string) *Server {
 	mux := http.NewServeMux()
 	s := &Server{
@@ -42,6 +62,48 @@ func New(st *store.Store, addr, version, mibsDir string) *Server {
 	}
 	s.routes()
 	return s
+}
+
+// EnableUploads wires the upload + delete + management routes when
+// BLITTERMIB_UPLOAD_ENABLED parses as truthy via strconv.ParseBool.
+// Otherwise this is a no-op — the upload routes never get registered
+// so they 404 via the catch-all, and the conditional UI fragments
+// keyed off s.UploadsEnabled() stay absent from rendered HTML.
+//
+// The load callback is invoked inline by the upload handler to
+// compile newly-written files synchronously (per D3). Passing a
+// nil load function while the env var is truthy is a configuration
+// error; uploads are still disabled in that case so a misconfigured
+// deployment fails closed rather than open.
+func (s *Server) EnableUploads(loadFiles LoadFunc) {
+	if !uploadEnvEnabled() || loadFiles == nil {
+		return
+	}
+	s.uploadsEnabled = true
+	s.uploadDir = filepath.Join(s.mibsDir, "upload")
+	s.loadFiles = loadFiles
+	s.routesUpload()
+}
+
+// UploadsEnabled reports whether the upload surface is live, for
+// templates that conditionally render drop-zone / inline-delete
+// affordances.
+func (s *Server) UploadsEnabled() bool { return s.uploadsEnabled }
+
+// uploadEnvEnabled parses BLITTERMIB_UPLOAD_ENABLED. Permissive —
+// strconv.ParseBool accepts 1, t, T, TRUE, true, True (and the
+// matching falsy spellings). Any unparseable value, or an empty
+// env var, leaves uploads disabled.
+func uploadEnvEnabled() bool {
+	v := os.Getenv("BLITTERMIB_UPLOAD_ENABLED")
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false
+	}
+	return b
 }
 
 // Start runs the HTTP server until ctx is canceled, then performs a

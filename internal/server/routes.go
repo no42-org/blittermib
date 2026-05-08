@@ -23,6 +23,13 @@ import (
 //	/privacy                       data-handling notice (GDPR)
 //	/healthz                       liveness check
 //	/version                       build info
+//
+// When BLITTERMIB_UPLOAD_ENABLED is truthy, EnableUploads also
+// registers (via routesUpload):
+//
+//	/upload                        management page + drop zone
+//	/api/v1/upload                 multipart upload (POST)
+//	/api/v1/upload/{name}          delete (DELETE)
 func (s *Server) routes() {
 	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler()), withLogging, withRecover))
 
@@ -45,4 +52,16 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/v1/tree/fragment", chain(http.HandlerFunc(s.handleAPITreeFragment), withLogging, withRecover))
 
 	s.mux.Handle("/", chain(http.HandlerFunc(s.handleIndex), withLogging, withRecover))
+}
+
+// routesUpload registers the upload + delete + management routes.
+// Called only from EnableUploads when uploads are wired on. Routes
+// are intentionally left unregistered when uploads are disabled so
+// the catch-all `/` returns 404 for /upload and /api/v1/upload — no
+// disabled-state response, no information about whether the feature
+// exists.
+func (s *Server) routesUpload() {
+	s.mux.Handle("/upload", chain(http.HandlerFunc(s.handleUploadIndex), withLogging, withRecover))
+	s.mux.Handle("/api/v1/upload", chain(http.HandlerFunc(s.handleUpload), withLogging, withRecover))
+	s.mux.Handle("/api/v1/upload/", chain(http.HandlerFunc(s.handleUploadDelete), withLogging, withRecover))
 }

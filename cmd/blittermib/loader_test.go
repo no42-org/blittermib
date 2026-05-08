@@ -282,3 +282,59 @@ func TestLoaderRecursiveWalk(t *testing.T) {
 
 // (TestLoaderHasMIBOpener moved to internal/mibcorpus/sniff_test.go
 // after the hasMIBOpener function was hoisted to the shared package.)
+
+// TestSweepUploadTmp covers the startup orphan-cleanup helper:
+// stale `*.upload` files left over in mibs/upload/.tmp/ from a
+// crashed upload are removed; non-`.upload` files and directories
+// are left alone; missing directories are silently tolerated.
+func TestSweepUploadTmp(t *testing.T) {
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, "upload", ".tmp")
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustTouch := func(path string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustTouch(filepath.Join(tmp, "CISCO-SMI.upload"))
+	mustTouch(filepath.Join(tmp, "BAR.upload"))
+	mustTouch(filepath.Join(tmp, "notes.txt"))
+	if err := os.MkdirAll(filepath.Join(tmp, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := sweepUploadTmp(dir)
+	if err != nil {
+		t.Fatalf("sweepUploadTmp: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("removed = %d, want 2", n)
+	}
+	for _, gone := range []string{"CISCO-SMI.upload", "BAR.upload"} {
+		if _, err := os.Stat(filepath.Join(tmp, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s still present after sweep (err=%v)", gone, err)
+		}
+	}
+	for _, kept := range []string{"notes.txt", "subdir"} {
+		if _, err := os.Stat(filepath.Join(tmp, kept)); err != nil {
+			t.Errorf("%s removed by sweep but should have been kept: %v", kept, err)
+		}
+	}
+}
+
+// TestSweepUploadTmpMissingDir asserts the sweep is a no-op when the
+// .tmp directory hasn't been created yet (fresh corpus, never had an
+// upload).
+func TestSweepUploadTmpMissingDir(t *testing.T) {
+	dir := t.TempDir() // .tmp/ never created
+	n, err := sweepUploadTmp(dir)
+	if err != nil {
+		t.Errorf("sweepUploadTmp: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("removed = %d, want 0", n)
+	}
+}

@@ -95,6 +95,11 @@ func run(cfg config) error {
 	if err := os.MkdirAll(cfg.mibsDir, 0o755); err != nil {
 		return fmt.Errorf("create mibs dir: %w", err)
 	}
+	if n, err := sweepUploadTmp(cfg.mibsDir); err != nil {
+		slog.Warn("upload tmp sweep failed", "err", err)
+	} else if n > 0 {
+		slog.Info("cleaned upload tmp orphans", "count", n)
+	}
 	dbPath := filepath.Join(cfg.dataDir, "blittermib.db")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -159,6 +164,7 @@ func run(cfg config) error {
 	}()
 
 	srv := server.New(st, cfg.listen, version, cfg.mibsDir)
+	srv.EnableUploads(loader.loadFiles)
 	err = srv.Start(ctx)
 	wg.Wait()
 

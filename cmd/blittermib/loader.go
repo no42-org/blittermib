@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -186,6 +187,38 @@ func walkMIBFiles(dir string) ([]string, error) {
 		return nil
 	})
 	return out, err
+}
+
+// sweepUploadTmp removes any *.upload tempfiles left over in
+// `<mibsDir>/upload/.tmp/` from a crashed upload. Per the web-upload
+// design (D6a), in-progress multipart writes go to .tmp/ and rename
+// into upload/ on completion; any leftovers in .tmp/ are by
+// definition partial and unsafe to keep around. Returns the number
+// of files removed. Missing directories are not an error.
+func sweepUploadTmp(mibsDir string) (int, error) {
+	tmpDir := filepath.Join(mibsDir, "upload", ".tmp")
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	var removed int
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(e.Name(), ".upload") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(tmpDir, e.Name())); err != nil {
+			slog.Warn("upload tmp sweep: remove failed", "file", e.Name(), "err", err)
+			continue
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 // walkMIBDirs returns every subdirectory under root (root itself
