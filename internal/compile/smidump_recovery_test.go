@@ -132,8 +132,9 @@ func TestParseSmidumpXMLWithRecovery_TruncatedXMLNoRetry(t *testing.T) {
 func TestParseSmidumpXMLWithRecovery_UnrecoverableAfterSanitize(t *testing.T) {
 	// Latin-1 byte trips the encoding error so the sanitize pass runs;
 	// but the document is also structurally broken, so the second parse
-	// fails too. Caller should see the second-parse error and no
-	// recovery diagnostic.
+	// fails too. Caller should see the second-parse error wrapped with
+	// the same prefix as the first-parse failure path, and no recovery
+	// diagnostic.
 	raw := []byte(`<?xml version="1.0"?><smi><module name="X"><description>` +
 		string([]byte{0xB0}) + `</description><nodes`)
 
@@ -146,5 +147,51 @@ func TestParseSmidumpXMLWithRecovery_UnrecoverableAfterSanitize(t *testing.T) {
 	}
 	if recovery != nil {
 		t.Errorf("expected no recovery diagnostic when second parse fails, got %+v", recovery)
+	}
+	if !strings.Contains(err.Error(), "parse smidump output for TEST-MIB") {
+		t.Errorf("error wrap prefix changed on unrecoverable path: %v", err)
+	}
+}
+
+func TestParseSmidumpXMLWithRecovery_ValidMultibyteUTF8HotPath(t *testing.T) {
+	// Valid UTF-8 multi-byte sequences (here: 'é' = 0xC3 0xA9) parse on
+	// the first attempt — no recovery, no diagnostic, no allocation
+	// beyond the normal parse.
+	raw := minimumSmidumpXML([]byte{'a', 0xC3, 0xA9, 'b'})
+
+	smi, recovery, err := parseSmidumpXMLWithRecovery("TEST-MIB", raw)
+	if err != nil {
+		t.Fatalf("valid UTF-8 should parse on first attempt, got error: %v", err)
+	}
+	if smi == nil {
+		t.Fatal("expected non-nil SMI")
+	}
+	if recovery != nil {
+		t.Errorf("expected no recovery diagnostic for valid UTF-8 input, got %+v", recovery)
+	}
+	if !strings.Contains(smi.Module.Description, "é") {
+		t.Errorf("description should contain 'é', got %q", smi.Module.Description)
+	}
+}
+
+func TestParseSmidumpXMLWithRecovery_MixedValidUTF8AndInvalidByte(t *testing.T) {
+	// A description with a valid UTF-8 'é' alongside a stray 0xB0
+	// triggers recovery. The fix preserves the valid UTF-8 sequence
+	// verbatim and only Latin-1-expands the invalid byte — so 'é'
+	// survives the round-trip rather than being re-encoded as 'Ã©'.
+	raw := minimumSmidumpXML([]byte{'a', 0xC3, 0xA9, 0xB0, 'b'})
+
+	smi, recovery, err := parseSmidumpXMLWithRecovery("TEST-MIB", raw)
+	if err != nil {
+		t.Fatalf("expected recovery to succeed, got error: %v", err)
+	}
+	if recovery == nil || recovery.Code != "non-utf8-source" {
+		t.Fatalf("expected non-utf8-source diagnostic, got %+v", recovery)
+	}
+	if !strings.Contains(smi.Module.Description, "é") {
+		t.Errorf("valid UTF-8 'é' was corrupted by sanitize; description = %q", smi.Module.Description)
+	}
+	if !strings.Contains(smi.Module.Description, "°") {
+		t.Errorf("invalid 0xB0 byte was not Latin-1-recovered; description = %q", smi.Module.Description)
 	}
 }

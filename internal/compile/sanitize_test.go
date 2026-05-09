@@ -2,8 +2,10 @@ package compile
 
 import (
 	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +90,41 @@ func TestSanitizeXMLBytes(t *testing.T) {
 				'<', '/', 'd', '>',
 			},
 		},
+		{
+			name: "valid UTF-8 two-byte sequence passes through verbatim (é)",
+			in:   []byte{0xC3, 0xA9},
+			want: []byte{0xC3, 0xA9},
+		},
+		{
+			name: "valid UTF-8 three-byte sequence passes through (€)",
+			in:   []byte{0xE2, 0x82, 0xAC},
+			want: []byte{0xE2, 0x82, 0xAC},
+		},
+		{
+			name: "valid UTF-8 four-byte sequence passes through (😀 U+1F600)",
+			in:   []byte{0xF0, 0x9F, 0x98, 0x80},
+			want: []byte{0xF0, 0x9F, 0x98, 0x80},
+		},
+		{
+			name: "mixed valid UTF-8 + stray invalid byte preserves valid sequences",
+			// 'a' + valid UTF-8 'é' (0xC3 0xA9) + invalid 0xB0 + 'b'
+			in:   []byte{'a', 0xC3, 0xA9, 0xB0, 'b'},
+			want: []byte{'a', 0xC3, 0xA9, 0xC2, 0xB0, 'b'},
+		},
+		{
+			name: "stray UTF-8 lead byte without continuation expands as Latin-1",
+			// 0xC3 alone (a valid UTF-8 lead but missing continuation) is
+			// not a valid sequence; treat the lead byte as Latin-1 and
+			// continue past it.
+			in:   []byte{0xC3, 0x20},
+			want: []byte{0xC3, 0x83, 0x20},
+		},
+		{
+			name: "stray continuation byte 0x80 expands as Latin-1",
+			// 0x80 alone cannot start any UTF-8 sequence.
+			in:   []byte{0x80},
+			want: []byte{0xC2, 0x80},
+		},
 	}
 
 	for _, tt := range tests {
@@ -166,6 +203,44 @@ func TestXMLNeedsSanitize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := xmlNeedsSanitize(tt.err); got != tt.want {
 				t.Errorf("xmlNeedsSanitize(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestXMLNeedsSanitize_RealDecoderErrors guards against silent stdlib
+// drift: if a future Go release renames "invalid UTF-8" or
+// "illegal character code" in encoding/xml, this test fails and we
+// know the predicate needs updating before the change ships.
+func TestXMLNeedsSanitize_RealDecoderErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "invalid UTF-8 byte triggers expected error",
+			body: "<doc>" + string([]byte{0xB0}) + "</doc>",
+		},
+		{
+			name: "illegal character code triggers expected error",
+			body: "<doc>A" + string([]byte{0x08}) + "B</doc>",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dec := xml.NewDecoder(strings.NewReader(tt.body))
+			dec.Strict = false
+			dec.Entity = xml.HTMLEntity
+			var v struct {
+				XMLName xml.Name `xml:"doc"`
+				Text    string   `xml:",chardata"`
+			}
+			err := dec.Decode(&v)
+			if err == nil {
+				t.Fatalf("expected decode error for body %q, got nil", tt.body)
+			}
+			if !xmlNeedsSanitize(err) {
+				t.Errorf("xmlNeedsSanitize did not match real xml.Decoder error %q — stdlib wording may have drifted; update the predicate", err.Error())
 			}
 		})
 	}

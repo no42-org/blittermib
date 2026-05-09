@@ -75,7 +75,12 @@ func (s *Smidump) run(ctx context.Context, target string) (*SMI, []model.Diagnos
 		return nil, diags, fmt.Errorf("smidump %s: %w: %s", target, err, stderrBuf.String())
 	}
 
-	smi, recovery, perr := parseSmidumpXMLWithRecovery(target, stdoutBuf.Bytes())
+	// Clone stdoutBuf.Bytes() rather than aliasing it. Bytes() returns
+	// a slice referencing internal storage; the clone makes the
+	// no-write-after-this-point invariant explicit and immune to
+	// surrounding-code edits.
+	stdoutBytes := append([]byte(nil), stdoutBuf.Bytes()...)
+	smi, recovery, perr := parseSmidumpXMLWithRecovery(target, stdoutBytes)
 	if recovery != nil {
 		diags = append(diags, *recovery)
 	}
@@ -121,7 +126,7 @@ func parseSmidumpXMLWithRecovery(target string, raw []byte) (*SMI, *model.Diagno
 		File:     target,
 		Severity: model.SeverityWarning,
 		Code:     "non-utf8-source",
-		Message:  "MIB source is not valid UTF-8; characters in non-ASCII bands may render incorrectly. Re-encode the source as UTF-8 to silence this diagnostic.",
+		Message:  "MIB source contains bytes that are not valid UTF-8. Valid UTF-8 sequences were preserved; isolated invalid bytes were interpreted as Latin-1, which may render slightly off in the Windows-1252-only band U+0080..U+009F. Re-encode the source as UTF-8 to silence this diagnostic.",
 	}
 	return smi, recovery, nil
 }
