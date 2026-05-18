@@ -58,7 +58,20 @@ func Base(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div></main><footer class=\"footer\"><span><a href=\"https://github.com/no42-org/blittermib\" target=\"_blank\" rel=\"noopener noreferrer\">blittermib</a> · runs entirely on your server</span> <span>Made with AI and ❤️ for Open Source in Europe · <a href=\"https://blog.no42.org/page/about/\" target=\"_blank\" rel=\"noopener noreferrer\">About Me</a> · <a href=\"/imprint\">Imprint</a> · <a href=\"/privacy\">Privacy</a></span></footer></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div></main><footer class=\"footer\"><span><a href=\"https://github.com/no42-org/blittermib\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var3 string
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs("blittermib " + Version)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 67, Col: 127}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\">blittermib</a> · runs entirely on your server</span> <span>Made with AI and ❤️ for Open Source in Europe · <a href=\"https://blog.no42.org/page/about/\" target=\"_blank\" rel=\"noopener noreferrer\">About Me</a> · <a href=\"/imprint\">Imprint</a> · <a href=\"/privacy\">Privacy</a></span></footer></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
