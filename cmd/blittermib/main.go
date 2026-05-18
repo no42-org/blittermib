@@ -20,6 +20,7 @@ import (
 	"github.com/no42-org/blittermib/internal/server"
 	"github.com/no42-org/blittermib/internal/store"
 	"github.com/no42-org/blittermib/internal/watch"
+	"github.com/no42-org/blittermib/internal/web"
 )
 
 // version is set by the linker at release time via -ldflags.
@@ -163,6 +164,7 @@ func run(cfg config) error {
 		}
 	}()
 
+	web.Version = version
 	srv := server.New(st, cfg.listen, version, cfg.mibsDir)
 	srv.EnableUploads(loader.loadFilesOutcomes)
 	err = srv.Start(ctx)

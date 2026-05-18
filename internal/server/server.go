@@ -12,7 +12,6 @@ import (
 
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/store"
-	"github.com/no42-org/blittermib/internal/web"
 )
 
 // LoadOutcome is a per-file result of a synchronous compile + store
@@ -62,7 +61,6 @@ type Server struct {
 // New does NOT wire the upload surface. Call EnableUploads after
 // construction (or don't; the default is uploads-off).
 func New(st *store.Store, addr, version, mibsDir string) *Server {
-	web.Version = version
 	mux := http.NewServeMux()
 	s := &Server{
 		store:   st,
