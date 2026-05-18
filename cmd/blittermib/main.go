@@ -164,7 +164,7 @@ func run(cfg config) error {
 		}
 	}()
 
-	web.Version = version
+	web.SetVersion(version)
 	srv := server.New(st, cfg.listen, version, cfg.mibsDir)
 	srv.EnableUploads(loader.loadFilesOutcomes)
 	err = srv.Start(ctx)
