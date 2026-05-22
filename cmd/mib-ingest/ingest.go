@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -47,6 +49,17 @@ type result struct {
 	outcome outcome
 	conf    mibcorpus.Confidence
 	reason  string
+	// sha is the lowercase hex sha256 of the source file's raw
+	// bytes. Empty when the file could not be opened or read.
+	// Populated during the readability + lexical-marker pre-check
+	// so broken-but-readable files still participate in dedup
+	// detection.
+	sha string
+	// size is the source file's byte length. Zero only when the
+	// file is unreadable (in which case sha is also empty); a
+	// 0-byte readable file legitimately has size=0 and a
+	// non-empty sha (the sha256 of empty input).
+	size int64
 }
 
 func ingestCmd(args []string) error {
@@ -162,6 +175,25 @@ func walkUpload(dir string) ([]string, error) {
 	return out, nil
 }
 
+// hashFile streams the file at path through sha256 and returns the
+// lowercase-hex digest plus the byte length. Streaming via io.Copy
+// keeps memory bounded for large MIBs. Errors from Open or read
+// propagate so callers can surface the file as a "non-mib" finding
+// without a hash.
+func hashFile(path string) (string, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(h.Sum(nil)), n, nil
+}
+
 // classifyFiles runs the lexical-marker check + libsmi parse +
 // mibcorpus.Classify pipeline for every input file. Files that fail
 // the marker check or libsmi parse are returned as parseErrors
@@ -170,18 +202,45 @@ func walkUpload(dir string) ([]string, error) {
 func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string, groups mibcorpus.GroupMap) (parsed []result, parseErrors []result) {
 	// Filter to only files that pass the lexical-marker check —
 	// avoids feeding LICENSE / README / partial downloads to libsmi.
+	// Hashing happens here too, so every readable file (including
+	// marker-less ones and ones that later fail smidump) carries a
+	// sha for downstream byte-identical detection. Files that can't
+	// be opened skip hashing entirely and surface as non-MIB skips
+	// without a sha.
+	type fileMeta struct {
+		sha  string
+		size int64
+	}
+	hashes := make(map[string]fileMeta, len(files))
 	var keep []string
 	for _, f := range files {
-		ok, err := mibcorpus.HasMIBOpener(f)
+		sha, size, err := hashFile(f)
 		if err != nil {
 			// Read failures are non-actionable for the operator — the
 			// file is unreadable, but most vendor archives include a
 			// few of these (broken symlinks, mode bits). Treat as
-			// "non-MIB skipped" rather than a parse error.
+			// "non-MIB skipped" without a hash.
 			parseErrors = append(parseErrors, result{
 				src:     f,
 				outcome: outcomeSkippedNonMIB,
 				reason:  fmt.Sprintf("read failed: %v", err),
+			})
+			continue
+		}
+		hashes[f] = fileMeta{sha: sha, size: size}
+
+		ok, err := mibcorpus.HasMIBOpener(f)
+		if err != nil {
+			// Hash already succeeded; if HasMIBOpener now hits an I/O
+			// error the file went unreadable between the two reads
+			// (rare). Surface as non-MIB skip but keep the hash so
+			// dedup still works.
+			parseErrors = append(parseErrors, result{
+				src:     f,
+				outcome: outcomeSkippedNonMIB,
+				reason:  fmt.Sprintf("read failed: %v", err),
+				sha:     sha,
+				size:    size,
 			})
 			continue
 		}
@@ -190,6 +249,8 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 				src:     f,
 				outcome: outcomeSkippedNonMIB,
 				reason:  "no MIB marker (DEFINITIONS ::= BEGIN absent in first 32 KB)",
+				sha:     sha,
+				size:    size,
 			})
 			continue
 		}
@@ -214,6 +275,7 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 	results := c.Compile(ctx, keep)
 
 	for _, r := range results {
+		meta := hashes[r.Target] // zero value if absent; only happens for path mismatches
 		if r.Err != nil || r.Module == nil || r.Module.Name == "" {
 			// File had the marker but smidump rejected — actionable
 			// parse error worth surfacing on the exit code. A missing
@@ -223,6 +285,8 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 				src:     r.Target,
 				outcome: outcomeParseError,
 				reason:  parseFailReason(r),
+				sha:     meta.sha,
+				size:    meta.size,
 			})
 			continue
 		}
@@ -231,6 +295,8 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 				src:     r.Target,
 				outcome: outcomeParseError,
 				reason:  fmt.Sprintf("module name %q contains characters disallowed in a corpus filename", r.Module.Name),
+				sha:     meta.sha,
+				size:    meta.size,
 			})
 			continue
 		}
@@ -241,6 +307,8 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 				src:     r.Target,
 				outcome: outcomeParseError,
 				reason:  err.Error(),
+				sha:     meta.sha,
+				size:    meta.size,
 			})
 			continue
 		}
@@ -257,6 +325,8 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 			src:  r.Target,
 			conf: cls.Confidence,
 			dst:  dst,
+			sha:  meta.sha,
+			size: meta.size,
 		})
 	}
 	_ = root // kept on the signature for future containment checks
