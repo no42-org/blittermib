@@ -60,6 +60,14 @@ type result struct {
 	// 0-byte readable file legitimately has size=0 and a
 	// non-empty sha (the sha256 of empty input).
 	size int64
+	// moduleName, oidRoot, and lastUpdated are populated only for
+	// successfully-parsed results (outcomeMoved / outcomeRoutedUnsorted).
+	// Empty on parse-error and non-MIB-skip results. Carried on
+	// `result` so the report-mode grouping passes can work off the
+	// same per-file record without re-parsing.
+	moduleName  string
+	oidRoot     string
+	lastUpdated string
 }
 
 func ingestCmd(args []string) error {
@@ -322,11 +330,14 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 				r.Target, dst, cls.PEN)
 		}
 		parsed = append(parsed, result{
-			src:  r.Target,
-			conf: cls.Confidence,
-			dst:  dst,
-			sha:  meta.sha,
-			size: meta.size,
+			src:         r.Target,
+			conf:        cls.Confidence,
+			dst:         dst,
+			sha:         meta.sha,
+			size:        meta.size,
+			moduleName:  r.Module.Name,
+			oidRoot:     r.Module.OIDRoot,
+			lastUpdated: r.Module.LastUpdated,
 		})
 	}
 	_ = root // kept on the signature for future containment checks
