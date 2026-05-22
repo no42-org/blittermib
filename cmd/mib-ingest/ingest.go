@@ -80,8 +80,17 @@ func ingestCmd(args []string) error {
 	dryRun := flags.Bool("dry-run", false, "print planned moves without touching files")
 	gitAdd := flags.Bool("git-add", false, "after a successful move, run `git add <dst>`")
 	noIndex := flags.Bool("no-index", false, "skip the post-ingest `make index` step")
+	report := flags.Bool("report", false, "run a read-only triage report against upload/ instead of moving files")
+	reportFormat := flags.String("report-format", "text", "report output format: text or json (only with --report)")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	// Only validate --report-format when --report is set; the flag
+	// is a no-op without --report, so a stray --report-format=yaml
+	// in a non-report invocation should be tolerated rather than
+	// rejecting the entire run.
+	if *report && *reportFormat != "text" && *reportFormat != "json" {
+		return fmt.Errorf("--report-format must be 'text' or 'json', got %q", *reportFormat)
 	}
 
 	if info, err := os.Stat(*src); err != nil {
@@ -104,11 +113,32 @@ func ingestCmd(args []string) error {
 		return fmt.Errorf("walk %s: %w", *src, err)
 	}
 	if len(files) == 0 {
+		if *report {
+			// Spec scenario: "Empty report emits an empty JSON
+			// array". Route through the renderer so JSON mode
+			// produces `[]\n` and text mode produces "no findings"
+			// rather than the operator-facing stderr summary.
+			return renderReport(os.Stdout, *reportFormat, nil)
+		}
 		fmt.Fprintf(os.Stderr, "ingest: no MIB-shaped files in %s\n", *src)
 		return nil
 	}
 
 	results, parseErrors := classifyFiles(*smidump, *smilint, *src, *root, files, groups)
+
+	if *report {
+		// Read-only triage mode: skip the move/index pipeline
+		// entirely. collectReportFindings runs every grouping pass
+		// (including the corpus cross-check that loads
+		// <root>/mibs/INDEX.yaml) and renderReport writes to stdout
+		// in the requested format. errReportActionable signals the
+		// exit policy: 0 when only info findings, non-zero
+		// otherwise (main.go translates the sentinel to silent
+		// exit 1 so stdout stays clean for jq pipelines).
+		findings := collectReportFindings(*src, *root, results, parseErrors)
+		return renderReport(os.Stdout, *reportFormat, findings)
+	}
+
 	results = append(results, parseErrors...)
 	moves, refusedCount, skippedNonMIB, parseErrorCount := planMoves(results, *root)
 

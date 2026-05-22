@@ -6,10 +6,24 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// errReportActionable is the sentinel ingestCmd returns when
+// --report mode produces at least one finding with severity `warn`
+// or `error`. main() recognises it and exits 1 silently (no stderr
+// pollution so JSON output stays clean for `jq` pipelines).
+var errReportActionable = errors.New("report has actionable findings")
+
+// textTruncationCap bounds the per-category section in text-format
+// reports. JSON output is uncapped.
+const textTruncationCap = 50
 
 // Category constants enumerate the seven finding categories the
 // report mode emits. Renaming any of these is a JSON-schema
@@ -395,4 +409,181 @@ func sortFindings(findings []Finding) {
 		}
 		return ai < aj
 	})
+}
+
+// collectReportFindings runs every grouping pass and returns the
+// concatenated + sorted finding list. The corpus cross-check is
+// gated on `LoadCorpusIndex` succeeding — when the index is missing
+// or malformed, the cross-check yields no findings (per spec the
+// absence does not affect the exit code on its own).
+func collectReportFindings(srcDir, root string, parsed, parseErrors []result) []Finding {
+	out := make([]Finding, 0)
+	out = append(out, findByteIdentical(parsed, srcDir)...)
+	out = append(out, findModuleNameCollisions(parsed)...)
+	out = append(out, findOIDArcSharing(parsed)...)
+	out = append(out, findDivergentIdentity(parsed)...)
+	out = append(out, findCorpusCollisions(parsed, LoadCorpusIndex(root))...)
+	out = append(out, findBrokenAndNonMIB(parseErrors)...)
+	sortFindings(out)
+	return out
+}
+
+// hasActionableFinding returns true when at least one finding has
+// severity `warn` or `error`. Drives the report-mode exit code.
+func hasActionableFinding(findings []Finding) bool {
+	for _, f := range findings {
+		if f.Severity == SeverityWarn || f.Severity == SeverityError {
+			return true
+		}
+	}
+	return false
+}
+
+// renderReport dispatches to text or JSON output. Returns the
+// errReportActionable sentinel when at least one finding has
+// severity warn/error, so the caller propagates a non-zero exit.
+func renderReport(w io.Writer, format string, findings []Finding) error {
+	switch format {
+	case "json":
+		if err := renderReportJSON(w, findings); err != nil {
+			return err
+		}
+	case "text":
+		if err := renderReportText(w, findings); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown --report-format %q (must be text or json)", format)
+	}
+	if hasActionableFinding(findings) {
+		return errReportActionable
+	}
+	return nil
+}
+
+// renderReportJSON emits findings as a flat top-level JSON array
+// with two-space indent. Spec mandates `[]` (not `null`) for the
+// empty case; we guarantee that by encoding a non-nil slice.
+func renderReportJSON(w io.Writer, findings []Finding) error {
+	if findings == nil {
+		findings = []Finding{}
+	}
+	data, err := json.MarshalIndent(findings, "", "  ")
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(data); err != nil {
+		return err
+	}
+	_, err = w.Write([]byte("\n"))
+	return err
+}
+
+// renderReportText emits a human-readable per-category report.
+// Each non-empty category becomes a section; sections with more
+// than `textTruncationCap` findings show the first 50 then a
+// trailing `... and N more (use --report-format=json for the
+// full list)` line. Within each section, finding ordering is the
+// sort order produced by `sortFindings` (category → module_name
+// → first source) — already applied by `collectReportFindings`.
+func renderReportText(w io.Writer, findings []Finding) error {
+	if len(findings) == 0 {
+		_, err := fmt.Fprintln(w, "no findings")
+		return err
+	}
+
+	byCategory := make(map[string][]Finding)
+	for _, f := range findings {
+		byCategory[f.Category] = append(byCategory[f.Category], f)
+	}
+
+	// Stable category ordering — alphabetical matches the per-finding
+	// sort key in sortFindings, so within a category sections nest
+	// without re-ordering surprises.
+	categories := []string{
+		CategoryBroken,
+		CategoryByteIdentical,
+		CategoryCorpusCollision,
+		CategoryDivergentIdentity,
+		CategoryModuleNameCollision,
+		CategoryNonMIB,
+		CategoryOIDArcSharing,
+	}
+	for _, cat := range categories {
+		section := byCategory[cat]
+		if len(section) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "# %s (%d)\n", cat, len(section))
+		limit := len(section)
+		if limit > textTruncationCap {
+			limit = textTruncationCap
+		}
+		for i := 0; i < limit; i++ {
+			renderOneFindingText(w, section[i])
+		}
+		if len(section) > textTruncationCap {
+			fmt.Fprintf(w, "  ... and %d more (use --report-format=json for the full list)\n",
+				len(section)-textTruncationCap)
+		}
+		fmt.Fprintln(w)
+	}
+	return nil
+}
+
+// renderOneFindingText writes one finding to w with a per-category
+// shape tuned for fast human triage. Lines stay under 120 columns
+// for typical paths; pathological inputs may overflow but the
+// trade-off is readability for normal cases.
+func renderOneFindingText(w io.Writer, f Finding) {
+	switch f.Category {
+	case CategoryByteIdentical:
+		fmt.Fprintf(w, "  [%s] sha=%s size=%v cross_dir=%v\n",
+			f.Severity, f.Detail["hash"], f.Detail["size"], f.Detail["cross_directory"])
+		for _, s := range f.Sources {
+			fmt.Fprintf(w, "    - %s\n", s)
+		}
+	case CategoryModuleNameCollision:
+		fmt.Fprintf(w, "  [%s] %s\n", f.Severity, f.ModuleName)
+		if candidates, ok := f.Detail["candidates"].([]map[string]any); ok {
+			for _, c := range candidates {
+				fmt.Fprintf(w, "    - %s  last_updated=%s  sha=%s\n",
+					c["source"], c["last_updated_normalised"], c["sha"])
+			}
+		}
+	case CategoryOIDArcSharing:
+		names, _ := f.Detail["module_names"].([]string)
+		fmt.Fprintf(w, "  [%s] oid=%s names=%s\n",
+			f.Severity, f.Detail["oid"], strings.Join(names, ","))
+		for _, s := range f.Sources {
+			fmt.Fprintf(w, "    - %s\n", s)
+		}
+	case CategoryDivergentIdentity:
+		fmt.Fprintf(w, "  [%s] %s last_updated=%s\n",
+			f.Severity, f.ModuleName, f.Detail["last_updated"])
+		for _, s := range f.Sources {
+			fmt.Fprintf(w, "    - %s\n", s)
+		}
+	case CategoryCorpusCollision:
+		fmt.Fprintf(w, "  [%s] %s label=%s upload=%s corpus=%s\n",
+			f.Severity, f.ModuleName,
+			f.Detail["label"],
+			f.Detail["upload_last_updated"],
+			f.Detail["corpus_last_updated"])
+		for _, s := range f.Sources {
+			fmt.Fprintf(w, "    - %s\n", s)
+		}
+	case CategoryBroken, CategoryNonMIB:
+		src := ""
+		if len(f.Sources) > 0 {
+			src = f.Sources[0]
+		}
+		fmt.Fprintf(w, "  [%s] %s\n", f.Severity, src)
+		if reason, ok := f.Detail["reason"]; ok {
+			fmt.Fprintf(w, "    reason: %v\n", reason)
+		}
+	default:
+		fmt.Fprintf(w, "  [%s] %s (%d source(s))\n",
+			f.Severity, f.ModuleName, len(f.Sources))
+	}
 }

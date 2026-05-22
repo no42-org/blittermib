@@ -33,6 +33,13 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
 		}
+		if errors.Is(err, errReportActionable) {
+			// Report mode produced warn/error findings. The
+			// findings are already on stdout; suppress the
+			// generic error preamble on stderr so JSON output
+			// stays usable in `jq` pipelines.
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, "blittermib-ingest:", err)
 		os.Exit(1)
 	}
