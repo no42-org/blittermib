@@ -19,14 +19,15 @@ import (
 // Entry is one row of INDEX.yaml. Field order in the struct matches
 // the on-disk emission order — keep them in sync with emitEntry.
 type Entry struct {
-	File    string
-	Module  string
-	PEN     uint32
-	Vendor  string
-	License string
-	Imports []string
-	Status  string
-	AddedIn string
+	File        string
+	Module      string
+	PEN         uint32
+	Vendor      string
+	License     string
+	Imports     []string
+	Status      string
+	LastUpdated string // MODULE-IDENTITY LAST-UPDATED; empty if source has none
+	AddedIn     string
 }
 
 // validToken matches the conservative character set we accept in
@@ -129,6 +130,14 @@ func buildEntries(root string, overrides *Overrides, prevAddedIn map[string]stri
 			if path != root && strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
 			}
+			// upload/ is the gitignored contributor drop folder.
+			// Its files are pending classification by `make ingest`,
+			// not corpus members — skip the whole subtree so an
+			// archive sitting there mid-triage doesn't pollute
+			// INDEX.yaml.
+			if path != root && name == "upload" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !isMIBFile(name) {
@@ -206,6 +215,7 @@ func buildEntry(rel string, src []byte, overrides *Overrides, prevAddedIn map[st
 	}
 
 	e.Imports = extractImports(src)
+	e.LastUpdated = extractLastUpdated(src)
 
 	if d, ok := prevAddedIn[rel]; ok {
 		e.AddedIn = d
@@ -234,6 +244,7 @@ func validateEntryFields(e Entry) error {
 		{"vendor", e.Vendor}, // empty allowed (non-vendor MIBs)
 		{"license", e.License},
 		{"status", e.Status},
+		{"last_updated", e.LastUpdated}, // empty allowed (SMIv1 / TC-only)
 		{"added_in", e.AddedIn},
 	}
 	for _, c := range checks {
@@ -315,6 +326,9 @@ func emitYAML(w *bytes.Buffer, entries []Entry) {
 			status = defaultStatus
 		}
 		fmt.Fprintf(w, "    status: %s\n", status)
+		if e.LastUpdated != "" {
+			fmt.Fprintf(w, "    last_updated: %s\n", e.LastUpdated)
+		}
 		fmt.Fprintf(w, "    added_in: %s\n", e.AddedIn)
 	}
 }

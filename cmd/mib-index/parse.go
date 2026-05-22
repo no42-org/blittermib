@@ -26,6 +26,14 @@ var importsBlockRE = regexp.MustCompile(`(?s)\bIMPORTS\b(.*?);`)
 // block; we collect the unique module names.
 var importsFromRE = regexp.MustCompile(`\bFROM[ \t\r\n]+([A-Za-z][A-Za-z0-9-]*)`)
 
+// lastUpdatedRE captures the digit-Z timestamp from a MODULE-IDENTITY
+// LAST-UPDATED clause. The keyword and quoted value may span lines
+// in practice — vendor MIBs commonly format MODULE-IDENTITY across
+// many lines. We capture whatever `[digits]Z` form the source uses
+// (SMIv2 12+ digits, SMIv1 10 digits); the comparison-time
+// normaliser in mib-ingest is what flattens them for sorting.
+var lastUpdatedRE = regexp.MustCompile(`\bLAST-UPDATED[ \t\r\n]+"([0-9]+Z)"`)
+
 // extractModuleName returns the SMIv2 module name from the source
 // header. Returns "" if no `... DEFINITIONS ::= BEGIN` opener is
 // found in the supplied buffer (which should cover the file's first
@@ -62,6 +70,19 @@ func extractImports(src []byte) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// extractLastUpdated returns the MODULE-IDENTITY LAST-UPDATED
+// timestamp from the source, preserving whatever digits+Z form the
+// MIB uses. Returns "" when there is no MODULE-IDENTITY clause or
+// when the value isn't a recognisable digits+Z string (SMIv1 modules
+// without MODULE-IDENTITY, TC-only modules, malformed timestamps).
+func extractLastUpdated(src []byte) string {
+	m := lastUpdatedRE.FindSubmatch(src)
+	if len(m) < 2 {
+		return ""
+	}
+	return string(m[1])
 }
 
 // penFromPath extracts the PEN integer and vendor slug from the

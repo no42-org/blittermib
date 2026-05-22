@@ -82,3 +82,78 @@ func TestPENFromPath(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractLastUpdated(t *testing.T) {
+	cases := []struct {
+		name, src, want string
+	}{
+		{
+			"smiv2 inline",
+			`FOO-MIB DEFINITIONS ::= BEGIN
+fooMIB MODULE-IDENTITY
+    LAST-UPDATED "202205101200Z"
+    ORGANIZATION "Acme"
+END`,
+			"202205101200Z",
+		},
+		{
+			"smiv2 multiline before value",
+			"FOO-MIB DEFINITIONS ::= BEGIN\nfooMIB MODULE-IDENTITY\n    LAST-UPDATED\n        \"202205101200Z\"\nEND",
+			"202205101200Z",
+		},
+		{
+			"smiv1 ten-digit form",
+			`FOO-MIB DEFINITIONS ::= BEGIN
+fooMIB MODULE-IDENTITY
+    LAST-UPDATED "9908311200Z"
+END`,
+			"9908311200Z",
+		},
+		{
+			"first match wins when REVISION precedes a second LAST-UPDATED in same file (defensive)",
+			`FOO-MIB DEFINITIONS ::= BEGIN
+fooMIB MODULE-IDENTITY
+    LAST-UPDATED "202205101200Z"
+    REVISION "201801011200Z"
+END`,
+			"202205101200Z",
+		},
+		{
+			"no module-identity",
+			"SNMPv2-SMI DEFINITIONS ::= BEGIN\nEND",
+			"",
+		},
+		{
+			"empty quoted value",
+			`FOO-MIB DEFINITIONS ::= BEGIN
+fooMIB MODULE-IDENTITY
+    LAST-UPDATED ""
+END`,
+			"",
+		},
+		{
+			"non-digit body in quotes",
+			`FOO-MIB DEFINITIONS ::= BEGIN
+fooMIB MODULE-IDENTITY
+    LAST-UPDATED "today"
+END`,
+			"",
+		},
+		{
+			"missing Z suffix",
+			`FOO-MIB DEFINITIONS ::= BEGIN
+fooMIB MODULE-IDENTITY
+    LAST-UPDATED "202205101200"
+END`,
+			"",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := extractLastUpdated([]byte(c.src))
+			if got != c.want {
+				t.Errorf("extractLastUpdated() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

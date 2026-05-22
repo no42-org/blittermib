@@ -238,6 +238,103 @@ func TestIndexAddedInPreserved(t *testing.T) {
 	}
 }
 
+// TestIndexLastUpdated asserts the `last_updated:` field is emitted
+// between `status:` and `added_in:` for modules with a parseable
+// MODULE-IDENTITY LAST-UPDATED clause, and omitted entirely for
+// modules without one. Also covers idempotency of the new field.
+func TestIndexLastUpdated(t *testing.T) {
+	dir := t.TempDir()
+	withLU := `WITH-LU-MIB DEFINITIONS ::= BEGIN
+withLU MODULE-IDENTITY
+    LAST-UPDATED "202205101200Z"
+    ORGANIZATION "no42"
+END
+`
+	withoutLU := `WITHOUT-LU-MIB DEFINITIONS ::= BEGIN
+END
+`
+	mustWrite(t, filepath.Join(dir, "ietf/core/WITH-LU-MIB"), withLU)
+	mustWrite(t, filepath.Join(dir, "ietf/core/WITHOUT-LU-MIB"), withoutLU)
+
+	out := filepath.Join(t.TempDir(), "INDEX.yaml")
+	if err := indexCmd([]string{
+		"--root", dir,
+		"--out", out,
+		"--overrides", filepath.Join(dir, "no-overrides.yaml"),
+		"--date", "2026-05-22",
+	}); err != nil {
+		t.Fatalf("indexCmd: %v", err)
+	}
+	body, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(body)
+
+	// MIB WITH LAST-UPDATED → field present between status and added_in.
+	luSection := sectionByMarker(got, "file: ietf/core/WITH-LU-MIB")
+	wantLine := "    status: current\n    last_updated: 202205101200Z\n    added_in: 2026-05-22"
+	if !strings.Contains(luSection, wantLine) {
+		t.Errorf("WITH-LU-MIB missing/misplaced last_updated; section:\n%s", luSection)
+	}
+
+	// MIB WITHOUT LAST-UPDATED → field omitted entirely.
+	noluSection := sectionByMarker(got, "file: ietf/core/WITHOUT-LU-MIB")
+	if strings.Contains(noluSection, "last_updated:") {
+		t.Errorf("WITHOUT-LU-MIB should not have last_updated; section:\n%s", noluSection)
+	}
+
+	// Idempotency: regen produces byte-identical output.
+	out2 := filepath.Join(t.TempDir(), "INDEX.yaml")
+	if err := indexCmd([]string{
+		"--root", dir,
+		"--out", out2,
+		"--overrides", filepath.Join(dir, "no-overrides.yaml"),
+		"--date", "2026-05-22",
+	}); err != nil {
+		t.Fatalf("indexCmd (rerun): %v", err)
+	}
+	body2, _ := os.ReadFile(out2)
+	if !bytes.Equal(body, body2) {
+		t.Errorf("regenerated INDEX.yaml differs from first emit\n--- run 1 ---\n%s\n--- run 2 ---\n%s", body, body2)
+	}
+}
+
+// TestIndexSkipsUploadDirectory asserts that `mibs/upload/` (the
+// gitignored contributor drop folder) is excluded from the corpus
+// walk. Files there are pending classification by `make ingest`;
+// indexing them would pollute INDEX.yaml with entries that are
+// scheduled for relocation.
+func TestIndexSkipsUploadDirectory(t *testing.T) {
+	dir := t.TempDir()
+	corpus := `CORPUS-MIB DEFINITIONS ::= BEGIN
+END
+`
+	dropped := `DROPPED-MIB DEFINITIONS ::= BEGIN
+END
+`
+	mustWrite(t, filepath.Join(dir, "ietf/core/CORPUS-MIB"), corpus)
+	mustWrite(t, filepath.Join(dir, "upload/DROPPED-MIB.mib"), dropped)
+
+	out := filepath.Join(t.TempDir(), "INDEX.yaml")
+	if err := indexCmd([]string{
+		"--root", dir,
+		"--out", out,
+		"--overrides", filepath.Join(dir, "no-overrides.yaml"),
+		"--date", "2026-05-22",
+	}); err != nil {
+		t.Fatalf("indexCmd: %v", err)
+	}
+	body, _ := os.ReadFile(out)
+	got := string(body)
+	if !strings.Contains(got, "module: CORPUS-MIB") {
+		t.Errorf("corpus MIB missing from INDEX.yaml:\n%s", got)
+	}
+	if strings.Contains(got, "DROPPED-MIB") || strings.Contains(got, "upload/") {
+		t.Errorf("upload/ contents leaked into INDEX.yaml:\n%s", got)
+	}
+}
+
 // TestLoadOverridesMissing covers the missing-file path: returns an
 // empty map without error.
 func TestLoadOverridesMissing(t *testing.T) {
