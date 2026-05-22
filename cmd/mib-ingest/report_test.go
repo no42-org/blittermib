@@ -253,6 +253,100 @@ func TestFindDivergentIdentity(t *testing.T) {
 	})
 }
 
+func TestFindBrokenAndNonMIB(t *testing.T) {
+	t.Run("parse error → broken / warn", func(t *testing.T) {
+		input := []result{
+			{
+				src:     "mibs/upload/BROKEN.mib",
+				outcome: outcomeParseError,
+				reason:  "smidump failed: syntax error at line 47",
+			},
+		}
+		got := findBrokenAndNonMIB(input)
+		if len(got) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(got))
+		}
+		f := got[0]
+		if f.Category != CategoryBroken || f.Severity != SeverityWarn {
+			t.Errorf("category/severity = %s/%s", f.Category, f.Severity)
+		}
+		if len(f.Sources) != 1 || f.Sources[0] != "mibs/upload/BROKEN.mib" {
+			t.Errorf("sources = %v", f.Sources)
+		}
+		if f.Detail["reason"] != "smidump failed: syntax error at line 47" {
+			t.Errorf("reason = %v", f.Detail["reason"])
+		}
+	})
+
+	t.Run("non-mib skip → non-mib / info", func(t *testing.T) {
+		input := []result{
+			{
+				src:     "mibs/upload/README.txt",
+				outcome: outcomeSkippedNonMIB,
+				reason:  "no MIB marker (DEFINITIONS ::= BEGIN absent in first 32 KB)",
+			},
+		}
+		got := findBrokenAndNonMIB(input)
+		if len(got) != 1 {
+			t.Fatalf("expected 1 finding")
+		}
+		f := got[0]
+		if f.Category != CategoryNonMIB || f.Severity != SeverityInfo {
+			t.Errorf("category/severity = %s/%s", f.Category, f.Severity)
+		}
+		if f.Detail["reason"] != "no MIB marker (DEFINITIONS ::= BEGIN absent in first 32 KB)" {
+			t.Errorf("reason = %v", f.Detail["reason"])
+		}
+	})
+
+	t.Run("mixed input → both categories", func(t *testing.T) {
+		input := []result{
+			{src: "mibs/upload/BROKEN.mib", outcome: outcomeParseError, reason: "smidump failed: X"},
+			{src: "mibs/upload/README.txt", outcome: outcomeSkippedNonMIB, reason: "no MIB marker"},
+			{src: "mibs/upload/dangling", outcome: outcomeSkippedNonMIB, reason: "read failed: EISDIR"},
+		}
+		got := findBrokenAndNonMIB(input)
+		if len(got) != 3 {
+			t.Fatalf("expected 3 findings, got %d", len(got))
+		}
+		// sortFindings orders by category alphabetically →
+		// "broken" < "non-mib".
+		if got[0].Category != CategoryBroken {
+			t.Errorf("first finding category = %s, want %s", got[0].Category, CategoryBroken)
+		}
+		if got[1].Category != CategoryNonMIB || got[2].Category != CategoryNonMIB {
+			t.Errorf("expected two non-mib findings after broken; got %s,%s",
+				got[1].Category, got[2].Category)
+		}
+		// Within non-mib: lex-sorted by source. "dangling" < "README.txt".
+		if got[1].Sources[0] >= got[2].Sources[0] {
+			t.Errorf("non-mib findings not lex-sorted: %s vs %s",
+				got[1].Sources[0], got[2].Sources[0])
+		}
+	})
+
+	t.Run("other outcomes are skipped", func(t *testing.T) {
+		// outcomeMoved / outcomeRoutedUnsorted / outcomeRefused
+		// don't belong in the broken/non-mib rollup — they're
+		// successful or refused-collision cases.
+		input := []result{
+			{src: "x", outcome: outcomeMoved},
+			{src: "y", outcome: outcomeRefused, reason: "destination already exists"},
+		}
+		got := findBrokenAndNonMIB(input)
+		if len(got) != 0 {
+			t.Errorf("non-error outcomes should be skipped; got %d findings", len(got))
+		}
+	})
+
+	t.Run("empty input emits no findings", func(t *testing.T) {
+		got := findBrokenAndNonMIB(nil)
+		if len(got) != 0 {
+			t.Errorf("nil input must yield no findings, got %d", len(got))
+		}
+	})
+}
+
 func TestFindingJSONShape(t *testing.T) {
 	// Round-trip a finding through encoding/json to verify the wire
 	// shape is what the spec mandates (flat object with the named

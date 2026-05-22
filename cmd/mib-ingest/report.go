@@ -245,6 +245,45 @@ func findDivergentIdentity(parsed []result) []Finding {
 	return out
 }
 
+// findBrokenAndNonMIB converts the parseErrors slice (the second
+// return of classifyFiles) into `broken` and `non-mib` findings
+// so the report surfaces every upload-folder leftover in one
+// place. `outcomeParseError` → `broken` (severity `warn`, the
+// file has the SMI marker but smidump rejected it); other
+// outcomes that surface in parseErrors are non-MIB skips —
+// unreadable files or files lacking the marker — and become
+// `non-mib` (severity `info`).
+//
+// Each finding carries exactly one source. The reason string
+// from the result is surfaced as `detail.reason`.
+func findBrokenAndNonMIB(parseErrors []result) []Finding {
+	out := make([]Finding, 0, len(parseErrors))
+	for _, r := range parseErrors {
+		var category, severity string
+		switch r.outcome {
+		case outcomeParseError:
+			category = CategoryBroken
+			severity = SeverityWarn
+		case outcomeSkippedNonMIB:
+			category = CategoryNonMIB
+			severity = SeverityInfo
+		default:
+			continue
+		}
+		out = append(out, Finding{
+			Category:   category,
+			Severity:   severity,
+			ModuleName: "",
+			Sources:    []string{r.src},
+			Detail: map[string]any{
+				"reason": r.reason,
+			},
+		})
+	}
+	sortFindings(out)
+	return out
+}
+
 // sourcesOf returns the source paths of `members` in lexicographic
 // order — the stable ordering required for deterministic tests and
 // reproducible jq pipelines.
