@@ -130,13 +130,19 @@ func buildEntries(root string, overrides *Overrides, prevAddedIn map[string]stri
 			if path != root && strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
 			}
-			// upload/ is the gitignored contributor drop folder.
-			// Its files are pending classification by `make ingest`,
-			// not corpus members — skip the whole subtree so an
-			// archive sitting there mid-triage doesn't pollute
-			// INDEX.yaml.
-			if path != root && name == "upload" {
-				return filepath.SkipDir
+			// The TOP-LEVEL `upload/` directory is the contributor
+			// drop folder (gitignored by convention; not enforced
+			// by reading .gitignore). Its files are pending
+			// classification by `make ingest`, not corpus members —
+			// skip the whole subtree so an archive sitting there
+			// mid-triage doesn't pollute INDEX.yaml. The skip is
+			// anchored to root so that a deeper directory that
+			// happens to be named `upload/` (e.g. inside a vendor
+			// subtree) is still indexed as a corpus member.
+			if name == "upload" {
+				if rel, err := filepath.Rel(root, path); err == nil && rel == "upload" {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
