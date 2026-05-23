@@ -122,6 +122,55 @@ blocking on failure:
 Tier 4 specifically catches "this PR silently broke an unrelated
 MIB" — the kind of regression a single-file parser miss.
 
+## Triaging large archives
+
+A vendor archive of dozens to thousands of MIBs is a different
+workflow than the canonical single-file flow at the top of this
+file. Running `make ingest` directly on a big drop drowns the
+operator in `[refuse]` lines — every vendor archive ships the
+standard IETF/IANA dependencies (`SNMPv2-SMI`, `RFC1213-MIB`,
+`IF-MIB`, etc.) the corpus already has — and the actionable
+signals (competing revisions, vendor renames, broken files)
+get buried underneath. Use `make ingest-report` as a read-only
+pre-flight first:
+
+```bash
+unzip vendor-archive.zip -d mibs/upload/
+make ingest-report                      # text output for terminal review
+go run ./cmd/mib-ingest --report --report-format=json > /tmp/report.json
+jq '.[] | select(.category == "corpus-collision") | .module_name' /tmp/report.json
+```
+
+The report covers seven finding categories — each one a distinct
+operator decision:
+
+| Category                  | Severity   | Operator action                                                 |
+|---------------------------|------------|-----------------------------------------------------------------|
+| `byte-identical`          | `info`     | Delete the dupes from `mibs/upload/` (or use `--auto-collapse-identical`) |
+| `module-name-collision`   | `warn`     | Pick a revision; delete the others (compare `detail.candidates[].last_updated_normalised` to pick the newer one) |
+| `oid-arc-sharing`         | `warn`     | Likely vendor rename or OEM rebrand — investigate, keep one      |
+| `divergent-identity`      | `error`    | Red flag: same name + same `LAST-UPDATED`, different bytes — file a vendor bug |
+| `corpus-collision`        | `info`/`warn` | Already in the corpus — labelled `corpus-newer` / `corpus-older` / `same-revision` / `unknown` |
+| `broken`                  | `warn`     | smidump rejected the file — fix the source or drop it           |
+| `non-mib`                 | `info`     | Not a MIB (README, partial download) — delete from upload       |
+
+`make ingest-report` exits 0 when only `info` findings exist
+(safe to proceed) and non-zero when any `warn` or `error`
+finding is present — so CI integrators can gate "the archive is
+clean" without parsing the output. After the report has been
+triaged and `mibs/upload/` curated to the set you actually want
+in the corpus, run `make ingest` normally. The
+`--auto-collapse-identical` flag is the opt-in shortcut for "I
+trust the byte-identical findings — just prune them before
+classifying":
+
+```bash
+go run ./cmd/mib-ingest --auto-collapse-identical
+```
+
+`--auto-collapse-identical` is mutually exclusive with `--report`
+(one mutates `--src`, the other is read-only).
+
 ## Local pre-flight
 
 ```bash

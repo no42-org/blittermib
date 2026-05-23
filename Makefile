@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build
+.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -140,6 +140,18 @@ index:
 ingest:
 	$(GO) run ./cmd/mib-ingest
 
+# ingest-report runs the read-only triage report against mibs/upload/.
+# Recommended pre-flight for large vendor archives — surfaces seven
+# finding categories in one pass without moving any files:
+# byte-identical, module-name-collision, oid-arc-sharing,
+# divergent-identity, corpus-collision (already in mibs/), broken
+# (smidump rejected), and non-mib (no SMI marker / unreadable).
+# Exits non-zero when warn/error findings exist so CI gates work;
+# --report-format=json is available for jq-driven workflows
+# (invoke the binary directly).
+ingest-report:
+	$(GO) run ./cmd/mib-ingest --report
+
 # Tiered MIB-corpus validation per design.md Decision 6. CI runs all
 # three tiers on every PR touching `mibs/**`; local pre-flight before
 # pushing keeps PR cycles tight. Tier 4 (diff-parse) is CI-only — it
@@ -247,4 +259,5 @@ help:
 	@echo "make verify-mibs run the local MIB-corpus checks (lexical + naming + parse)"
 	@echo "make ingest      classify and route MIBs in mibs/upload/ into the corpus"
 	@echo "                 (flags: 'go run ./cmd/mib-ingest --dry-run|--git-add|--no-index')"
+	@echo "make ingest-report read-only triage of mibs/upload/ (recommended for large archives)"
 	@echo "make fetch-standard-mibs  download IETF/IANA standard MIBs into mibs/upload/ (then run make ingest)"

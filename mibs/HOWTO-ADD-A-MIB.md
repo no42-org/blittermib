@@ -73,6 +73,14 @@ go run ./cmd/mib-ingest --no-index    # skip the post-ingest make index
 `--git-add` is opt-in — the default leaves moves unstaged so you can
 review with `git status` before staging.
 
+> **Dropping a vendor archive with dozens or thousands of MIBs?**
+> Run `make ingest-report` first — a read-only triage pass that
+> groups byte-identical dupes, surfaces module-name collisions
+> across the archive, flags vendor renames sharing an OID arc,
+> and cross-references against the existing corpus before you
+> touch the move pipeline. See [CONTRIBUTING.md — Triaging
+> large archives](CONTRIBUTING.md#triaging-large-archives).
+
 ## 2. (Optional) Routing reference
 
 You don't need to know the routing rules for normal use — the
