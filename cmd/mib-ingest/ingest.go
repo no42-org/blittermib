@@ -82,6 +82,7 @@ func ingestCmd(args []string) error {
 	noIndex := flags.Bool("no-index", false, "skip the post-ingest `make index` step")
 	report := flags.Bool("report", false, "run a read-only triage report against upload/ instead of moving files")
 	reportFormat := flags.String("report-format", "text", "report output format: text or json (only with --report)")
+	autoCollapse := flags.Bool("auto-collapse-identical", false, "delete byte-identical duplicates from --src before classification (mutually exclusive with --report)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -91,6 +92,13 @@ func ingestCmd(args []string) error {
 	// rejecting the entire run.
 	if *report && *reportFormat != "text" && *reportFormat != "json" {
 		return fmt.Errorf("--report-format must be 'text' or 'json', got %q", *reportFormat)
+	}
+	// --report is read-only; --auto-collapse-identical mutates --src.
+	// Running both at once is ambiguous (does the report reflect
+	// pre-collapse or post-collapse state?), so we refuse before
+	// touching anything per the spec contract.
+	if *report && *autoCollapse {
+		return fmt.Errorf("--report and --auto-collapse-identical are mutually exclusive: --report is read-only, --auto-collapse-identical mutates --src")
 	}
 
 	if info, err := os.Stat(*src); err != nil {
@@ -112,6 +120,27 @@ func ingestCmd(args []string) error {
 	if err != nil {
 		return fmt.Errorf("walk %s: %w", *src, err)
 	}
+
+	// --auto-collapse-identical: pre-pass that hashes every walked
+	// file, groups by sha, keeps the lex-first source path per
+	// group, and deletes the rest from --src. Under --dry-run the
+	// deletion is suppressed but the count is still surfaced.
+	// classifyFiles runs against the reduced set.
+	if *autoCollapse {
+		kept, collapsed, err := autoCollapseIdentical(files, *dryRun)
+		if err != nil {
+			return fmt.Errorf("auto-collapse: %w", err)
+		}
+		if collapsed > 0 {
+			verb := "auto-collapsed"
+			if *dryRun {
+				verb = "would auto-collapse"
+			}
+			fmt.Fprintf(os.Stderr, "%s %d byte-identical duplicate(s)\n", verb, collapsed)
+		}
+		files = kept
+	}
+
 	if len(files) == 0 {
 		if *report {
 			// Spec scenario: "Empty report emits an empty JSON
@@ -211,6 +240,64 @@ func walkUpload(dir string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// autoCollapseIdentical hashes every file in `files`, groups by
+// sha256, and (when dryRun is false) deletes all but the
+// lexicographically-first source path per group. The returned
+// `kept` slice contains the surviving paths sorted
+// lexicographically (matching walkUpload's existing output
+// ordering); it is the input to classifyFiles after the collapse.
+//
+// Files that cannot be opened/hashed are not deduplicated but stay
+// in `kept` so classifyFiles can surface them as non-mib findings.
+//
+// Idempotent: re-running against a freshly-collapsed `--src`
+// produces zero further deletions because every hash group has
+// size 1.
+func autoCollapseIdentical(files []string, dryRun bool) (kept []string, collapsed int, err error) {
+	groups := make(map[string][]string, len(files))
+	// unhashable collects paths that hashFile rejected (broken
+	// symlinks, permission errors, etc.). They're not eligible for
+	// dedup but classifyFiles needs to see them to emit non-mib
+	// findings.
+	var unhashable []string
+	for _, f := range files {
+		sha, _, herr := hashFile(f)
+		if herr != nil {
+			unhashable = append(unhashable, f)
+			continue
+		}
+		groups[sha] = append(groups[sha], f)
+	}
+	kept = append(kept, unhashable...)
+	for _, group := range groups {
+		// Lexicographic-first wins per spec — deterministic so a
+		// re-run against the same input produces an identical kept
+		// set even though map iteration is randomized.
+		sort.Strings(group)
+		kept = append(kept, group[0])
+		for _, dup := range group[1:] {
+			collapsed++
+			if dryRun {
+				continue
+			}
+			if rmErr := os.Remove(dup); rmErr != nil {
+				// A vanished file is the desired post-state; if a
+				// concurrent process (or a prior partial run)
+				// already deleted the dup, the goal of "this path
+				// is no longer in --src" is met. Treat ENOENT as
+				// success so the pre-pass remains idempotent under
+				// concurrent or restart scenarios.
+				if os.IsNotExist(rmErr) {
+					continue
+				}
+				return nil, collapsed, fmt.Errorf("remove %s: %w", dup, rmErr)
+			}
+		}
+	}
+	sort.Strings(kept)
+	return kept, collapsed, nil
 }
 
 // hashFile streams the file at path through sha256 and returns the
