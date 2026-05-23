@@ -1,0 +1,119 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on a PR branch — no point keeping stale
+# checks alive across a rebase or fixup-push pile-up.
+concurrency:
+  group: code-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default to least-privilege; the actionlint job opts up to
+# `checks: write` so reviewdog can post inline annotations.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: make verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: Verify (fmt-check + vet + test)
+        run: make verify
+
+  lint:
+    name: make lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Install golangci-lint via `go install` so the version pin
+      # lives alongside the other CI tool pins. `make lint` checks
+      # the binary is on PATH and then runs it — keeping the CI
+      # entrypoint as a Makefile target per project convention.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: Lint
+        run: make lint
+
+  govulncheck:
+    name: make govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: govulncheck
+        run: make govulncheck
+
+  gosec:
+    name: make gosec
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: gosec
+        run: make gosec
+
+  # actionlint is the lone job that runs its linter via the
+  # canonical reviewdog action rather than a Makefile target. The
+  # tool isn't a Go package and there's no equivalent local-dev
+  # `make actionlint`, so the project-convention exception is
+  # explicit. `checks: write` permits reviewdog to post inline
+  # annotations on the PR check.
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d  # v1.72.0
+        with:
+          reporter: github-check
+          fail_on_error: true
