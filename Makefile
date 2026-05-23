@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build
+.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -20,6 +20,12 @@ LDFLAGS := -s -w
 
 # External tool requirements (Go module versions are pinned in go.mod)
 LIBSMI_MIN := 0.5.0
+
+# CI quality tools — pinned to a known-good version. Bumped via
+# Dependabot or by hand alongside the matching GitHub Actions
+# workflow SHA in .github/workflows/code-quality.yml.
+GOVULNCHECK_VERSION := v1.1.4
+GOSEC_VERSION       := v2.26.1
 
 all: build
 
@@ -188,6 +194,19 @@ lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed"; exit 1; }
 	golangci-lint run
 
+# govulncheck scans the dep graph for known CVEs via the official
+# golang.org/x/vuln database. CI invokes this target so the version
+# pin lives next to gosec / templ in one place. Local dev: same
+# command, no extra install.
+govulncheck:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+# gosec runs static security checks. `-exclude-generated` skips
+# files carrying the `// Code generated ...` marker (templ output),
+# which would otherwise trip G203 (unescaped HTML) by design.
+gosec:
+	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -exclude-generated ./...
+
 clean:
 	rm -f $(BIN) $(BIN).exe
 	rm -rf dist/
@@ -214,6 +233,8 @@ help:
 	@echo "make fmt-check   fail if code is not gofmt'd"
 	@echo "make vet         go vet"
 	@echo "make lint        golangci-lint"
+	@echo "make govulncheck scan dep graph for known CVEs (golang.org/x/vuln)"
+	@echo "make gosec       static security checks (gosec, excluding generated files)"
 	@echo "make clean       remove build artifacts"
 	@echo "make check-tools verify libsmi (smidump/smilint) is installed"
 	@echo "make hooks       install pre-commit git hooks"
