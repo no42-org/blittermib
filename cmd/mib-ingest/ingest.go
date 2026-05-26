@@ -310,7 +310,7 @@ func hashFile(path string) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	n, err := io.Copy(h, f)
 	if err != nil {
@@ -607,16 +607,16 @@ func printDryRun(w io.Writer, moves []result) {
 	for _, r := range moves {
 		switch r.outcome {
 		case outcomeMoved, outcomeRoutedUnsorted:
-			fmt.Fprintf(w, "  [%-6s] %s → %s\n", r.conf, r.src, r.dst)
+			_, _ = fmt.Fprintf(w, "  [%-6s] %s → %s\n", r.conf, r.src, r.dst)
 		case outcomeRefused:
-			fmt.Fprintf(w, "  [refuse]      %s — %s\n", r.src, r.reason)
+			_, _ = fmt.Fprintf(w, "  [refuse]      %s — %s\n", r.src, r.reason)
 		case outcomeParseError:
-			fmt.Fprintf(w, "  [parse-error] %s — %s\n", r.src, r.reason)
+			_, _ = fmt.Fprintf(w, "  [parse-error] %s — %s\n", r.src, r.reason)
 		case outcomeSkippedNonMIB:
-			fmt.Fprintf(w, "  [non-mib]     %s — %s\n", r.src, r.reason)
+			_, _ = fmt.Fprintf(w, "  [non-mib]     %s — %s\n", r.src, r.reason)
 		}
 	}
-	fmt.Fprintln(w, "(dry-run; no files moved, no INDEX.yaml regen)")
+	_, _ = fmt.Fprintln(w, "(dry-run; no files moved, no INDEX.yaml regen)")
 }
 
 // summaryListMax bounds the per-file list of leftover files printed
@@ -637,13 +637,13 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 	if highMedium < 0 {
 		highMedium = 0
 	}
-	fmt.Fprintf(w,
+	_, _ = fmt.Fprintf(w,
 		"ingest: %d moved (%d high/medium → corpus, %d low → unsorted), %d refused, %d non-mib skipped, %d parse errors",
 		moved, highMedium, routedUnsorted, refused, skippedNonMIB, parseErrors)
 	if gitAddFailures > 0 {
-		fmt.Fprintf(w, ", %d git-add failures", gitAddFailures)
+		_, _ = fmt.Fprintf(w, ", %d git-add failures", gitAddFailures)
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 
 	// Final per-file rundown of anything still sitting in upload/.
 	// This is exactly the set the operator needs to act on (delete,
@@ -658,10 +658,10 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 	if len(leftover) == 0 {
 		return
 	}
-	fmt.Fprintln(w, "left in upload/:")
+	_, _ = fmt.Fprintln(w, "left in upload/:")
 	for i, r := range leftover {
 		if i == summaryListMax {
-			fmt.Fprintf(w, "  ...and %d more (use --dry-run to see the full list)\n",
+			_, _ = fmt.Fprintf(w, "  ...and %d more (use --dry-run to see the full list)\n",
 				len(leftover)-summaryListMax)
 			break
 		}
@@ -674,6 +674,6 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 		case outcomeRefused:
 			tag = "refuse"
 		}
-		fmt.Fprintf(w, "  [%-11s] %s — %s\n", tag, r.src, r.reason)
+		_, _ = fmt.Fprintf(w, "  [%-11s] %s — %s\n", tag, r.src, r.reason)
 	}
 }

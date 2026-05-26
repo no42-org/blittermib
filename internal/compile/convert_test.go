@@ -23,7 +23,7 @@ func loadFixture(t *testing.T) *SMI {
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	smi, err := ParseXML(f)
 	if err != nil {
 		t.Fatalf("ParseXML: %v", err)

@@ -14,16 +14,15 @@ var penText string
 var (
 	penOnce  sync.Once
 	penTable map[uint32]string
-	penErr   error
 )
 
 // loadPEN parses the embedded registry on first call and caches the
 // resulting map. Idempotent and safe under concurrent access. A
-// scanner error during parse is captured and surfaced via penErr but
-// does not abort callers — partial maps are still useful.
+// scanner error during parse is discarded — partial maps are still
+// useful, and callers have no recovery path.
 func loadPEN() map[uint32]string {
 	penOnce.Do(func() {
-		penTable, penErr = parsePEN(penText)
+		penTable, _ = parsePEN(penText)
 	})
 	return penTable
 }

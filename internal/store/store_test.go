@@ -363,7 +363,7 @@ func TestOpenFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
 		t.Fatalf("ReplaceModule: %v", err)
@@ -377,7 +377,7 @@ func TestOpenFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer s2.Close()
+	defer func() { _ = s2.Close() }()
 
 	got, err := s2.GetModule(ctx, "IF-MIB")
 	if err != nil {

@@ -301,16 +301,6 @@ func viewScopeOID(v *WorkspaceView) string {
 	return v.ScopeOID
 }
 
-// stepDisplayName picks the readable label for an OID-decode step.
-// Falls back to the bare numeric segment when neither a loaded
-// symbol nor the canonical table covers the prefix.
-func stepDisplayName(s model.OIDStep) string {
-	if s.Name != "" {
-		return s.Name
-	}
-	return lastSegment(s.Prefix)
-}
-
 // selectedOID returns the OID of the workspace view's currently
 // selected symbol, or "" when nothing is selected. Threaded into
 // the list pane so the matching row can carry a `selected` class
@@ -436,15 +426,6 @@ func PickerModulesJSON(mods []model.Module) string {
 		return "[]"
 	}
 	return strings.TrimRight(buf.String(), "\n")
-}
-
-// lastSegment returns the final dotted segment of an OID, or the
-// full string when there's no dot.
-func lastSegment(oid string) string {
-	if i := strings.LastIndex(oid, "."); i >= 0 {
-		return oid[i+1:]
-	}
-	return oid
 }
 
 // IsTabular reports whether the kind names a symbol that participates

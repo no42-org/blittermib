@@ -135,7 +135,7 @@ func validModuleName(s string) bool {
 		return false
 	}
 	c := s[0]
-	if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+	if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
 		return false
 	}
 	for i := 1; i < len(s); i++ {
@@ -317,7 +317,7 @@ func (s *Server) handleModuleDownload(w http.ResponseWriter, r *http.Request, na
 		_, _ = w.Write([]byte("module source no longer readable\n"))
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
 		s.internalError(w, r, err)
@@ -1707,7 +1707,7 @@ func oidPrefixQuery(q string) (string, bool) {
 		return "", false
 	}
 	for _, r := range q {
-		if !(r >= '0' && r <= '9') && r != '.' {
+		if (r < '0' || r > '9') && r != '.' {
 			return "", false
 		}
 	}
