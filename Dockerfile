@@ -11,7 +11,7 @@
 # irrelevant to the Go side, but libsmi must be present in the
 # runtime layer.
 
-ARG GO_VERSION=1.26.2
+ARG GO_VERSION=1.26.3
 ARG ALPINE_VERSION=3.21
 
 # --- build stage ----------------------------------------------------
