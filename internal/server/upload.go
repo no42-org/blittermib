@@ -106,7 +106,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmpDir := filepath.Join(s.uploadDir, ".tmp")
-	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+	if err := os.MkdirAll(tmpDir, 0o750); err != nil {
 		s.internalError(w, r, err)
 		return
 	}
@@ -249,6 +249,7 @@ func (s *Server) processUploadPart(part interface {
 		return oc
 	}
 	tmpPath := filepath.Join(tmpDir, name+"."+suffix+".upload")
+	// #nosec G304 -- tmpPath is filepath.Join(tmpDir, validatedName + crypto-random suffix); rooted under s.uploadDir/.tmp.
 	f, err := os.Create(tmpPath)
 	if err != nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))

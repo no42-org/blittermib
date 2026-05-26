@@ -97,10 +97,10 @@ func indexCmd(args []string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*out), 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(*out, buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(*out, buf.Bytes(), 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s (%d entries)\n", *out, len(entries))
@@ -158,6 +158,7 @@ func buildEntries(root string, overrides *Overrides, prevAddedIn map[string]stri
 		// filepath.Rel uses OS separator; INDEX.yaml uses POSIX `/`.
 		rel = filepath.ToSlash(rel)
 
+		// #nosec G304,G122 -- path is provided by filepath.Walk on the operator-supplied --root; offline indexer with no untrusted input.
 		src, err := os.ReadFile(path)
 		if err != nil {
 			slog.Warn("read failed; skipping", "path", path, "err", err)
@@ -345,6 +346,7 @@ func emitYAML(w *bytes.Buffer, entries []Entry) {
 // existing file returns the empty map plus a stderr warning — better
 // than aborting the regen.
 func readPrevAddedIn(path string) (map[string]string, error) {
+	// #nosec G304 -- path is the offline indexer's --out flag value, operator-supplied.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

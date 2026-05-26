@@ -39,6 +39,7 @@ const definitionsBeginMaxSpan = 64
 // short-read EOF flavour is reported as "no marker" without
 // surfacing the EOF — those are non-MIBs, not I/O errors.
 func HasMIBOpener(path string) (bool, error) {
+	// #nosec G304 -- path comes from filesystem walks rooted under operator-controlled corpus/upload dirs.
 	f, err := os.Open(path)
 	if err != nil {
 		return false, err

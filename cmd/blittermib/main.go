@@ -90,10 +90,10 @@ func newLogger(verbose bool) *slog.Logger {
 }
 
 func run(cfg config) error {
-	if err := os.MkdirAll(cfg.dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
-	if err := os.MkdirAll(cfg.mibsDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.mibsDir, 0o750); err != nil {
 		return fmt.Errorf("create mibs dir: %w", err)
 	}
 	if n, err := sweepUploadTmp(cfg.mibsDir); err != nil {

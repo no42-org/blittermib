@@ -43,6 +43,7 @@ func LoadGroups(path string) (GroupMap, error) {
 	if path == "" {
 		return GroupMap{byModule: map[string]string{}}, nil
 	}
+	// #nosec G304 -- path is the operator-supplied --groups flag value, offline CLI input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

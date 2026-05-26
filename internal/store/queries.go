@@ -384,6 +384,7 @@ func (s *Store) HasChildrenBatch(ctx context.Context, parents []string) (map[str
 		placeholders = append(placeholders, '?')
 		args = append(args, p)
 	}
+	// #nosec G202 -- placeholders is a locally-built run of `?` separators; values flow through QueryContext args, not the SQL string.
 	q := `SELECT parent_oid FROM symbol WHERE parent_oid IN (` +
 		string(placeholders) + `) GROUP BY parent_oid`
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -496,6 +497,7 @@ func (s *Store) OIDPath(ctx context.Context, oid string) ([]model.OIDStep, error
 		args = append(args, p)
 	}
 
+	// #nosec G202 -- placeholders is a locally-built run of `?` separators; values flow through QueryContext args, not the SQL string.
 	q := `SELECT oid, module_name, name, kind FROM symbol WHERE oid IN (` +
 		string(placeholders) + `) ORDER BY oid, module_name, name`
 	rows, err := s.db.QueryContext(ctx, q, args...)
