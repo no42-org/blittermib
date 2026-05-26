@@ -64,6 +64,7 @@ func (s *Smidump) run(ctx context.Context, target string) (*SMI, []model.Diagnos
 	// ExitError.Stderr on non-zero exit, but with `-k` smidump will
 	// happily print warnings to stderr and exit 0 — we want those
 	// diagnostics regardless of exit code.
+	// #nosec G204 -- bin resolves to the configured smidump executable; args are server-built flags + a MIB target previously sniffed under the operator-controlled mibs root.
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = smiEnv(s.Paths)
 	var stdoutBuf, stderrBuf bytes.Buffer

@@ -306,6 +306,7 @@ func autoCollapseIdentical(files []string, dryRun bool) (kept []string, collapse
 // propagate so callers can surface the file as a "non-mib" finding
 // without a hash.
 func hashFile(path string) (string, int64, error) {
+	// #nosec G304 -- path is from the operator-supplied --src walk in mib-ingest; no untrusted input.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", 0, err
@@ -560,7 +561,7 @@ func applyMoves(moves []result, root string, gitAdd bool) (moved, refusedAtMove,
 				refusedAtMove++
 				continue
 			}
-			if mkErr := os.MkdirAll(filepath.Dir(fullDst), 0o755); mkErr != nil {
+			if mkErr := os.MkdirAll(filepath.Dir(fullDst), 0o750); mkErr != nil {
 				return moved, refusedAtMove, gitAddFailures, fmt.Errorf("mkdir %s: %w", filepath.Dir(fullDst), mkErr)
 			}
 			if rnErr := os.Rename(r.src, fullDst); rnErr != nil {
@@ -572,6 +573,7 @@ func applyMoves(moves []result, root string, gitAdd bool) (moved, refusedAtMove,
 				if relErr != nil {
 					rel = r.dst
 				}
+				// #nosec G204 -- offline CLI; rel is the relative destination computed by ingest under the operator-supplied --root, passed after a `--` separator.
 				cmd := exec.Command("git", "add", "--", rel)
 				cmd.Dir = root
 				cmd.Stderr = os.Stderr

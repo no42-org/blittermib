@@ -27,6 +27,7 @@ import (
 // responsibility via `normalizeLastUpdated`.
 func LoadCorpusIndex(root string) map[string]string {
 	path := filepath.Join(root, "mibs", "INDEX.yaml")
+	// #nosec G304 -- path is filepath.Join under the operator-supplied --root.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		// Distinguish "no corpus on disk" (an entirely reasonable

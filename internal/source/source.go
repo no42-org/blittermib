@@ -44,6 +44,7 @@ func Slice(path string, startLine, lines int) (string, error) {
 	if lines <= 0 {
 		lines = DefaultWindow
 	}
+	// #nosec G304 -- path is a SourcePath previously discovered by the MIB loader under the operator-configured mibs root.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open source %s: %w", path, err)

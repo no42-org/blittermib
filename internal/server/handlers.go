@@ -252,12 +252,16 @@ func (s *Server) handleModuleSource(w http.ResponseWriter, r *http.Request, name
 		s.notFound(w, r)
 		return
 	}
+	if !pathUnderAny(mod.SourcePath, []string{s.mibsDir}) {
+		s.notFound(w, r)
+		return
+	}
 	// Pre-set the headers — http.ServeFile leaves them alone if
 	// they're already populated. .mib files would otherwise default
 	// to application/octet-stream which would prompt downloads.
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeFile(w, r, mod.SourcePath)
+	http.ServeFile(w, r, mod.SourcePath) // #nosec G703 -- guarded by pathUnderAny above
 }
 
 // handleModuleDownload serves the single MIB source file as a
@@ -305,7 +309,7 @@ func (s *Server) handleModuleDownload(w http.ResponseWriter, r *http.Request, na
 		s.notFound(w, r)
 		return
 	}
-	f, err := os.Open(mod.SourcePath)
+	f, err := os.Open(mod.SourcePath) // #nosec G703 -- guarded by pathUnderAny above
 	if err != nil {
 		// File recorded in DB but gone from disk — distinguish
 		// from "module never existed" so the user can see what
@@ -658,7 +662,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 	downloadable := false
 	if mod.SourcePath != "" &&
 		pathUnderAny(mod.SourcePath, []string{s.mibsDir}) {
-		if _, err := os.Stat(mod.SourcePath); err == nil {
+		if _, err := os.Stat(mod.SourcePath); err == nil { // #nosec G703 -- guarded by pathUnderAny above
 			downloadable = true
 		}
 	}
@@ -863,6 +867,7 @@ func (s *Server) handleSymbolDisambiguation(w http.ResponseWriter, r *http.Reque
 		// `/s/{name}` is consistent with the other Phase-3 nav
 		// surfaces (search hits, ⌘K palette, /o/{oid}). Symbols
 		// without an OID still resolve to /s/... via the helper.
+		// #nosec G710 -- target is an internal /m/... URL built from DB-owned identifiers; no user-supplied scheme/host.
 		http.Redirect(w, r, string(web.WorkspaceSymbolURL(matches[0].ModuleName, matches[0].Name, matches[0].OID)), http.StatusFound)
 	default:
 		render(w, r, http.StatusOK, web.SymbolDisambiguation(name, matches))
@@ -1284,6 +1289,7 @@ func (s *Server) handleOID(w http.ResponseWriter, r *http.Request) {
 	// Redirect to the workspace selection rather than the canonical
 	// /s/... page so the user lands in the navigation context that
 	// owns the OID. The /s/... page remains for direct deep links.
+	// #nosec G710 -- target is an internal /m/... URL built from DB-owned identifiers; no user-supplied scheme/host.
 	http.Redirect(w, r, "/m/"+sym.ModuleName+"/"+sym.OID, http.StatusFound)
 }
 

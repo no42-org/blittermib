@@ -29,6 +29,7 @@ func LoadOverrides(path string) (*Overrides, error) {
 	if path == "" {
 		return &Overrides{Licenses: map[string]string{}}, nil
 	}
+	// #nosec G304 -- path is the offline indexer's --overrides flag value, operator-supplied.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

@@ -101,7 +101,7 @@ func applyCmd(args []string) error {
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(joinedDst), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(joinedDst), 0o750); err != nil {
 			fmt.Fprintf(os.Stderr, "row %d: mkdir %s: %v\n", i+1, filepath.Dir(joinedDst), err)
 			failed++
 			continue
@@ -117,6 +117,7 @@ func applyCmd(args []string) error {
 		// `--` separator guards against src/dst that begin with `-`
 		// being parsed as flags. cmd.Dir = cleanRoot so git resolves
 		// the right `.git` directory regardless of caller cwd.
+		// #nosec G204 -- offline CLI; src/dst come from the operator-supplied --plan TSV and are passed after a `--` separator to git mv.
 		cmd := exec.Command("git", "mv", "--", src, dst)
 		cmd.Dir = cleanRoot
 		cmd.Stderr = os.Stderr
@@ -140,6 +141,7 @@ func applyCmd(args []string) error {
 // loadPlan reads the TSV, validates its header, tolerates blank lines
 // and `#`-prefixed comments, and returns the data rows.
 func loadPlan(path string) ([][]string, error) {
+	// #nosec G304 -- path is the operator-supplied --plan flag value; mib-migrate is an offline CLI.
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

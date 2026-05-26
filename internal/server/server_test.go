@@ -1484,12 +1484,12 @@ func TestSymbolNoQualifierEmpty404(t *testing.T) {
 }
 
 func TestModuleSourceRoute(t *testing.T) {
-	// Seed a module with a real source file on disk so the route
-	// can stream it.
-	dir := t.TempDir()
-	srcPath := filepath.Join(dir, "TEST-MIB.txt")
+	// Seed a module with a real source file on disk under the
+	// configured mibs root so the path-traversal guard accepts it.
+	mibsDir := t.TempDir()
+	srcPath := filepath.Join(mibsDir, "TEST-MIB.txt")
 	srcContent := "TEST-MIB DEFINITIONS ::= BEGIN\nimports SNMPv2-SMI;\nEND\n"
-	if err := os.WriteFile(srcPath, []byte(srcContent), 0o644); err != nil {
+	if err := os.WriteFile(srcPath, []byte(srcContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1504,7 +1504,7 @@ func TestModuleSourceRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := New(st, "", "test", "/var/lib/blittermib/mibs")
+	srv := New(st, "", "test", mibsDir)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 

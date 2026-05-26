@@ -49,6 +49,7 @@ func (s *Smilint) Lint(ctx context.Context, target string) ([]model.Diagnostic, 
 	// won't be mistaken for a flag.
 	args = append(args, "--", target)
 
+	// #nosec G204 -- bin resolves to the configured smilint executable; args are server-built flags + a MIB target previously sniffed under the operator-controlled mibs root.
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = smiEnv(s.Paths)
 	combined, err := cmd.CombinedOutput()
