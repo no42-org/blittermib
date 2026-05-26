@@ -50,7 +50,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchHi
 	if err != nil {
 		return nil, fmt.Errorf("fts search: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SearchHit
 	for rows.Next() {
@@ -96,7 +96,7 @@ func (s *Store) DidYouMean(ctx context.Context, query string, limit int) ([]Sear
 	if err != nil {
 		return nil, fmt.Errorf("did-you-mean: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type cand struct {
 		hit  SearchHit
@@ -198,7 +198,7 @@ func (s *Store) SearchByOIDPrefix(ctx context.Context, prefix string, limit int)
 	if err != nil {
 		return nil, fmt.Errorf("oid prefix search: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SearchHit
 	for rows.Next() {

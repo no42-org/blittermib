@@ -50,7 +50,7 @@ func (s *Store) listImportsByModule(ctx context.Context, module string) ([]model
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []model.Import
 	for rows.Next() {
 		var imp model.Import
@@ -226,7 +226,7 @@ func (s *Store) ListModules(ctx context.Context) ([]model.Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list modules: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []model.Module
 	for rows.Next() {
@@ -317,7 +317,7 @@ func (s *Store) ListDiagnosticsByModule(ctx context.Context, module string) ([]m
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []model.Diagnostic
 	for rows.Next() {
 		var d model.Diagnostic
@@ -390,7 +390,7 @@ func (s *Store) HasChildrenBatch(ctx context.Context, parents []string) (map[str
 	if err != nil {
 		return nil, fmt.Errorf("has-children batch: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var p string
 		if err := rows.Scan(&p); err != nil {
@@ -428,7 +428,7 @@ func (s *Store) CountByFamily(ctx context.Context, moduleName string) (*model.Fa
 	if err != nil {
 		return nil, fmt.Errorf("count by family for %s: %w", moduleName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var fc model.FamilyCounts
 	for rows.Next() {
@@ -502,7 +502,7 @@ func (s *Store) OIDPath(ctx context.Context, oid string) ([]model.OIDStep, error
 	if err != nil {
 		return nil, fmt.Errorf("oid path %s: %w", oid, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type hit struct {
 		module string
@@ -574,7 +574,7 @@ func scanSymbol(scan func(...any) error) (*model.Symbol, error) {
 }
 
 func scanSymbolRows(rows *sql.Rows) ([]model.Symbol, error) {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []model.Symbol
 	for rows.Next() {
 		s, err := scanSymbol(rows.Scan)
@@ -587,7 +587,7 @@ func scanSymbolRows(rows *sql.Rows) ([]model.Symbol, error) {
 }
 
 func scanReferenceRows(rows *sql.Rows) ([]model.Reference, error) {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []model.Reference
 	for rows.Next() {
 		var r model.Reference

@@ -236,9 +236,9 @@ func summarize(entries []planEntry, dupCount int, w *os.File) {
 			}
 		}
 	}
-	fmt.Fprintf(w, "Plan summary: %d entries (high=%d, medium=%d, low=%d)\n", len(entries), hi, md, lo)
+	_, _ = fmt.Fprintf(w, "Plan summary: %d entries (high=%d, medium=%d, low=%d)\n", len(entries), hi, md, lo)
 	if dupCount > 0 {
-		fmt.Fprintf(w, "Duplicates rerouted to unsorted/: %d\n", dupCount)
+		_, _ = fmt.Fprintf(w, "Duplicates rerouted to unsorted/: %d\n", dupCount)
 	}
 	if len(perVendor) > 0 {
 		keys := make([]string, 0, len(perVendor))
@@ -246,9 +246,9 @@ func summarize(entries []planEntry, dupCount int, w *os.File) {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		fmt.Fprintln(w, "Vendor breakdown:")
+		_, _ = fmt.Fprintln(w, "Vendor breakdown:")
 		for _, k := range keys {
-			fmt.Fprintf(w, "  %-30s %d\n", k, perVendor[k])
+			_, _ = fmt.Fprintf(w, "  %-30s %d\n", k, perVendor[k])
 		}
 	}
 }

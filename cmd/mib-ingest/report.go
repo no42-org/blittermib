@@ -514,7 +514,7 @@ func renderReportText(w io.Writer, findings []Finding) error {
 		if len(section) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "# %s (%d)\n", cat, len(section))
+		_, _ = fmt.Fprintf(w, "# %s (%d)\n", cat, len(section))
 		limit := len(section)
 		if limit > textTruncationCap {
 			limit = textTruncationCap
@@ -523,10 +523,10 @@ func renderReportText(w io.Writer, findings []Finding) error {
 			renderOneFindingText(w, section[i])
 		}
 		if len(section) > textTruncationCap {
-			fmt.Fprintf(w, "  ... and %d more (use --report-format=json for the full list)\n",
+			_, _ = fmt.Fprintf(w, "  ... and %d more (use --report-format=json for the full list)\n",
 				len(section)-textTruncationCap)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 	return nil
 }
@@ -538,52 +538,52 @@ func renderReportText(w io.Writer, findings []Finding) error {
 func renderOneFindingText(w io.Writer, f Finding) {
 	switch f.Category {
 	case CategoryByteIdentical:
-		fmt.Fprintf(w, "  [%s] sha=%s size=%v cross_dir=%v\n",
+		_, _ = fmt.Fprintf(w, "  [%s] sha=%s size=%v cross_dir=%v\n",
 			f.Severity, f.Detail["hash"], f.Detail["size"], f.Detail["cross_directory"])
 		for _, s := range f.Sources {
-			fmt.Fprintf(w, "    - %s\n", s)
+			_, _ = fmt.Fprintf(w, "    - %s\n", s)
 		}
 	case CategoryModuleNameCollision:
-		fmt.Fprintf(w, "  [%s] %s\n", f.Severity, f.ModuleName)
+		_, _ = fmt.Fprintf(w, "  [%s] %s\n", f.Severity, f.ModuleName)
 		if candidates, ok := f.Detail["candidates"].([]map[string]any); ok {
 			for _, c := range candidates {
-				fmt.Fprintf(w, "    - %s  last_updated=%s  sha=%s\n",
+				_, _ = fmt.Fprintf(w, "    - %s  last_updated=%s  sha=%s\n",
 					c["source"], c["last_updated_normalised"], c["sha"])
 			}
 		}
 	case CategoryOIDArcSharing:
 		names, _ := f.Detail["module_names"].([]string)
-		fmt.Fprintf(w, "  [%s] oid=%s names=%s\n",
+		_, _ = fmt.Fprintf(w, "  [%s] oid=%s names=%s\n",
 			f.Severity, f.Detail["oid"], strings.Join(names, ","))
 		for _, s := range f.Sources {
-			fmt.Fprintf(w, "    - %s\n", s)
+			_, _ = fmt.Fprintf(w, "    - %s\n", s)
 		}
 	case CategoryDivergentIdentity:
-		fmt.Fprintf(w, "  [%s] %s last_updated=%s\n",
+		_, _ = fmt.Fprintf(w, "  [%s] %s last_updated=%s\n",
 			f.Severity, f.ModuleName, f.Detail["last_updated"])
 		for _, s := range f.Sources {
-			fmt.Fprintf(w, "    - %s\n", s)
+			_, _ = fmt.Fprintf(w, "    - %s\n", s)
 		}
 	case CategoryCorpusCollision:
-		fmt.Fprintf(w, "  [%s] %s label=%s upload=%s corpus=%s\n",
+		_, _ = fmt.Fprintf(w, "  [%s] %s label=%s upload=%s corpus=%s\n",
 			f.Severity, f.ModuleName,
 			f.Detail["label"],
 			f.Detail["upload_last_updated"],
 			f.Detail["corpus_last_updated"])
 		for _, s := range f.Sources {
-			fmt.Fprintf(w, "    - %s\n", s)
+			_, _ = fmt.Fprintf(w, "    - %s\n", s)
 		}
 	case CategoryBroken, CategoryNonMIB:
 		src := ""
 		if len(f.Sources) > 0 {
 			src = f.Sources[0]
 		}
-		fmt.Fprintf(w, "  [%s] %s\n", f.Severity, src)
+		_, _ = fmt.Fprintf(w, "  [%s] %s\n", f.Severity, src)
 		if reason, ok := f.Detail["reason"]; ok {
-			fmt.Fprintf(w, "    reason: %v\n", reason)
+			_, _ = fmt.Fprintf(w, "    reason: %v\n", reason)
 		}
 	default:
-		fmt.Fprintf(w, "  [%s] %s (%d source(s))\n",
+		_, _ = fmt.Fprintf(w, "  [%s] %s (%d source(s))\n",
 			f.Severity, f.ModuleName, len(f.Sources))
 	}
 }

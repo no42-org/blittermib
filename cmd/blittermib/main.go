@@ -67,8 +67,8 @@ func parseFlags(args []string, errOut io.Writer) (config, error) {
 	showVersion := fs.Bool("version", false, "print version and exit")
 
 	fs.Usage = func() {
-		fmt.Fprintf(errOut, "blittermib %s — Pixelperfect MIB browser\n\n", version)
-		fmt.Fprintf(errOut, "Usage:\n  blittermib [flags]\n\nFlags:\n")
+		_, _ = fmt.Fprintf(errOut, "blittermib %s — Pixelperfect MIB browser\n\n", version)
+		_, _ = fmt.Fprintf(errOut, "Usage:\n  blittermib [flags]\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -110,7 +110,7 @@ func run(cfg config) error {
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	slog.Info("blittermib starting",
 		"version", version,

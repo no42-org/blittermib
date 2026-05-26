@@ -257,7 +257,7 @@ func (s *Store) ReplaceModule(
 		if err != nil {
 			return fmt.Errorf("prepare insert import: %w", err)
 		}
-		defer insImp.Close()
+		defer func() { _ = insImp.Close() }()
 		for i, imp := range mod.Imports {
 			if _, err := insImp.ExecContext(ctx, mod.Name, imp.FromModule, imp.Symbol, i); err != nil {
 				return fmt.Errorf("insert import %s.%s: %w", imp.FromModule, imp.Symbol, err)
@@ -274,7 +274,7 @@ func (s *Store) ReplaceModule(
 	if err != nil {
 		return fmt.Errorf("prepare insert symbol: %w", err)
 	}
-	defer insSym.Close()
+	defer func() { _ = insSym.Close() }()
 
 	for i := range syms {
 		idxJSON := encodeIndex(syms[i].IndexColumns)
@@ -303,7 +303,7 @@ func (s *Store) ReplaceModule(
 		if err != nil {
 			return fmt.Errorf("prepare insert reference: %w", err)
 		}
-		defer insRef.Close()
+		defer func() { _ = insRef.Close() }()
 		for _, r := range refs {
 			if _, err := insRef.ExecContext(ctx,
 				r.SourceModule, r.SourceName,
@@ -323,7 +323,7 @@ func (s *Store) ReplaceModule(
 		if err != nil {
 			return fmt.Errorf("prepare insert diagnostic: %w", err)
 		}
-		defer insDiag.Close()
+		defer func() { _ = insDiag.Close() }()
 		for _, d := range diags {
 			if _, err := insDiag.ExecContext(ctx,
 				mod.Name, d.File, d.Line,

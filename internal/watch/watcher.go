@@ -73,7 +73,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fsnotify: %w", err)
 	}
-	defer fsw.Close()
+	defer func() { _ = fsw.Close() }()
 
 	added, failed, err := w.addRecursive(fsw, w.dir)
 	if err != nil {

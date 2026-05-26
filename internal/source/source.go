@@ -48,7 +48,7 @@ func Slice(path string, startLine, lines int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open source %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
 	// Many vendor MIBs ship with very long DESCRIPTION strings that

@@ -91,7 +91,7 @@ func TestRoutesGate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s %s: %v", c.method, c.path, err)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusNotFound {
 				t.Errorf("%s %s: route not registered when uploads enabled", c.method, c.path)
 			}
@@ -202,7 +202,7 @@ func postUpload(t *testing.T, ts *httptest.Server, query string, files map[strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func deleteUpload(t *testing.T, ts *httptest.Server, name string) *http.Response
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp
 }
 
@@ -231,16 +231,6 @@ func decodeUpload(t *testing.T, body []byte) uploadResponse {
 		t.Fatalf("decode response: %v\nbody: %s", err, body)
 	}
 	return ur
-}
-
-func mibsRoot(ts *httptest.Server) string {
-	// httptest.Server doesn't expose Server internals; the test
-	// helpers below use the upload directory implicitly via the
-	// request response. For tests that need to inspect the file
-	// system, we read the path from a dedicated sentinel: each
-	// test owns a t.TempDir() it set on the Server via
-	// newTestServerForUpload.
-	return ""
 }
 
 // TestUploadSingleFileSuccess covers the happy path: one file, no
@@ -564,7 +554,7 @@ func TestUploadCSRFHeaderRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("POST without sentinel header: status = %d, want 403", resp.StatusCode)
 	}
@@ -575,7 +565,7 @@ func TestUploadCSRFHeaderRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	if resp2.StatusCode != http.StatusForbidden {
 		t.Errorf("DELETE without sentinel header: status = %d, want 403", resp2.StatusCode)
 	}
@@ -952,7 +942,7 @@ func TestUploadIndexGatedOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
 	}
@@ -1030,7 +1020,7 @@ func getBody(t *testing.T, url string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -1082,7 +1072,7 @@ func assertStatus(t *testing.T, ts *httptest.Server, method, path string, want i
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, path, err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != want {
 		t.Errorf("%s %s: status = %d, want %d", method, path, resp.StatusCode, want)
 	}

@@ -48,7 +48,7 @@ func main() {
 }
 
 func usage(w *os.File) {
-	fmt.Fprintln(w, `blittermib-migrate plan|apply
+	_, _ = fmt.Fprintln(w, `blittermib-migrate plan|apply
 
 Subcommands:
   plan   --src DIR --out FILE [--groups FILE] [--smidump PATH] [--smilint PATH]

@@ -43,7 +43,7 @@ func HasMIBOpener(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	const sniffBytes = 32 * 1024
 	buf := make([]byte, sniffBytes+definitionsBeginMaxSpan-1)
 	n, err := io.ReadFull(f, buf)
