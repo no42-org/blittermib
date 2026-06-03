@@ -21,6 +21,9 @@ openspec/
 
 # Go build output
 /blittermib
+/mib-index
+/mib-ingest
+/mib-migrate
 /dist/
 *.exe
 *.test
