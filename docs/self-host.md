@@ -431,8 +431,8 @@ no MIBs have loaded successfully, the index is empty. Check
 
 ### Hot reload doesn't fire
 
-The watcher only watches the top level of `-mibs`. Subdirectories are
-ignored. Move MIB files up to the top level.
+The watcher recurses into every subdirectory of `-mibs`, so a MIB
+dropped anywhere under the corpus root is picked up.
 
 The watcher filters by extension (`.mib`, `.txt`, `.my`, or no
 extension); files with other extensions don't trigger a reload.
