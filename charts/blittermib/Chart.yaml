@@ -1,0 +1,19 @@
+apiVersion: v2
+name: blittermib
+description: Pixelperfect SNMP MIB browser — self-hostable, browser-based reference tool.
+type: application
+# Chart version is bumped independently of the application; appVersion
+# tracks the released blittermib image and is stamped from the git tag
+# at package time in CI.
+version: 0.1.0
+appVersion: "0.4.0"
+home: https://github.com/no42-org/blittermib
+sources:
+  - https://github.com/no42-org/blittermib
+keywords:
+  - snmp
+  - mib
+  - opennms
+maintainers:
+  - name: Ronny Trommer
+    email: ronny@no42.org

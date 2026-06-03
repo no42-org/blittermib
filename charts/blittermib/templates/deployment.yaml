@@ -1,0 +1,139 @@
+{{- include "blittermib.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "blittermib.fullname" . }}
+  labels:
+    {{- include "blittermib.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- if .Values.persistence.enabled }}
+    # RWO PVC can't multi-attach during a rolling update → Recreate.
+    type: Recreate
+    {{- else }}
+    type: RollingUpdate
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "blittermib.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "blittermib.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "blittermib.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - "-mibs"
+            - "/var/lib/blittermib/mibs"
+            - "-data"
+            - "/var/lib/blittermib/data"
+            - "-listen"
+            - "0.0.0.0:8080"
+          {{- if .Values.uploads.enabled }}
+          env:
+            - name: BLITTERMIB_UPLOAD_ENABLED
+              value: "true"
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            # Tolerant window covering the boot-time MIB ingest before
+            # liveness is armed (~30 * 2s = up to ~60s).
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/blittermib/data
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.uploads.enabled }}
+            - name: upload
+              mountPath: /var/lib/blittermib/mibs/upload
+            {{- end }}
+            {{- if .Values.extraMibs.enabled }}
+            {{- /* subPath mounts each file as a real file rather than the
+                   ConfigMap symlink farm (..data/...), which blittermib's
+                   loader skips as a symlink. Trade-off: subPath mounts do
+                   not receive live ConfigMap updates — fine here, MIBs are
+                   read once at boot. */}}
+            {{- range $name, $_ := .Values.extraMibs.files }}
+            - name: extra-mibs
+              mountPath: /var/lib/blittermib/mibs/extra/{{ $name }}
+              subPath: {{ $name }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "blittermib.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.uploads.enabled }}
+        - name: upload
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "blittermib.fullname" . }}-upload
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.extraMibs.enabled }}
+        - name: extra-mibs
+          configMap:
+            name: {{ include "blittermib.fullname" . }}-extra-mibs
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

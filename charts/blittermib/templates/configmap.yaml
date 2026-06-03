@@ -1,0 +1,13 @@
+{{- if .Values.extraMibs.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "blittermib.fullname" . }}-extra-mibs
+  labels:
+    {{- include "blittermib.labels" . | nindent 4 }}
+data:
+  {{- range $name, $content := .Values.extraMibs.files }}
+  {{ $name }}: |-
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}

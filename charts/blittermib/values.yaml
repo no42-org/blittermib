@@ -1,0 +1,118 @@
+# Default values for blittermib.
+
+# Single instance only. Horizontal scaling is unsupported: the SQLite
+# cache is per-pod and (when enabled) web uploads are node-local, so
+# replicas would diverge. Keep this at 1.
+replicaCount: 1
+
+image:
+  # MUST be an image that bundles libsmi — the binary subprocesses
+  # smidump/smilint at runtime. The official image does; a stripped or
+  # scratch rebuild will fail at runtime. Don't swap this without libsmi.
+  repository: ghcr.io/no42-org/blittermib
+  pullPolicy: IfNotPresent
+  # Defaults to the chart's appVersion when empty.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Persist the SQLite cache (and, when uploads are enabled, the upload
+# dir) across restarts. OFF by default: the cache is rebuilt from the
+# baked-in MIB corpus on every boot (~5s), so persistence is optional.
+# Enabling it switches the Deployment strategy to Recreate (an RWO
+# volume can't attach to two pods during a rolling update).
+persistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+# Enable the in-browser MIB upload feature (sets BLITTERMIB_UPLOAD_ENABLED).
+# Pair with persistence.enabled so uploads survive a pod restart;
+# otherwise they live in an emptyDir and are lost on replacement.
+uploads:
+  enabled: false
+
+# Declaratively layer vendor MIBs on top of the baked corpus via a
+# ConfigMap mounted read-only at mibs/extra. ConfigMap data is capped at
+# ~1 MiB total — fine for a handful of MIBs; for large sets use a
+# pre-populated PVC instead. `files` is a map of filename -> file content.
+extraMibs:
+  enabled: false
+  files: {}
+    # MY-VENDOR-MIB: |
+    #   MY-VENDOR-MIB DEFINITIONS ::= BEGIN
+    #   ...
+    #   END
+
+# Classic Ingress. Mutually exclusive with httpRoute (enabling both
+# fails the render).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: blittermib.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Gateway API HTTPRoute. References an EXISTING, platform-owned Gateway
+# (the chart does not create a Gateway/GatewayClass). Mutually exclusive
+# with ingress.
+httpRoute:
+  enabled: false
+  parentRefs: []
+    # - name: my-gateway
+    #   namespace: gateway-system
+    #   sectionName: https
+  hostnames: []
+    # - blittermib.example.com
+
+# Pod-level security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container-level security context. The image is already non-root and
+# writes only to the data/upload volumes and /tmp, so a read-only root
+# filesystem is viable. Set readOnlyRootFilesystem to false if a future
+# subprocess needs to write elsewhere.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 256Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# The server drains in-flight requests for up to 30s on shutdown; allow
+# headroom above that.
+terminationGracePeriodSeconds: 35
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

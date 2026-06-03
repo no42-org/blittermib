@@ -84,6 +84,31 @@ make build
 ./blittermib -mibs ./mibs
 ```
 
+### Kubernetes (Helm)
+
+The chart is published as an OCI artifact on GHCR:
+
+```bash
+helm install blittermib oci://ghcr.io/no42-org/charts/blittermib --version 0.1.0
+kubectl port-forward svc/blittermib 8080:8080   # then open http://localhost:8080
+```
+
+blittermib is **single-instance** (`replicaCount: 1`) — the SQLite cache
+is per-pod and uploads are node-local, so it doesn't scale horizontally.
+Common values:
+
+| Value | Default | Purpose |
+|-------|---------|---------|
+| `persistence.enabled` | `false` | Persist the SQLite cache + uploads in a PVC (else an `emptyDir` rebuilt on restart; switches the deploy strategy to `Recreate`). |
+| `uploads.enabled` | `false` | Enable the in-browser MIB upload (`BLITTERMIB_UPLOAD_ENABLED`); pair with `persistence.enabled` to keep uploads. |
+| `extraMibs.enabled` + `extraMibs.files` | `false` / `{}` | Layer vendor MIBs declaratively via a ConfigMap mounted at `mibs/extra` (≤ ~1 MiB total). |
+| `ingress.enabled` | `false` | Expose via a classic `Ingress`. |
+| `httpRoute.enabled` | `false` | Expose via a Gateway API `HTTPRoute` (set `httpRoute.parentRefs` to an existing Gateway). Mutually exclusive with `ingress`. |
+
+The chart pins the official image (it bundles libsmi, which the binary
+needs at runtime) — don't override `image.repository` with a stripped
+rebuild.
+
 ## Configuration
 
 ```

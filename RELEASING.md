@@ -30,7 +30,7 @@ changes bump MINOR.
 
 A push of any tag matching `v*.*.*` triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which runs two jobs in sequence:
+which runs three jobs in a chain — `artifacts` → `docker` → `chart`:
 
 1. **artifacts** — `make dist` cross-builds two archives:
    - `blittermib-vX.Y.Z-linux-amd64.tar.gz`
@@ -47,8 +47,32 @@ which runs two jobs in sequence:
      workflow strips it from the git tag for Docker tag conventions)
    - `ghcr.io/no42-org/blittermib:latest`
 
+3. **chart** — `make chart-package` packages the Helm chart and pushes
+   it to `oci://ghcr.io/no42-org/charts/blittermib`. Runs after `docker`
+   (`needs: docker`) so the chart never publishes referencing an image
+   the docker job hasn't pushed yet; nothing depends on `chart`, so a
+   chart-publish failure does not hold back the binary release.
+
 The version string baked into the binary (`./blittermib -version`)
 comes from the git tag, passed as `-ldflags "-X main.version=$VERSION"`.
+
+### Helm chart versioning
+
+The chart carries two versions, bumped on different cadences:
+
+- **`appVersion`** tracks the released application. It is stamped from
+  the git tag at package time (`X.Y.Z`, leading `v` stripped), so a
+  published chart always references a real released image.
+- **`version`** (the chart's own SemVer) is bumped **by hand** in
+  `charts/blittermib/Chart.yaml` whenever the chart's templates or
+  values change — independently of the app. Bump it in the same PR that
+  changes the chart.
+
+The `chart` job reuses the workflow's existing `packages: write`
+`GITHUB_TOKEN` to push to GHCR. If a future org policy prevents that
+token from writing the `charts/*` package namespace, swap the
+`helm registry login` step to a dedicated PAT secret with
+`write:packages`.
 
 ## Cutting a release
 

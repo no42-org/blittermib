@@ -78,3 +78,32 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/blittermib:latest
           build-args: |
             VERSION=${{ github.ref_name }}
+
+  # Package and publish the Helm chart as an OCI artifact. Independent
+  # of artifacts/docker — a chart-publish failure does not hold back the
+  # binary release. helm is preinstalled on ubuntu-latest; the chart's
+  # appVersion is stamped from the git tag by `make chart-package`.
+  chart:
+    name: Publish Helm chart
+    runs-on: ubuntu-latest
+    # Wait for the image the chart references (its appVersion == this
+    # tag) to be published before publishing the chart. The chart still
+    # does not gate artifacts/docker — they don't depend on it.
+    needs: docker
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Log in to GHCR (Helm OCI registry)
+        run: |
+          helm registry login ghcr.io \
+            -u ${{ github.actor }} --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Package chart
+        # Stamp appVersion from the pushed tag (leading `v` stripped) —
+        # the same value the docker job tags the image with.
+        run: APP_VERSION="${GITHUB_REF_NAME#v}" make chart-package
+
+      - name: Push chart to GHCR
+        run: |
+          helm push dist/blittermib-*.tgz \
+            oci://ghcr.io/${{ github.repository_owner }}/charts
