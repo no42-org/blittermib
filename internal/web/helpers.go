@@ -47,6 +47,11 @@ func moduleBundleURL(module string) templ.SafeURL {
 	return templ.SafeURL("/m/" + url.PathEscape(module) + "/download.zip")
 }
 
+// moduleEventsURL returns the URL for the OpenNMS eventconf export.
+func moduleEventsURL(module string) templ.SafeURL {
+	return templ.SafeURL("/m/" + url.PathEscape(module) + "/events.xml")
+}
+
 // workspaceURL returns the URL for a workspace selection. SMI
 // module names are alphanumeric + dash and OIDs are digits + dot,
 // so neither input needs URL escaping.
@@ -1237,6 +1242,12 @@ type WorkspaceView struct {
 	// can remove it from the same page they're reading per
 	// design.md D8 (8c).
 	ModuleDeletable bool
+	// HasNotifications is true when the module defines at least one
+	// NOTIFICATION-TYPE or TRAP-TYPE. Drives whether the module-info
+	// bar surfaces the `↓ events.xml` OpenNMS eventconf export link —
+	// hidden otherwise, since the endpoint 404s for a module with no
+	// notifications.
+	HasNotifications bool
 }
 
 // uploadFilename returns the basename of a path — used by the

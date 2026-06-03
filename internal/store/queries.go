@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/no42-org/blittermib/internal/eventconf"
 	"github.com/no42-org/blittermib/internal/model"
 )
 
@@ -286,7 +287,7 @@ func (s *Store) ListChildren(ctx context.Context, parentOID string) ([]model.Sym
 // rely on stable iteration.
 func (s *Store) ListReferencesFrom(ctx context.Context, module, name string) ([]model.Reference, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT source_module, source_name, target_module, target_name, kind
+		SELECT source_module, source_name, target_module, target_name, kind, position
 		FROM reference WHERE source_module = ? AND source_name = ?
 		ORDER BY target_module, target_name, kind`, module, name)
 	if err != nil {
@@ -300,9 +301,72 @@ func (s *Store) ListReferencesFrom(ctx context.Context, module, name string) ([]
 // Ordered for deterministic rendering (see ListReferencesFrom).
 func (s *Store) ListReferencesTo(ctx context.Context, module, name string) ([]model.Reference, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT source_module, source_name, target_module, target_name, kind
+		SELECT source_module, source_name, target_module, target_name, kind, position
 		FROM reference WHERE target_module = ? AND target_name = ?
 		ORDER BY source_module, source_name, kind`, module, name)
+	if err != nil {
+		return nil, err
+	}
+	return scanReferenceRows(rows)
+}
+
+// ListNotificationsWithObjects returns every NOTIFICATION-TYPE and
+// TRAP-TYPE in the module paired with its objects (varbinds) in
+// OBJECTS-clause order. Objects are resolved to full symbols via
+// GetSymbol; an object whose target module is not loaded is kept as a
+// minimal {ModuleName, Name} symbol so positional varbind numbering
+// stays correct. Notifications are ordered by OID for stable output.
+func (s *Store) ListNotificationsWithObjects(ctx context.Context, module string) ([]eventconf.Notification, error) {
+	rows, err := s.db.QueryContext(ctx, symbolSelectColumns+`
+		FROM symbol WHERE module_name = ? AND kind IN ('notification-type', 'trap-type')
+		ORDER BY oid, name`, module)
+	if err != nil {
+		return nil, fmt.Errorf("list notifications for %s: %w", module, err)
+	}
+	notifs, err := scanSymbolRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]eventconf.Notification, 0, len(notifs))
+	for i := range notifs {
+		objRefs, err := s.notificationObjectRefs(ctx, notifs[i].ModuleName, notifs[i].Name)
+		if err != nil {
+			return nil, err
+		}
+		objs := make([]model.Symbol, 0, len(objRefs))
+		for _, ref := range objRefs {
+			sym, err := s.GetSymbol(ctx, ref.TargetModule, ref.TargetName)
+			switch {
+			case errors.Is(err, ErrNotFound):
+				// Object imported from a module that isn't loaded:
+				// keep a stub so its OBJECTS position is preserved.
+				objs = append(objs, model.Symbol{ModuleName: ref.TargetModule, Name: ref.TargetName})
+			case err != nil:
+				return nil, fmt.Errorf("resolve notification object %s::%s: %w",
+					ref.TargetModule, ref.TargetName, err)
+			default:
+				objs = append(objs, *sym)
+			}
+		}
+		out = append(out, eventconf.Notification{Symbol: notifs[i], Objects: objs})
+	}
+	return out, nil
+}
+
+// notificationObjectRefs returns a notification's object references in
+// OBJECTS-clause (position) order.
+func (s *Store) notificationObjectRefs(ctx context.Context, module, name string) ([]model.Reference, error) {
+	// ORDER BY position first; rowid is a deterministic tiebreak for
+	// legacy rows that predate the position column (all defaulting to
+	// 0) so object order stays stable even before a re-ingest
+	// repopulates positions. Insertion order (rowid) matches the
+	// OBJECTS clause.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT source_module, source_name, target_module, target_name, kind, position
+		FROM reference
+		WHERE source_module = ? AND source_name = ? AND kind = 'notification-object'
+		ORDER BY position, rowid`, module, name)
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +659,7 @@ func scanReferenceRows(rows *sql.Rows) ([]model.Reference, error) {
 		var r model.Reference
 		var kind string
 		if err := rows.Scan(&r.SourceModule, &r.SourceName,
-			&r.TargetModule, &r.TargetName, &kind); err != nil {
+			&r.TargetModule, &r.TargetName, &kind, &r.Position); err != nil {
 			return nil, err
 		}
 		r.Kind = model.ReferenceKind(kind)

@@ -42,11 +42,12 @@ func BuildReferences(parsed []*SMI) []model.Reference {
 		}
 
 		for _, nt := range smi.Notifications {
-			for _, obj := range nt.Objects {
+			for i, obj := range nt.Objects {
 				refs = append(refs, model.Reference{
 					SourceModule: mod, SourceName: nt.Name,
 					TargetModule: obj.Module, TargetName: obj.Name,
-					Kind: model.RefNotificationObject,
+					Kind:     model.RefNotificationObject,
+					Position: i,
 				})
 			}
 		}

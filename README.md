@@ -15,6 +15,12 @@ anything to a third party.
   with `INDEX` columns flagged
 - **Cross-references** — every symbol page lists what indexes,
   augments, groups, or notifications reference it
+- **OpenNMS event export** — modules with notifications offer a
+  `↓ events.xml` download (`/m/{name}/events.xml`): an OpenNMS
+  eventconf document, one `<event>` per `NOTIFICATION-TYPE`/`TRAP-TYPE`.
+  Scalar varbinds are referenced by OID (`%parm[{oid}.0]%`, robust to
+  reordering); columnar varbinds stay position-based. UEI base
+  overridable via `?uei=`
 - **Hot reload** — drop a MIB anywhere under the watched directory and
   it appears in seconds (recursive `fsnotify` + 250 ms debounce +
   transactional ingest)

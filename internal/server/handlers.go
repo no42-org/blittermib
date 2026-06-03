@@ -17,6 +17,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/no42-org/blittermib/internal/eventconf"
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/source"
 	"github.com/no42-org/blittermib/internal/store"
@@ -228,6 +229,9 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 	case "download.zip":
 		s.handleModuleBundle(w, r, name)
 		return
+	case "events.xml":
+		s.handleModuleEvents(w, r, name)
+		return
 	}
 	s.handleWorkspace(w, r, name, tail)
 }
@@ -331,6 +335,86 @@ func (s *Server) handleModuleDownload(w http.ResponseWriter, r *http.Request, na
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	setAttachmentDisposition(w, mod.Name+".mib")
 	http.ServeContent(w, r, mod.Name+".mib", info.ModTime(), f)
+}
+
+// handleModuleEvents serves the module's notifications as an OpenNMS
+// eventconf XML attachment (`{name}.events.xml`). A module with no
+// notifications returns 404 — there's nothing to export. The UEI base
+// defaults to `uei.opennms.org/traps/{name}` and is overridable with
+// `?uei=`; `?parms=position` forces legacy positional varbind tokens
+// instead of the OID-based hybrid.
+func (s *Server) handleModuleEvents(w http.ResponseWriter, r *http.Request, name string) {
+	if !validModuleName(name) {
+		s.notFound(w, r)
+		return
+	}
+	if _, err := s.store.GetModule(r.Context(), name); errors.Is(err, store.ErrNotFound) {
+		s.notFound(w, r)
+		return
+	} else if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+
+	ueibase := "uei.opennms.org/traps/" + name
+	if q := r.URL.Query().Get("uei"); q != "" {
+		if !validUEIBase(q) {
+			http.Error(w, "invalid uei parameter", http.StatusBadRequest)
+			return
+		}
+		ueibase = q
+	}
+	forcePositional := r.URL.Query().Get("parms") == "position"
+
+	notifs, err := s.store.ListNotificationsWithObjects(r.Context(), name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if len(notifs) == 0 {
+		s.notFound(w, r)
+		return
+	}
+
+	events := eventconf.FromModule(name, notifs, eventconf.Options{
+		UEIBase:         ueibase,
+		ForcePositional: forcePositional,
+	})
+	out, err := eventconf.Marshal(events, name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	setAttachmentDisposition(w, name+".events.xml")
+	// #nosec G705 -- `out` is generated eventconf XML served as an application/xml attachment with X-Content-Type-Options: nosniff; it is never interpreted as HTML, so the taint-flagged write is not an XSS vector.
+	_, _ = w.Write(out)
+}
+
+// validUEIBase reports whether s is a plausible event UEI base — the
+// charset OpenNMS UEIs use (alphanumerics plus `. _ - / :`), with no
+// spaces or control characters, AND at least one alphanumeric so a
+// punctuation-only value (e.g. `/` or `:::`) can't normalize to an
+// empty base and emit a malformed `<uei>/name`. Gates the echoed
+// `?uei=` override before it flows into the generated document.
+func validUEIBase(s string) bool {
+	hasAlnum := false
+	for _, c := range s {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasAlnum = true
+		case c >= 'a' && c <= 'z':
+			hasAlnum = true
+		case c >= '0' && c <= '9':
+			hasAlnum = true
+		case c == '.' || c == '_' || c == '-' || c == '/' || c == ':':
+		default:
+			return false
+		}
+	}
+	return hasAlnum
 }
 
 // handleModuleBundle streams a ZIP containing the module + its
@@ -693,6 +777,17 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		}
 	}
 
+	// Whether to surface the eventconf export link — derived from the
+	// already-loaded module symbols, so no extra query. Covers both
+	// SMIv2 NOTIFICATION-TYPE and SMIv1 TRAP-TYPE.
+	hasNotifications := false
+	for i := range syms {
+		if syms[i].Kind == model.KindNotificationType || syms[i].Kind == model.KindTrapType {
+			hasNotifications = true
+			break
+		}
+	}
+
 	view := &web.WorkspaceView{
 		Module:             mod,
 		Counts:             counts,
@@ -704,6 +799,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		TypeDefs:           web.CollectTypeDefs(syms),
 		BundleFileCount:    bundleFileCount,
 		ModuleDeletable:    s.uploadsEnabled && mod.SourcePath != "" && filepath.Dir(mod.SourcePath) == s.uploadDir,
+		HasNotifications:   hasNotifications,
 	}
 
 	if selectionOID != "" {

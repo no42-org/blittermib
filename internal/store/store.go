@@ -64,6 +64,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate index_implied: %w", err)
 	}
+	if err := migrateAddReferencePosition(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate reference position: %w", err)
+	}
 	return &Store{db: db}, nil
 }
 
@@ -177,6 +181,51 @@ func migrateAddIndexImplied(ctx context.Context, db *sql.DB) error {
 		`ALTER TABLE symbol ADD COLUMN index_implied INTEGER NOT NULL DEFAULT 0`,
 	); err != nil {
 		return fmt.Errorf("alter table add index_implied: %w", err)
+	}
+	return nil
+}
+
+// migrateAddReferencePosition adds the `position` column to the
+// reference table on databases created before OBJECTS-clause ordering
+// was needed. Like migrateAddIndexImplied this is a non-destructive
+// in-place `ALTER TABLE ADD COLUMN`; pre-existing rows default to 0
+// and are corrected on the same boot when the loader re-imports the
+// MIB corpus from disk.
+func migrateAddReferencePosition(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(reference)`)
+	if err != nil {
+		return fmt.Errorf("inspect reference columns: %w", err)
+	}
+	hasColumn := false
+	for rows.Next() {
+		var (
+			cid, notnull, pk  int
+			name, ctype, dflt sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan column row: %w", err)
+		}
+		if name.Valid && name.String == "position" {
+			hasColumn = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close table_info rows: %w", err)
+	}
+	if hasColumn {
+		return nil
+	}
+
+	slog.Info("adding position column to reference table")
+	if _, err := db.ExecContext(ctx,
+		`ALTER TABLE reference ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
+	); err != nil {
+		return fmt.Errorf("alter table add position: %w", err)
 	}
 	return nil
 }
@@ -298,8 +347,8 @@ func (s *Store) ReplaceModule(
 	if len(refs) > 0 {
 		insRef, err := tx.PrepareContext(ctx, `
 			INSERT OR IGNORE INTO reference
-			    (source_module, source_name, target_module, target_name, kind)
-			VALUES (?, ?, ?, ?, ?)`)
+			    (source_module, source_name, target_module, target_name, kind, position)
+			VALUES (?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			return fmt.Errorf("prepare insert reference: %w", err)
 		}
@@ -308,7 +357,7 @@ func (s *Store) ReplaceModule(
 			if _, err := insRef.ExecContext(ctx,
 				r.SourceModule, r.SourceName,
 				r.TargetModule, r.TargetName,
-				string(r.Kind),
+				string(r.Kind), r.Position,
 			); err != nil {
 				return fmt.Errorf("insert reference: %w", err)
 			}

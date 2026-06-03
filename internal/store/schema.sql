@@ -81,12 +81,18 @@ CREATE INDEX IF NOT EXISTS module_import_idx ON module_import(module_name);
 -- This makes hot-reload trivial: dropping a module's outgoing refs is a
 -- single DELETE; refs INTO the module from other modules stay valid
 -- because they were never tied to the module's row ids.
+-- `position` preserves the source order of a relationship's members
+-- (e.g. a NOTIFICATION-TYPE's OBJECTS clause) so consumers that number
+-- by position — the eventconf export's %parm[#N]% varbind tokens —
+-- read in MIB order rather than the alphabetical order used for UI
+-- "Used by" lists.
 CREATE TABLE IF NOT EXISTS reference (
     source_module TEXT NOT NULL,
     source_name   TEXT NOT NULL,
     target_module TEXT NOT NULL,
     target_name   TEXT NOT NULL,
     kind          TEXT NOT NULL,
+    position      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source_module, source_name, target_module, target_name, kind)
 );
 

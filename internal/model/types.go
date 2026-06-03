@@ -239,6 +239,11 @@ type Reference struct {
 	TargetModule string
 	TargetName   string
 	Kind         ReferenceKind
+	// Position is the member's index within its relationship group —
+	// e.g. a NOTIFICATION-TYPE's OBJECTS-clause order — preserved so
+	// position-numbered consumers (the eventconf %parm[#N]% tokens)
+	// read in MIB source order.
+	Position int
 }
 
 // SourceQualifiedName returns the canonical Module::Symbol identifier
