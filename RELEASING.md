@@ -143,8 +143,6 @@ Both ride into the next release naturally.
 
 ## See also
 
-- [docs/self-host.md](docs/self-host.md) — how operators consume
-  released artifacts (Docker, bare-metal, systemd).
 - [`scripts/dist.sh`](scripts/dist.sh) — what `make dist` actually
   runs locally and in CI.
 - [`.github/workflows/release.yml`](.github/workflows/release.yml) —

@@ -154,8 +154,6 @@ URL surfaces:
 
 ## Documentation
 
-- [docs/self-host.md](docs/self-host.md) — Docker, bare-metal, systemd,
-  reverse proxy with TLS, backups, troubleshooting
 - [mibs/README.md](mibs/README.md) — corpus directory layout
 - [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md) — adding a MIB:
   4-step workflow, license-tag matrix, 4-tier CI expectations
