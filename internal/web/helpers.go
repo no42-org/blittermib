@@ -12,6 +12,8 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/no42-org/blittermib/internal/textutil"
+
 	"github.com/no42-org/blittermib/internal/model"
 )
 
@@ -1341,22 +1343,10 @@ func truncateWord(s string, n int) string {
 // collapseWhitespace replaces runs of whitespace with a single space.
 // SMI descriptions are typically wrapped to ~70 chars with hard
 // newlines; rendering them to a one-line summary requires unwrapping.
+// Delegates to textutil so the eventconf exporter shares the same
+// implementation without depending on the web layer.
 func collapseWhitespace(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	prevSpace := true
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			if !prevSpace {
-				b.WriteByte(' ')
-				prevSpace = true
-			}
-			continue
-		}
-		b.WriteRune(r)
-		prevSpace = false
-	}
-	return strings.TrimSpace(b.String())
+	return textutil.CollapseWhitespace(s)
 }
 
 func utf8Count(s string) int {

@@ -27,12 +27,14 @@ func notif(name, oid string, objs ...model.Symbol) Notification {
 	}
 }
 
-// logmsgLine returns the parameter line for object `objName` in the
-// event's logmsg, or "" if absent.
+// logmsgLine returns the space-delimited "{objName}=..." token for an
+// object in the event's single-line logmsg, or "" if absent. (Param
+// tokens and object names contain no spaces, so splitting on space
+// isolates each token.)
 func logmsgLine(evt Event, objName string) string {
-	for _, line := range strings.Split(evt.Logmsg.Content, "\n") {
-		if strings.HasPrefix(line, objName+"=") {
-			return line
+	for _, tok := range strings.Fields(evt.Logmsg.Content) {
+		if strings.HasPrefix(tok, objName+"=") {
+			return tok
 		}
 	}
 	return ""
@@ -145,5 +147,44 @@ func TestFromModuleVarbindsdecodeUsesEnum(t *testing.T) {
 	}
 	if len(vbd.Decode) != 2 || vbd.Decode[0].Varbindvalue != "1" || vbd.Decode[0].Varbinddecodedstring != "up" {
 		t.Errorf("decode = %+v", vbd.Decode)
+	}
+}
+
+func TestFromModuleCollapsesWhitespace(t *testing.T) {
+	// A notification whose DESCRIPTION is hard-wrapped with newlines +
+	// indentation (and a tab) must serialize to a single-line descr
+	// with no whitespace character references.
+	n := Notification{
+		Symbol: model.Symbol{
+			Name: "linkDown", OID: "1.3.6.1.6.3.1.1.5.3",
+			Kind:        model.KindNotificationType,
+			Description: "A linkDown trap signifies that\n          an agent role,\thas detected\r\n          the down state.",
+		},
+		Objects: []model.Symbol{
+			column("ifIndex", "1.3.6.1.2.1.2.2.1.1"),
+			column("ifOperStatus", "1.3.6.1.2.1.2.2.1.8"),
+		},
+	}
+	events := FromModule("IF-MIB", []Notification{n}, Options{UEIBase: "uei.opennms.org/traps"})
+
+	evt := events.Events[0]
+	wantDescr := "A linkDown trap signifies that an agent role, has detected the down state."
+	if evt.Descr != wantDescr {
+		t.Errorf("descr = %q, want %q", evt.Descr, wantDescr)
+	}
+	wantLog := "linkDown trap received ifIndex=%parm[#1]% ifOperStatus=%parm[#2]%"
+	if evt.Logmsg.Content != wantLog {
+		t.Errorf("logmsg = %q, want %q", evt.Logmsg.Content, wantLog)
+	}
+
+	out, err := Marshal(events, "IF-MIB")
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	got := string(out)
+	for _, ref := range []string{"&#xA;", "&#x9;", "&#xD;"} {
+		if strings.Contains(got, ref) {
+			t.Errorf("output contains whitespace char reference %q:\n%s", ref, got)
+		}
 	}
 }

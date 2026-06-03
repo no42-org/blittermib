@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/no42-org/blittermib/internal/model"
+	"github.com/no42-org/blittermib/internal/textutil"
 )
 
 // Notification pairs a NOTIFICATION-TYPE/TRAP-TYPE symbol with its
@@ -48,7 +49,7 @@ func buildEvent(moduleName string, n Notification, ueibase string, forcePosition
 	evt := Event{
 		UEI:        ueibase + "/" + n.Symbol.Name,
 		EventLabel: moduleName + " defined trap event: " + n.Symbol.Name,
-		Descr:      n.Symbol.Description,
+		Descr:      textutil.CollapseWhitespace(n.Symbol.Description),
 		Severity:   "Indeterminate",
 		Logmsg:     buildLogmsg(n, forcePositional),
 	}
@@ -59,15 +60,17 @@ func buildEvent(moduleName string, n Notification, ueibase string, forcePosition
 	return evt
 }
 
-// buildLogmsg renders "{name} trap received" followed by one
-// "{object}={paramToken}" line per varbind. No HTML wrapper.
+// buildLogmsg renders "{name} trap received" followed by each
+// "{object}={paramToken}" varbind, all on a single line separated by
+// spaces. No HTML wrapper, and — by avoiding newlines — no encoding/xml
+// &#xA; escaping in the marshalled chardata.
 func buildLogmsg(n Notification, forcePositional bool) Logmsg {
-	lines := make([]string, 0, len(n.Objects)+1)
-	lines = append(lines, n.Symbol.Name+" trap received")
+	parts := make([]string, 0, len(n.Objects)+1)
+	parts = append(parts, n.Symbol.Name+" trap received")
 	for i, obj := range n.Objects {
-		lines = append(lines, obj.Name+"="+paramToken(obj, i+1, forcePositional))
+		parts = append(parts, obj.Name+"="+paramToken(obj, i+1, forcePositional))
 	}
-	return Logmsg{Dest: "logndisplay", Content: strings.Join(lines, "\n")}
+	return Logmsg{Dest: "logndisplay", Content: strings.Join(parts, " ")}
 }
 
 // buildMask derives the id / generic / specific trap-matching mask.

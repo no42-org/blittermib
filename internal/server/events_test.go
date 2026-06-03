@@ -86,6 +86,13 @@ func TestModuleEventsEndpoint(t *testing.T) {
 	if !strings.Contains(got, "alarmCol=%parm[#2]%") {
 		t.Errorf("columnar object not positional:\n%s", got)
 	}
+	// descr/logmsg are whitespace-collapsed to a single line, so the
+	// serialized document carries no newline/tab/CR character refs.
+	for _, ref := range []string{"&#xA;", "&#x9;", "&#xD;"} {
+		if strings.Contains(got, ref) {
+			t.Errorf("response contains whitespace char reference %q:\n%s", ref, got)
+		}
+	}
 }
 
 func TestModuleEventsNoNotifications404(t *testing.T) {
