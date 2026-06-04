@@ -31,7 +31,7 @@ import (
 //	/api/v1/upload                 multipart upload (POST)
 //	/api/v1/upload/{name}          delete (DELETE)
 func (s *Server) routes() {
-	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler()), withLogging, withRecover))
+	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler(s.version)), withLogging, withRecover))
 
 	s.mux.Handle("/healthz", chain(http.HandlerFunc(s.handleHealth), withLogging, withRecover))
 	s.mux.Handle("/version", chain(http.HandlerFunc(s.handleVersion), withLogging, withRecover))

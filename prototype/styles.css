@@ -2,6 +2,12 @@
  * Inter + JetBrains Mono shipped under /static/fonts/ so the app
  * has no third-party font CDN dependency. Both families are SIL OFL
  * 1.1 licensed; populated by `make fetch-fonts`.
+ *
+ * Release builds serve /static/* as `immutable, max-age=1y`. The
+ * CSS/JS URLs are version-busted by the base template, but these font
+ * URLs live HERE and are not — if a font file's bytes ever change,
+ * RENAME the file (e.g. Inter-400-v2.woff2) or cached clients keep
+ * the old bytes for up to a year.
  */
 
 @font-face {
@@ -49,6 +55,13 @@
 /* --- tokens (dark default) ------------------------------------------- */
 
 :root {
+  /* Themed root canvas: declare the document's color scheme and paint
+   * the background at the root so the browser's base canvas matches
+   * the theme during full-page navigation. Without these, engines
+   * without paint-holding (Firefox) flash their default white canvas
+   * between pages on the dark theme. */
+  color-scheme: dark;
+  background-color: var(--bg);
   --bg:            oklch(0.16 0.012 60);
   --bg-elev:       oklch(0.19 0.013 60);
   --bg-elev-2:     oklch(0.22 0.014 60);
@@ -118,6 +131,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --bg:            oklch(0.985 0.006 75);
   --bg-elev:       oklch(0.97 0.008 75);
   --bg-elev-2:     oklch(0.95 0.01 75);

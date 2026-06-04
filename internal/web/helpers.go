@@ -54,6 +54,16 @@ func moduleEventsURL(module string) templ.SafeURL {
 	return templ.SafeURL("/m/" + url.PathEscape(module) + "/events.xml")
 }
 
+// assetURL returns the /static/ URL for an embedded asset with a
+// version-busting query (`?v={build version}`), so release builds can
+// serve /static/* as immutable (see the server's staticHandler) while
+// each deploy still invalidates clients' caches. Dev builds ("dev")
+// disable caching at the handler instead, so the constant ?v=dev is
+// harmless across local rebuilds.
+func assetURL(name string) templ.SafeURL {
+	return templ.SafeURL("/static/" + url.PathEscape(name) + "?v=" + url.QueryEscape(version))
+}
+
 // workspaceURL returns the URL for a workspace selection. SMI
 // module names are alphanumeric + dash and OIDs are digits + dot,
 // so neither input needs URL escaping.
