@@ -897,7 +897,56 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		}
 	}
 
+	// Partial navigation (the A/B contract — see the
+	// workspace-partial-nav design): in-workspace htmx requests get
+	// only the panes a click changes — the detail section always, plus
+	// the list section out-of-band when the scope changed. The tree is
+	// never part of a partial response; workspace.js (expandTreeTo)
+	// synchronizes it in place, which preserves its DOM and scroll
+	// position. History
+	// restores (htmx cache misses) and plain requests always receive
+	// the full document.
+	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-History-Restore-Request") != "true" {
+		if curModule, curScope, ok := workspaceRef(r.Header.Get("HX-Current-URL")); ok {
+			if curModule != name {
+				// Cross-module partials shouldn't occur (module
+				// switches navigate natively); a stale or hand-crafted
+				// request gets a full client reload rather than panes
+				// swapped into the wrong module's chrome.
+				w.Header().Set("HX-Refresh", "true")
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			render(w, r, http.StatusOK, web.WorkspacePartial(view, curScope != oid))
+			return
+		}
+		// HX-Current-URL absent or unparseable: we can't tell A from
+		// B, and a full document swapped into #workspace-detail would
+		// be wrong — serve case B (list + detail), the safe superset.
+		render(w, r, http.StatusOK, web.WorkspacePartial(view, true))
+		return
+	}
+
 	render(w, r, http.StatusOK, web.Workspace(view))
+}
+
+// workspaceRef extracts the module name and scope OID from a
+// workspace URL (the htmx HX-Current-URL header). ok is false for
+// URLs outside the `/m/{module}[/{scope}]` shape — the caller then
+// falls back to a safe default rather than guessing.
+func workspaceRef(raw string) (module, scope string, ok bool) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", "", false
+	}
+	rest, found := strings.CutPrefix(u.Path, "/m/")
+	if !found || rest == "" {
+		return "", "", false
+	}
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		return rest[:i], rest[i+1:], true
+	}
+	return rest, "", true
 }
 
 func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {

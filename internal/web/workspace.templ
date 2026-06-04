@@ -16,35 +16,72 @@ templ Workspace(view *WorkspaceView) {
 		@workspaceStatusBar(view)
 		@moduleInfoBar(view.Module, view.ModuleDownloadable, view.BundleFileCount, view.ModuleDeletable, view.HasNotifications)
 		@typeDefsBar(view)
-		<div class="workspace-grid" x-data="workspace()">
-			<aside class="workspace-tree">
+		// The htmx swap attributes live ONCE here and are inherited by
+		// every in-workspace hx-get inside the grid (tree links, list
+		// rows, crumbs) — repeating them per row added ~40 KB to the
+		// full page. The chevron fragment fetch passes its own explicit
+		// target/swap to htmx.ajax and is unaffected.
+		<div
+			class="workspace-grid"
+			x-data="workspace()"
+			hx-target="#workspace-detail"
+			hx-swap="outerHTML"
+			hx-push-url="true"
+		>
+			<aside class="workspace-tree" id="workspace-tree">
 				@workspaceTree(view, view.TreeRows)
 			</aside>
-			<section class="workspace-list">
-				@workspaceList(view, view.ListRows, selectedOID(view))
-			</section>
-			<section class="workspace-detail">
-				@workspaceDetail(view)
-			</section>
+			@workspaceListSection(view, false)
+			@workspaceDetailSection(view)
 		</div>
 		@modulePicker(view.Modules)
-		if isNotificationSelection(view) {
-			@trapSimulatorModal()
-		}
+		// Mounted unconditionally: the modal is a selection-independent
+		// skeleton (per-notification metadata is read at open time from
+		// the detail pane's data-* attributes), and partial navigation
+		// can land on a notification without a full page load — the
+		// previous isNotificationSelection gating would leave the
+		// Simulate button with no modal to open.
+		@trapSimulatorModal()
 	}
 }
 
-// isNotificationSelection reports whether the current workspace
-// selection is a NOTIFICATION-TYPE / TRAP-TYPE — used to gate
-// the trap-simulator modal so its ~6 KB of HTML / Alpine
-// bindings only ship on pages where the Simulate button can
-// actually fire it.
-func isNotificationSelection(v *WorkspaceView) bool {
-	if v == nil || v.Selected == nil || v.Selected.Symbol == nil {
-		return false
+// workspaceListSection wraps the list pane in its swap-target section.
+// Shared by the full page and WorkspacePartial so both render
+// byte-identical pane markup; `oob` marks the section as an
+// out-of-band swap in partial responses (the A/B contract's case B).
+templ workspaceListSection(view *WorkspaceView, oob bool) {
+	<section
+		class="workspace-list"
+		id="workspace-list"
+		if oob {
+			hx-swap-oob="outerHTML"
+		}
+	>
+		@workspaceList(view, view.ListRows, selectedOID(view))
+	</section>
+}
+
+// workspaceDetailSection wraps the detail pane in its swap-target
+// section — the primary target of in-workspace partial navigation.
+templ workspaceDetailSection(view *WorkspaceView) {
+	<section class="workspace-detail" id="workspace-detail">
+		@workspaceDetail(view)
+	</section>
+}
+
+// WorkspacePartial is the htmx partial-navigation response (the A/B
+// contract): always the detail section (the primary hx-target), plus
+// the list section as an out-of-band swap when the scope changed
+// (case B). The tree pane is never part of a partial response — the
+// client synchronizes it in place (workspace.js expandTreeTo), preserving
+// its DOM and scroll position. The module chrome (status/info/
+// type-defs bars, picker) is per-module and never changes for
+// in-workspace navigation.
+templ WorkspacePartial(view *WorkspaceView, includeList bool) {
+	if includeList {
+		@workspaceListSection(view, true)
 	}
-	k := v.Selected.Symbol.Kind
-	return k == model.KindNotificationType || k == model.KindTrapType
+	@workspaceDetailSection(view)
 }
 
 // trapSimulatorModal is the page-level modal overlay for the trap
@@ -695,7 +732,13 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 					data-fragment-url={ string(treeFragmentURL(viewModuleName(view), viewScopeOID(view), r.Symbol.OID)) }
 					x-on:click.stop="if (loaded) { expanded = !expanded; } else if (!fetching) { fetching = true; expanded = true; htmx.ajax('GET', $el.dataset.fragmentUrl, { target: $el.closest('.tree-row').querySelector(':scope > .tree-children-container'), swap: 'beforeend' }).then(() => { loaded = true; fetching = false; }, () => { fetching = false; expanded = false; }); }"
 					aria-label="Expand">▸</button>
-				<a class="tree-row-link" href={ WorkspaceRowURL(view, &r.Symbol) }>
+				{{ rowURL := WorkspaceRowURL(view, &r.Symbol) }}
+				<a
+					class="tree-row-link"
+					href={ rowURL }
+					hx-get={ string(rowURL) }
+					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+				>
 					<code class="tree-row-name">
 						@templ.Raw(SplitNameHTML(r.Symbol.Name))
 					</code>
@@ -714,7 +757,13 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 			data-oid={ r.Symbol.OID }>
 			<div class="tree-row-head">
 				<span class="tree-leaf-bullet" aria-hidden="true">·</span>
-				<a class="tree-row-link" href={ WorkspaceRowURL(view, &r.Symbol) }>
+				{{ rowURL := WorkspaceRowURL(view, &r.Symbol) }}
+				<a
+					class="tree-row-link"
+					href={ rowURL }
+					hx-get={ string(rowURL) }
+					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+				>
 					<code class="tree-row-name">
 						@templ.Raw(SplitNameHTML(r.Symbol.Name))
 					</code>
@@ -785,7 +834,12 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 			</button>
 		</div>
 		if scopeOID != "" {
-			<a class="list-scope-clear" href={ moduleURL(module) }>View all in module</a>
+			<a
+				class="list-scope-clear"
+				href={ moduleURL(module) }
+				hx-get={ string(moduleURL(module)) }
+				hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+			>View all in module</a>
 		}
 	</div>
 	if len(crumbs) > 0 {
@@ -795,7 +849,12 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 					if c.IsLast {
 						<span class="scope-crumb scope-crumb-current" aria-current="page">{ c.Name }</span>
 					} else {
-						<a class="scope-crumb" href={ workspaceURL(c.Module, c.OID) }>{ c.Name }</a>
+						<a
+							class="scope-crumb"
+							href={ workspaceURL(c.Module, c.OID) }
+							hx-get={ string(workspaceURL(c.Module, c.OID)) }
+							hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+						>{ c.Name }</a>
 						<span class="scope-sep" aria-hidden="true">/</span>
 					}
 				}
@@ -823,14 +882,20 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 					data-oid={ s.OID }
 					data-kind={ string(s.Kind) }
 					data-href={ string(rowURL) }
+					hx-get={ string(rowURL) }
+					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey&&!target.closest('a, button')]"
 					x-show="matchesRow($el)"
-					x-on:click="if ($event.target.closest('a, button')) return; if ($event.metaKey || $event.ctrlKey) { window.open($el.dataset.href, '_blank'); return; } if ($event.shiftKey) { window.open($el.dataset.href); return; } window.location = $el.dataset.href;">
+					x-on:click="if ($event.target.closest('a, button')) return; if ($event.metaKey || $event.ctrlKey) { window.open($el.dataset.href, '_blank'); return; } if ($event.shiftKey) { window.open($el.dataset.href); return; }">
 					<td class="list-cell-badge">
 						<span class="tlet" aria-hidden="true">{ TypeLetter(&s) }</span>
 					</td>
 					<td class="list-cell-name">
 						@copyToClipboardIcon(s.Name, "Copy name")
-						<a href={ rowURL }>
+						<a
+							href={ rowURL }
+							hx-get={ string(rowURL) }
+							hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+						>
 							<code>
 								@templ.Raw(SplitNameHTML(s.Name))
 							</code>
