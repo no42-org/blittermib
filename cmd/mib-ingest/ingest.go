@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -41,6 +42,10 @@ const (
 	outcomeRefused                // destination already exists
 	outcomeSkippedNonMIB          // no MIB marker — expected non-MIB file
 	outcomeParseError             // had marker but smidump rejected
+	// outcomeBudgetExhausted marks files the compile bound cut off
+	// before they were processed — incomplete work, not broken MIBs.
+	// Reported as one rollup, never as per-file parse errors.
+	outcomeBudgetExhausted
 )
 
 type result struct {
@@ -83,8 +88,27 @@ func ingestCmd(args []string) error {
 	report := flags.Bool("report", false, "run a read-only triage report against upload/ instead of moving files")
 	reportFormat := flags.String("report-format", "text", "report output format: text or json (only with --report)")
 	autoCollapse := flags.Bool("auto-collapse-identical", false, "delete byte-identical duplicates from --src before classification (mutually exclusive with --report)")
+	compileTimeout := flags.Duration("compile-timeout", 0, "compile-pass bound; 0 disables; unset = max(5m, 1s per file)")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	// flag.Duration can't distinguish "unset" from an explicit `0`
+	// (which means unbounded), so detect explicit use via Visit.
+	compileTimeoutSet := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "compile-timeout" {
+			compileTimeoutSet = true
+		}
+	})
+	if *compileTimeout < 0 {
+		return fmt.Errorf("--compile-timeout must be >= 0, got %v", *compileTimeout)
+	}
+	// Beyond ~1 year, time.Now().Add(timeout) overflows into the past
+	// and the context is born expired — the whole batch would come
+	// back budget-exhausted. The disable value is 0, not "huge".
+	const maxCompileTimeout = 8760 * time.Hour
+	if *compileTimeout > maxCompileTimeout {
+		return fmt.Errorf("--compile-timeout %v exceeds the %v maximum; pass 0 to disable the bound", *compileTimeout, maxCompileTimeout)
 	}
 	// Only validate --report-format when --report is set; the flag
 	// is a no-op without --report, so a stray --report-format=yaml
@@ -153,7 +177,7 @@ func ingestCmd(args []string) error {
 		return nil
 	}
 
-	results, parseErrors := classifyFiles(*smidump, *smilint, *src, *root, files, groups)
+	results, parseErrors := classifyFiles(*smidump, *smilint, *src, *root, files, groups, *compileTimeout, compileTimeoutSet)
 
 	if *report {
 		// Read-only triage mode: skip the move/index pipeline
@@ -165,11 +189,23 @@ func ingestCmd(args []string) error {
 		// otherwise (main.go translates the sentinel to silent
 		// exit 1 so stdout stays clean for jq pipelines).
 		findings := collectReportFindings(*src, *root, results, parseErrors)
-		return renderReport(os.Stdout, *reportFormat, findings)
+		rerr := renderReport(os.Stdout, *reportFormat, findings)
+		// Budget-exhausted files are deliberately NOT `broken`
+		// findings (a truncated report claiming N broken files would
+		// lie); surface the truncation on stderr and force the
+		// actionable exit so a clean-looking report can't mask
+		// unanalyzed files.
+		if n := countBudgetExhausted(parseErrors); n > 0 {
+			fmt.Fprintf(os.Stderr, "warning: compile budget exhausted — %d file(s) not analyzed; re-run with a higher --compile-timeout\n", n)
+			if rerr == nil {
+				rerr = errReportActionable
+			}
+		}
+		return rerr
 	}
 
 	results = append(results, parseErrors...)
-	moves, refusedCount, skippedNonMIB, parseErrorCount := planMoves(results, *root)
+	moves, refusedCount, skippedNonMIB, parseErrorCount, budgetExhaustedCount := planMoves(results, *root)
 
 	if *dryRun {
 		printDryRun(os.Stdout, moves)
@@ -178,7 +214,7 @@ func ingestCmd(args []string) error {
 
 	movedCount, refusedAtMove, gitAddFailures, err := applyMoves(moves, *root, *gitAdd)
 	if err != nil {
-		printSummary(os.Stdout, moves, movedCount, refusedCount+refusedAtMove, skippedNonMIB, parseErrorCount, gitAddFailures)
+		printSummary(os.Stdout, moves, movedCount, refusedCount+refusedAtMove, skippedNonMIB, parseErrorCount, budgetExhaustedCount, gitAddFailures)
 		return err
 	}
 
@@ -189,17 +225,22 @@ func ingestCmd(args []string) error {
 		}
 	}
 
-	printSummary(os.Stdout, moves, movedCount, refusedCount+refusedAtMove, skippedNonMIB, parseErrorCount, gitAddFailures)
+	printSummary(os.Stdout, moves, movedCount, refusedCount+refusedAtMove, skippedNonMIB, parseErrorCount, budgetExhaustedCount, gitAddFailures)
 
 	// Non-zero exit only on actionable failures. Non-MIB files
 	// dropped in upload/ are EXPECTED collateral when an operator
 	// drops a vendor's archive (READMEs, LICENSEs, partial files);
-	// they don't fail the run. Refusals, parse errors, and
-	// `git add` failures DO.
+	// they don't fail the run. Refusals, parse errors, budget
+	// exhaustion (the batch is incomplete), and `git add`
+	// failures DO.
 	totalRefused := refusedCount + refusedAtMove
-	if totalRefused > 0 || parseErrorCount > 0 || gitAddFailures > 0 {
-		return fmt.Errorf("%d refused, %d parse errors, %d git-add failures",
-			totalRefused, parseErrorCount, gitAddFailures)
+	if totalRefused > 0 || parseErrorCount > 0 || budgetExhaustedCount > 0 || gitAddFailures > 0 {
+		budgetSuffix := ""
+		if budgetExhaustedCount > 0 {
+			budgetSuffix = fmt.Sprintf(", %d cut off by the compile budget", budgetExhaustedCount)
+		}
+		return fmt.Errorf("%d refused, %d parse errors, %d git-add failures%s",
+			totalRefused, parseErrorCount, gitAddFailures, budgetSuffix)
 	}
 	return nil
 }
@@ -320,12 +361,69 @@ func hashFile(path string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
+// scaledCompileTimeout is the default compile bound: generous enough
+// that batch size never trips it (1 s/file vs ~25 ms/file measured,
+// 5-minute floor) while still catching a hung smidump.
+func scaledCompileTimeout(n int) time.Duration {
+	if d := time.Duration(n) * time.Second; d > 5*time.Minute {
+		return d
+	}
+	return 5 * time.Minute
+}
+
+// budgetExhausted reports whether a compile error is the batch bound
+// (`ctxErr`) firing rather than a real parse failure. The bound
+// produces two distinct error shapes (verified empirically — see the
+// change's design doc):
+//
+//   - Expired before the file's smidump started: exec returns
+//     ctx.Err() directly, so the chain carries
+//     context.DeadlineExceeded and errors.Is matches.
+//   - Expired while smidump was in flight: CommandContext kills the
+//     child, and Wait PREFERS the child's *ExitError
+//     ("signal: killed") over the context error — the chain carries
+//     no context error at all. A signal-terminated child
+//     (ExitCode -1) under an expired bound is attributed to the
+//     bound.
+//
+// The second shape can also swallow a smidump that crashed by signal
+// just as the bound fired — acceptable: the file stays in upload/
+// and a re-run with a fresh budget surfaces the real failure.
+func budgetExhausted(ctxErr, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if !errors.Is(ctxErr, context.DeadlineExceeded) {
+		return false
+	}
+	var ee *exec.ExitError
+	return errors.As(err, &ee) && ee.ExitCode() == -1
+}
+
+// countBudgetExhausted counts outcomeBudgetExhausted entries — the
+// rollup figure for summaries and the report-mode stderr warning.
+func countBudgetExhausted(rs []result) int {
+	n := 0
+	for _, r := range rs {
+		if r.outcome == outcomeBudgetExhausted {
+			n++
+		}
+	}
+	return n
+}
+
 // classifyFiles runs the lexical-marker check + libsmi parse +
 // mibcorpus.Classify pipeline for every input file. Files that fail
 // the marker check or libsmi parse are returned as parseErrors
 // with outcome=outcomeLeftInUpload. Compile is bounded by a
-// per-batch timeout so a hung smidump can't hang the ingest forever.
-func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string, groups mibcorpus.GroupMap) (parsed []result, parseErrors []result) {
+// per-batch timeout so a hung smidump can't hang the ingest forever;
+// the bound scales with the batch size unless `--compile-timeout`
+// pins it explicitly (`timeoutSet`), and files the bound cut off are
+// classified outcomeBudgetExhausted, not parse errors.
+func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string, groups mibcorpus.GroupMap, compileTimeout time.Duration, timeoutSet bool) (parsed []result, parseErrors []result) {
 	// Filter to only files that pass the lexical-marker check —
 	// avoids feeding LICENSE / README / partial downloads to libsmi.
 	// Hashing happens here too, so every readable file (including
@@ -395,13 +493,37 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 	}
 
 	// Bound the compile pipeline — a pathological MIB or hung
-	// smidump shouldn't hang ingest indefinitely.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	// smidump shouldn't hang ingest indefinitely. The bound is a
+	// hang backstop, not a throughput ceiling: the default scales
+	// with the batch (~25 ms/file measured vs 1 s/file budgeted).
+	timeout := compileTimeout
+	if !timeoutSet {
+		timeout = scaledCompileTimeout(len(keep))
+	}
+	ctx := context.Background()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	results := c.Compile(ctx, keep)
 
 	for _, r := range results {
 		meta := hashes[r.Target] // zero value if absent; only happens for path mismatches
+		if budgetExhausted(ctx.Err(), r.Err) {
+			// The bound cut this file off (queued or in flight) —
+			// incomplete work, not a broken MIB. The file stays in
+			// upload/; a re-run picks it up (already-moved
+			// destinations refuse, so re-running is idempotent).
+			parseErrors = append(parseErrors, result{
+				src:     r.Target,
+				outcome: outcomeBudgetExhausted,
+				reason:  "compile budget exhausted before this file was processed",
+				sha:     meta.sha,
+				size:    meta.size,
+			})
+			continue
+		}
 		if r.Err != nil || r.Module == nil || r.Module.Name == "" {
 			// File had the marker but smidump rejected — actionable
 			// parse error worth surfacing on the exit code. A missing
@@ -502,9 +624,10 @@ func classificationToDst(cls mibcorpus.Classification, moduleName, srcPath strin
 // moves (with destination conflicts pre-checked against the
 // existing corpus state on disk). Returns the move list, count of
 // refusals, count of files left in upload because they aren't MIBs
-// (expected; non-actionable), and count of files that hit a real
-// parse error (actionable).
-func planMoves(results []result, root string) (moves []result, refusedCount, skippedNonMIBCount, parseErrorCount int) {
+// (expected; non-actionable), count of files that hit a real parse
+// error (actionable), and count the compile bound cut off
+// (incomplete — reported as one rollup, not per-file).
+func planMoves(results []result, root string) (moves []result, refusedCount, skippedNonMIBCount, parseErrorCount, budgetExhaustedCount int) {
 	for _, r := range results {
 		switch r.outcome {
 		case outcomeSkippedNonMIB:
@@ -518,6 +641,12 @@ func planMoves(results []result, root string) (moves []result, refusedCount, ski
 		case outcomeParseError:
 			parseErrorCount++
 			fmt.Fprintf(os.Stderr, "[parse-error] %s — %s\n", r.src, r.reason)
+			moves = append(moves, r)
+			continue
+		case outcomeBudgetExhausted:
+			budgetExhaustedCount++
+			// No per-file stderr — exhaustion hits the batch tail en
+			// masse; the summary's single rollup line carries it.
 			moves = append(moves, r)
 			continue
 		}
@@ -537,7 +666,7 @@ func planMoves(results []result, root string) (moves []result, refusedCount, ski
 		}
 		moves = append(moves, r)
 	}
-	return moves, refusedCount, skippedNonMIBCount, parseErrorCount
+	return moves, refusedCount, skippedNonMIBCount, parseErrorCount, budgetExhaustedCount
 }
 
 // applyMoves runs the planned moves. Returns the count of files
@@ -616,7 +745,14 @@ func printDryRun(w io.Writer, moves []result) {
 			_, _ = fmt.Fprintf(w, "  [parse-error] %s — %s\n", r.src, r.reason)
 		case outcomeSkippedNonMIB:
 			_, _ = fmt.Fprintf(w, "  [non-mib]     %s — %s\n", r.src, r.reason)
+		case outcomeBudgetExhausted:
+			_, _ = fmt.Fprintf(w, "  [budget]      %s — %s\n", r.src, r.reason)
 		}
+	}
+	// Dry-run keeps its exit-0 contract (parse errors don't fail it
+	// either), but the truncation still deserves the rollup guidance.
+	if n := countBudgetExhausted(moves); n > 0 {
+		_, _ = fmt.Fprintf(w, "compile budget exhausted — %d file(s) unprocessed; re-run, or raise --compile-timeout\n", n)
 	}
 	_, _ = fmt.Fprintln(w, "(dry-run; no files moved, no INDEX.yaml regen)")
 }
@@ -628,7 +764,7 @@ func printDryRun(w io.Writer, moves []result) {
 // 5 files still sitting in upload?" question for a small drop.
 const summaryListMax = 20
 
-func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, parseErrors, gitAddFailures int) {
+func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, parseErrors, budgetExhausted, gitAddFailures int) {
 	var routedUnsorted int
 	for _, r := range moves {
 		if r.outcome == outcomeRoutedUnsorted {
@@ -646,6 +782,13 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 		_, _ = fmt.Fprintf(w, ", %d git-add failures", gitAddFailures)
 	}
 	_, _ = fmt.Fprintln(w)
+	if budgetExhausted > 0 {
+		// One rollup, not per-file noise: exhaustion hits the batch
+		// tail en masse, and the cause is the bound, not the files.
+		_, _ = fmt.Fprintf(w,
+			"compile budget exhausted — %d file(s) unprocessed; they remain in upload/ — re-run, or raise --compile-timeout\n",
+			budgetExhausted)
+	}
 
 	// Final per-file rundown of anything still sitting in upload/.
 	// This is exactly the set the operator needs to act on (delete,
@@ -653,7 +796,7 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 	var leftover []result
 	for _, r := range moves {
 		switch r.outcome {
-		case outcomeSkippedNonMIB, outcomeParseError, outcomeRefused:
+		case outcomeSkippedNonMIB, outcomeParseError, outcomeRefused, outcomeBudgetExhausted:
 			leftover = append(leftover, r)
 		}
 	}
@@ -675,6 +818,8 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 			tag = "parse-error"
 		case outcomeRefused:
 			tag = "refuse"
+		case outcomeBudgetExhausted:
+			tag = "budget"
 		}
 		_, _ = fmt.Fprintf(w, "  [%-11s] %s — %s\n", tag, r.src, r.reason)
 	}

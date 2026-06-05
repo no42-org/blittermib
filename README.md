@@ -127,9 +127,12 @@ it.)
 
 Two bounds to know for bulk imports:
 
-- The compile pass is budgeted at five minutes per invocation —
-  chunk very large drops into batches of a few thousand files, or
-  files past the budget surface as spurious parse errors.
+- The compile pass is time-bounded as a hang backstop, scaled to the
+  batch (`max(5m, 1s × files)`) so bulk drops never trip it in normal
+  operation. `--compile-timeout` overrides the default (`0` disables
+  the bound). If the bound does fire, the cut-off files are reported
+  as one "compile budget exhausted" rollup — they stay in `upload/`
+  and a re-run picks them up.
 - The import search path (SMIPATH) is walked at boot, so a module
   importing from a corpus directory the ingest *just created* shows
   unresolved-import diagnostics until the next start. Finish any

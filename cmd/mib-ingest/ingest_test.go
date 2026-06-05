@@ -56,7 +56,8 @@ func TestPlanMovesRoutesByConfidence(t *testing.T) {
 		{src: "mibs/upload/README.txt", outcome: outcomeSkippedNonMIB, reason: "no MIB marker"},
 		{src: "mibs/upload/BROKEN-MIB", outcome: outcomeParseError, reason: "smidump failed"},
 	}
-	moves, refused, skippedNonMIB, parseErrors := planMoves(results, root)
+	moves, refused, skippedNonMIB, parseErrors, budgetExhausted := planMoves(results, root)
+	_ = budgetExhausted
 	if refused != 0 {
 		t.Errorf("refused = %d, want 0 (no destinations seeded)", refused)
 	}
@@ -88,7 +89,8 @@ func TestPlanMovesRefusesOnExistingDst(t *testing.T) {
 	results := []result{
 		{src: "mibs/upload/CISCO-FOO-MIB.mib", dst: dstRel, conf: mibcorpus.ConfidenceHigh},
 	}
-	moves, refused, skippedNonMIB, parseErrors := planMoves(results, root)
+	moves, refused, skippedNonMIB, parseErrors, budgetExhausted := planMoves(results, root)
+	_ = budgetExhausted
 	if refused != 1 {
 		t.Errorf("refused = %d, want 1", refused)
 	}
@@ -189,7 +191,7 @@ func TestPrintSummary(t *testing.T) {
 		{outcome: outcomeMoved, conf: mibcorpus.ConfidenceMedium},
 		{outcome: outcomeRoutedUnsorted, conf: mibcorpus.ConfidenceLow},
 	}
-	printSummary(&buf, moves, 3, 0, 0, 0, 0)
+	printSummary(&buf, moves, 3, 0, 0, 0, 0, 0)
 	got := buf.String()
 	for _, want := range []string{"3 moved", "2 high/medium", "1 low → unsorted"} {
 		if !strings.Contains(got, want) {
@@ -204,7 +206,7 @@ func TestPrintSummary(t *testing.T) {
 func TestPrintSummaryGitAddFailures(t *testing.T) {
 	var buf bytes.Buffer
 	moves := []result{{outcome: outcomeMoved, conf: mibcorpus.ConfidenceHigh}}
-	printSummary(&buf, moves, 1, 0, 0, 0, 2)
+	printSummary(&buf, moves, 1, 0, 0, 0, 0, 2)
 	if !strings.Contains(buf.String(), "2 git-add failures") {
 		t.Errorf("summary missing git-add failures count; got %q", buf.String())
 	}
@@ -221,7 +223,7 @@ func TestPrintSummaryLeftoverListing(t *testing.T) {
 		{outcome: outcomeParseError, src: "mibs/upload/BROKEN-MIB", reason: "smidump rejected module"},
 		{outcome: outcomeRefused, src: "mibs/upload/CISCO-FOO-MIB", reason: "destination already exists: mibs/vendors/9-cisco/CISCO-FOO-MIB"},
 	}
-	printSummary(&buf, moves, 1, 1, 1, 1, 0)
+	printSummary(&buf, moves, 1, 1, 1, 1, 0, 0)
 	got := buf.String()
 	for _, want := range []string{
 		"left in upload/:",
@@ -248,7 +250,7 @@ func TestPrintSummaryLeftoverTruncated(t *testing.T) {
 			reason:  "no MIB marker",
 		})
 	}
-	printSummary(&buf, moves, 0, 0, len(moves), 0, 0)
+	printSummary(&buf, moves, 0, 0, len(moves), 0, 0, 0)
 	got := buf.String()
 	if !strings.Contains(got, "...and 5 more") {
 		t.Errorf("summary missing truncation hint; got:\n%s", got)
@@ -261,7 +263,7 @@ func TestPrintSummaryLeftoverTruncated(t *testing.T) {
 func TestPrintSummaryNoLeftover(t *testing.T) {
 	var buf bytes.Buffer
 	moves := []result{{outcome: outcomeMoved, conf: mibcorpus.ConfidenceHigh}}
-	printSummary(&buf, moves, 1, 0, 0, 0, 0)
+	printSummary(&buf, moves, 1, 0, 0, 0, 0, 0)
 	if strings.Contains(buf.String(), "left in upload") {
 		t.Errorf("clean run should not print 'left in upload' block; got:\n%s", buf.String())
 	}
