@@ -6,7 +6,7 @@ type: application
 # tracks the released blittermib image and is stamped from the git tag
 # at package time in CI.
 version: 0.2.0
-appVersion: "0.4.0"
+appVersion: "0.7.0"
 home: https://github.com/no42-org/blittermib
 sources:
   - https://github.com/no42-org/blittermib
