@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build helm-lint helm-template chart-package
+.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke helm-lint helm-template chart-package
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -234,6 +234,12 @@ TAG ?= blittermib:dev
 docker-build:
 	docker build --build-arg VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
 		-t $(TAG) .
+
+# docker-smoke asserts the runtime image's tool surface: the ingest
+# CLI must be present and runnable as the image's unprivileged user
+# (guards the Dockerfile COPY against silent loss in a refactor).
+docker-smoke:
+	docker run --rm --entrypoint blittermib-ingest $(TAG) --help >/dev/null
 
 # --- Helm chart -----------------------------------------------------
 CHART_DIR := charts/blittermib

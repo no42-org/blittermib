@@ -69,6 +69,73 @@ docker compose up
 
 Open <http://localhost:8080>.
 
+#### Routing uploaded MIBs into the corpus
+
+The image ships `blittermib-ingest`, the same classify-and-route tool
+contributors use: it moves files from `mibs/upload/` to their
+canonical corpus paths (`vendors/{PEN}-{slug}/`, `ietf/{group}/`,
+`iana/`, low-confidence to `unsorted/`), dedupes byte-identical
+copies, and refuses to overwrite modules already in the corpus.
+Running it against a deployment needs the **whole corpus**
+bind-mounted **read-write** (moves cross directories), which masks
+the corpus baked into the image — image upgrades then no longer
+refresh the standard MIBs; you own the tree from that point on.
+
+One-time setup — seed the host tree from the image, chown to the
+container user (uid 1000), and switch `compose.yml` to the
+operator-managed-corpus mount (see the commented variant there):
+
+```bash
+# trailing /. copies the directory CONTENTS — ./mibs already exists
+# (the quickstart created ./mibs/upload), and without it docker cp
+# would nest the corpus at ./mibs/mibs/.
+docker compose cp blittermib:/var/lib/blittermib/mibs/. ./mibs
+# docker cp writes root-owned files on rootful Linux
+sudo chown -R 1000:1000 mibs
+# volumes: REPLACE the upload-only line with
+#   - ./mibs:/var/lib/blittermib/mibs
+# (keeping both would leave upload/ read-only inside the container
+# and block ingest moves)
+docker compose up -d
+```
+
+Then, per batch of incoming MIBs:
+
+```bash
+# 1. drop files into ./mibs/upload/ (subdirectories are fine)
+
+# 2. optional read-only pre-flight: dupes, collisions, broken files.
+#    A non-zero exit means the report FOUND actionable findings —
+#    that's it working, not crashing. Review the output, then proceed.
+docker compose exec blittermib blittermib-ingest --report \
+    --src /var/lib/blittermib/mibs/upload --root /var/lib/blittermib
+
+# 3. collapse byte-identical duplicates, then route
+docker compose exec blittermib blittermib-ingest --auto-collapse-identical \
+    --src /var/lib/blittermib/mibs/upload --root /var/lib/blittermib \
+    --no-index
+```
+
+`--no-index` is required in-container: the post-ingest `make index`
+step needs the repo checkout, and `INDEX.yaml` has no runtime role.
+The running server's watcher picks the moves up immediately — no
+restart. Files that don't parse or would collide with an existing
+corpus module stay in `upload/` for review — the ingest summary
+lists each with its reason. (`/diagnostics` shows warnings for
+modules that did load; a file that failed to parse never reaches
+it.)
+
+Two bounds to know for bulk imports:
+
+- The compile pass is budgeted at five minutes per invocation —
+  chunk very large drops into batches of a few thousand files, or
+  files past the budget surface as spurious parse errors.
+- The import search path (SMIPATH) is walked at boot, so a module
+  importing from a corpus directory the ingest *just created* shows
+  unresolved-import diagnostics until the next start. Finish any
+  batch that created new vendor directories with one
+  `docker compose restart blittermib`.
+
 ### Bare metal
 
 Requires Go 1.26+ and libsmi (`smidump`, `smilint`):

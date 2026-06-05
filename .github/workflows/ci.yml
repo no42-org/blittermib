@@ -72,6 +72,9 @@ jobs:
       - name: Build Docker image
         run: make docker-build TAG=blittermib:ci
 
+      - name: Smoke-test image tool surface
+        run: make docker-smoke TAG=blittermib:ci
+
   # Lint + render the Helm chart, then install it on a throwaway kind
   # cluster (with the Gateway API CRDs applied) to exercise the
   # httpRoute path end-to-end and confirm the pod reaches Ready. helm

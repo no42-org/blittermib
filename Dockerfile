@@ -39,13 +39,18 @@ RUN go mod download
 # Copy the rest of the source. .dockerignore keeps this minimal.
 COPY . .
 
-# Generate templ output and embed assets, then build the static binary.
+# Generate templ output and embed assets, then build the static
+# binaries: the server and the ingest CLI (shipped alongside so
+# operators can route upload/ MIBs into the corpus on a running
+# deployment via `docker compose exec`).
 ARG VERSION=docker
 ENV CGO_ENABLED=0
 RUN make generate \
     && make prepare-assets \
     && go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
-        -o /out/blittermib ./cmd/blittermib
+        -o /out/blittermib ./cmd/blittermib \
+    && go build -trimpath -ldflags="-s -w" \
+        -o /out/blittermib-ingest ./cmd/mib-ingest
 
 # --- runtime stage --------------------------------------------------
 
@@ -64,6 +69,10 @@ USER blittermib
 WORKDIR /home/blittermib
 
 COPY --from=build /out/blittermib /usr/local/bin/blittermib
+# Ingest CLI — routes MIBs dropped into mibs/upload/ to their
+# canonical corpus paths. Requires a read-write corpus bind-mount;
+# see README "Routing uploaded MIBs into the corpus".
+COPY --from=build /out/blittermib-ingest /usr/local/bin/blittermib-ingest
 
 # Ship the curated corpus (standard IETF / IANA MIBs + any vendor
 # MIBs the maintainer has merged into the repo) so `docker run`
