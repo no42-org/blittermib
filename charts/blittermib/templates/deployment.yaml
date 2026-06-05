@@ -61,12 +61,14 @@ spec:
               protocol: TCP
           startupProbe:
             # Tolerant window covering the boot-time MIB ingest before
-            # liveness is armed (~30 * 2s = up to ~60s).
+            # liveness is armed. The HTTP server only starts listening once
+            # the corpus is loaded, which is slow on persistent (e.g. NFS)
+            # storage — tune via .Values.startupProbe.
             httpGet:
               path: /healthz
               port: http
-            periodSeconds: 2
-            failureThreshold: 30
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
           readinessProbe:
             httpGet:
               path: /healthz

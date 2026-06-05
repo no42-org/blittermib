@@ -111,6 +111,16 @@ resources: {}
 # headroom above that.
 terminationGracePeriodSeconds: 35
 
+# Startup probe window for the boot-time MIB ingest. The HTTP server only
+# starts listening after the corpus is loaded: ~5s from the baked-in emptyDir,
+# but up to ~60s when the SQLite cache lives on slower persistent storage
+# (e.g. an NFS-backed PVC). failureThreshold * periodSeconds must exceed that
+# load time, or the pod is killed mid-ingest and CrashLoops. Default window:
+# 60 * 3s = 180s.
+startupProbe:
+  periodSeconds: 3
+  failureThreshold: 60
+
 nodeSelector: {}
 tolerations: []
 affinity: {}
