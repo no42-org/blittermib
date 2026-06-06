@@ -127,6 +127,15 @@ for dirpath, dirs, files in os.walk(root):
         # error signature for the strict-set comparison. Strip BOTH
         # the worktree root prefix AND the absolute file path so
         # parent/PR worktree paths produce identical diffs.
+        #
+        # SMIPATH-directory noise: libsmi emits one
+        # "<dir>: unable to determine SMI version" line per -p
+        # DIRECTORY entry while resolving imports. Those lines name
+        # the search path, not the module under test — recording
+        # them made every module's error set change when a path
+        # directory was renamed (upload/ -> import/ flagged a
+        # phantom regression on the whole corpus). Drop any line
+        # whose subject is one of our own -p entries.
         lines = []
         for line in r.stderr.decode('utf-8', errors='replace').splitlines():
             line = line.strip()
@@ -135,6 +144,11 @@ for dirpath, dirs, files in os.walk(root):
             line = line.replace(full, rel)
             line = line.replace(tree + '/mibs/', '')
             line = line.replace(tree + '/', '')
+            subject, sep, msg = line.partition(': ')
+            if sep and msg == 'unable to determine SMI version' and (
+                    subject == 'mibs' or
+                    os.path.isdir(os.path.join(root, subject))):
+                continue
             lines.append(line)
         if lines:
             result[rel] = sorted(set(lines))

@@ -444,7 +444,10 @@ func (e *Engine) quarantine(ctx context.Context, path string, st Status, reason,
 	sc := Sidecar{Name: base, Status: st, Reason: reason, Existing: existing,
 		OccurredAt: time.Now().UTC().Format(time.RFC3339)}
 	if b, err := json.MarshalIndent(sc, "", "  "); err == nil {
-		_ = os.WriteFile(sidecarPath(dest), b, 0o640)
+		// #nosec G306 -- sidecar beside the quarantined file under the
+		// engine-owned outcome dir; 0o600 satisfies the linter, group
+		// readability is not needed (single-uid container).
+		_ = os.WriteFile(sidecarPath(dest), b, 0o600)
 	}
 	_ = e.Store.RecordImportOutcome(ctx, store.ImportOutcome{
 		Name: base, Status: string(st), Detail: firstNonEmpty(existing, reason),
@@ -538,13 +541,19 @@ func moveFile(src, dst string) error {
 		// dir); surface it rather than masking with a copy.
 		return err
 	}
+	// #nosec G304 -- src/dst are engine-derived paths rooted under the
+	// corpus root (intake names pass ValidModuleName before they can
+	// reach a curated destination; quarantine targets are basenames
+	// joined onto engine-owned dirs).
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 	tmp := dst + ".importing"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	// #nosec G302 G304 -- same engine-derived path family; 0o600 is
+	// sufficient in a single-uid deployment.
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -620,6 +629,8 @@ func (e *Engine) relPath(p string) string {
 }
 
 func hashFile(path string) (string, int64, error) {
+	// #nosec G304 -- callers pass intake/curated paths the engine
+	// itself enumerated under the corpus root.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", 0, err
