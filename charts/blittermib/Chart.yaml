@@ -6,8 +6,8 @@ type: application
 # stamps BOTH from the release git tag, so the chart's OCI tag always
 # equals the blittermib release version (one number for install,
 # upgrade, and cosign verify alike).
-version: 0.2.0
-appVersion: "0.7.0"
+version: 0.8.1
+appVersion: "0.8.1"
 home: https://github.com/no42-org/blittermib
 sources:
   - https://github.com/no42-org/blittermib
