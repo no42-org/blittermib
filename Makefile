@@ -271,17 +271,31 @@ helm-template:
 		echo "FAIL: httpRoute without parentRefs should have errored"; exit 1; \
 	else echo "OK: httpRoute parentRefs guard fires"; fi
 
-# chart-package builds the chart tarball into dist/, stamping appVersion.
-# CI passes APP_VERSION (the pushed tag, leading `v` stripped) — the same
-# value the docker job tags the image with, so the chart always matches a
-# real published image. Locally it falls back to `git describe`; if that
-# yields nothing, helm keeps Chart.yaml's appVersion. Invoked by the
-# release CI job.
+# chart-package builds the chart tarball into dist/, stamping BOTH the
+# chart version and appVersion. CI passes APP_VERSION (the pushed tag,
+# leading `v` stripped) — the same value the docker job tags the image
+# with, so the chart's OCI tag and the image tag are the same number.
+# Locally it falls back to `git describe`; if that yields nothing (no
+# reachable tags), helm keeps Chart.yaml's placeholder version and
+# appVersion. Invoked by the release CI job.
 chart-package:
 	@command -v helm >/dev/null 2>&1 || { echo "helm not installed"; exit 1; }
 	mkdir -p dist
-	helm package $(CHART_DIR) --destination dist \
-		--app-version "$${APP_VERSION:-$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')}"
+	@# Chart version and appVersion are BOTH stamped from the release
+	@# tag — the chart's OCI tag (helm push tags by chart version)
+	@# then equals the blittermib release version, so one version
+	@# number works everywhere (install, upgrade, cosign verify).
+	@# Empty fallback (no APP_VERSION, no git tags) keeps Chart.yaml's
+	@# placeholder values for local packaging.
+	@# No `--always` on git describe: with no reachable tags it would
+	@# emit a bare commit hash, which helm rejects as a non-semver
+	@# `--version`. Failing describe → empty → placeholder branch.
+	@v="$${APP_VERSION:-$$(git describe --tags --dirty 2>/dev/null | sed 's/^v//')}"; \
+	if [ -n "$$v" ]; then \
+		helm package $(CHART_DIR) --destination dist --version "$$v" --app-version "$$v"; \
+	else \
+		helm package $(CHART_DIR) --destination dist; \
+	fi
 
 help:
 	@echo "make build       compile the binary"

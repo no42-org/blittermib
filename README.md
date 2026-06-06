@@ -156,10 +156,12 @@ make build
 
 ### Kubernetes (Helm)
 
-The chart is published as an OCI artifact on GHCR:
+The chart is published as an OCI artifact on GHCR. The chart version
+equals the blittermib release version — one number for install,
+upgrade, and signature verification alike:
 
 ```bash
-helm install blittermib oci://ghcr.io/no42-org/charts/blittermib --version 0.1.0
+helm install blittermib oci://ghcr.io/no42-org/charts/blittermib --version <version>
 kubectl port-forward svc/blittermib 8080:8080   # then open http://localhost:8080
 ```
 
@@ -178,6 +180,43 @@ Common values:
 The chart pins the official image (it bundles libsmi, which the binary
 needs at runtime) — don't override `image.repository` with a stripped
 rebuild.
+
+### Verifying releases
+
+Everything the release pipeline publishes is signed with
+[cosign](https://github.com/sigstore/cosign) **keyless signing**: the
+signing identity is this repository's `release.yml` workflow (no
+project-held keys exist), and every signature is recorded in the
+public Rekor transparency log.
+
+`<version>` below is the release version with the `v` stripped (e.g.
+`0.8.0`) — image tag and chart version are the same number.
+
+```bash
+IDENTITY='^https://github.com/no42-org/blittermib/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+ISSUER='https://token.actions.githubusercontent.com'
+
+# container image — the digest signature also covers `latest`
+cosign verify ghcr.io/no42-org/blittermib:<version> \
+  --certificate-identity-regexp="$IDENTITY" \
+  --certificate-oidc-issuer="$ISSUER"
+
+# Helm chart (OCI artifact)
+cosign verify ghcr.io/no42-org/charts/blittermib:<version> \
+  --certificate-identity-regexp="$IDENTITY" \
+  --certificate-oidc-issuer="$ISSUER"
+
+# release tarballs — verify the signed checksums file, then chain:
+cosign verify-blob SHA256SUMS \
+  --signature SHA256SUMS.sig --certificate SHA256SUMS.pem \
+  --certificate-identity-regexp="$IDENTITY" \
+  --certificate-oidc-issuer="$ISSUER"
+sha256sum -c SHA256SUMS --ignore-missing   # macOS: shasum -a 256 -c
+```
+
+The identity regexp deliberately pins the repository, the workflow
+file, *and* the tag-ref shape — a signature from any other workflow
+(or a non-tag ref) fails verification.
 
 ## Configuration
 
