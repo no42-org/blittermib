@@ -184,7 +184,7 @@ func syncFile(src, dst string) (int, error) {
 		return 0, err
 	}
 	tmp := dst + ".syncing"
-	if err := os.WriteFile(tmp, sb, 0o640); err != nil { // #nosec G306 -- corpus file, group-readable is fine; 0o640
+	if err := os.WriteFile(tmp, sb, 0o640); err != nil { // #nosec G306 G703 -- dst derives from engine-owned standardEntries joined under the corpus root via a trusted image-copy walk (no user input); group-readable corpus file
 		return 0, err
 	}
 	if err := os.Rename(tmp, dst); err != nil {
