@@ -206,9 +206,11 @@ cosign verify ghcr.io/no42-org/charts/blittermib:<version> \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 
-# release tarballs — verify the signed checksums file, then chain:
+# release tarballs — verify the signed checksums file (the
+# .sigstore.json bundle carries signature, certificate, and
+# transparency-log entry), then chain:
 cosign verify-blob SHA256SUMS \
-  --signature SHA256SUMS.sig --certificate SHA256SUMS.pem \
+  --bundle SHA256SUMS.sigstore.json \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 sha256sum -c SHA256SUMS --ignore-missing   # macOS: shasum -a 256 -c
