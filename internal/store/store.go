@@ -122,6 +122,11 @@ func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
 		`DROP TRIGGER IF EXISTS symbol_au`,
 		`DROP TABLE IF EXISTS symbol_fts`,
 		`DROP TABLE IF EXISTS symbol`,
+		// INVARIANT: any migration that drops compiled data MUST also
+		// clear the source_file fingerprints — the boot validation
+		// walk trusts fingerprint matches and would otherwise skip
+		// recompiling into the now-empty tables forever.
+		`DELETE FROM source_file`,
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("%s: %w", stmt, err)

@@ -21,14 +21,14 @@ import (
 	"github.com/no42-org/blittermib/internal/mibcorpus"
 )
 
-// outcome encodes what happened to a single upload-folder file.
+// outcome encodes what happened to a single import-folder file.
 //
 // outcomeUnknown is the zero value so a `result{}` literal that
 // forgets to set the field doesn't accidentally classify as
 // "moved" — defensive default flagged in the post-merge review.
 //
 // outcomeSkippedNonMIB and outcomeParseError both leave the file in
-// upload/, but only the latter is an actionable failure. A file
+// import/, but only the latter is an actionable failure. A file
 // without the SMI lexical marker is a non-MIB the operator dropped
 // alongside their actual MIBs (READMEs, partial downloads); a file
 // with the marker that smidump rejected is a real parse error worth
@@ -77,7 +77,7 @@ type result struct {
 
 func ingestCmd(args []string) error {
 	flags := flag.NewFlagSet("blittermib-ingest", flag.ContinueOnError)
-	src := flags.String("src", "mibs/upload", "drop directory to walk")
+	src := flags.String("src", "mibs/import", "drop directory to walk")
 	root := flags.String("root", ".", "repository root (corpus lives at <root>/mibs/)")
 	groupsPath := flags.String("groups", "mibs/_groups.yaml", "IETF groups map (read-only; missing OK)")
 	smidump := flags.String("smidump", "smidump", "smidump binary path")
@@ -85,7 +85,7 @@ func ingestCmd(args []string) error {
 	dryRun := flags.Bool("dry-run", false, "print planned moves without touching files")
 	gitAdd := flags.Bool("git-add", false, "after a successful move, run `git add <dst>`")
 	noIndex := flags.Bool("no-index", false, "skip the post-ingest `make index` step")
-	report := flags.Bool("report", false, "run a read-only triage report against upload/ instead of moving files")
+	report := flags.Bool("report", false, "run a read-only triage report against import/ instead of moving files")
 	reportFormat := flags.String("report-format", "text", "report output format: text or json (only with --report)")
 	autoCollapse := flags.Bool("auto-collapse-identical", false, "delete byte-identical duplicates from --src before classification (mutually exclusive with --report)")
 	compileTimeout := flags.Duration("compile-timeout", 0, "compile-pass bound; 0 disables; unset = max(5m, 1s per file)")
@@ -228,7 +228,7 @@ func ingestCmd(args []string) error {
 	printSummary(os.Stdout, moves, movedCount, refusedCount+refusedAtMove, skippedNonMIB, parseErrorCount, budgetExhaustedCount, gitAddFailures)
 
 	// Non-zero exit only on actionable failures. Non-MIB files
-	// dropped in upload/ are EXPECTED collateral when an operator
+	// dropped in import/ are EXPECTED collateral when an operator
 	// drops a vendor's archive (READMEs, LICENSEs, partial files);
 	// they don't fail the run. Refusals, parse errors, budget
 	// exhaustion (the batch is incomplete), and `git add`
@@ -387,7 +387,7 @@ func scaledCompileTimeout(n int) time.Duration {
 //     bound.
 //
 // The second shape can also swallow a smidump that crashed by signal
-// just as the bound fired — acceptable: the file stays in upload/
+// just as the bound fired — acceptable: the file stays in import/
 // and a re-run with a fresh budget surfaces the real failure.
 func budgetExhausted(ctxErr, err error) bool {
 	if err == nil {
@@ -513,7 +513,7 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 		if budgetExhausted(ctx.Err(), r.Err) {
 			// The bound cut this file off (queued or in flight) —
 			// incomplete work, not a broken MIB. The file stays in
-			// upload/; a re-run picks it up (already-moved
+			// import/; a re-run picks it up (already-moved
 			// destinations refuse, so re-running is idempotent).
 			parseErrors = append(parseErrors, result{
 				src:     r.Target,
@@ -759,7 +759,7 @@ func printDryRun(w io.Writer, moves []result) {
 
 // summaryListMax bounds the per-file list of leftover files printed
 // after the summary line. A vendor archive can drop hundreds of
-// READMEs / Makefiles into upload/; truncating at 20 keeps the
+// READMEs / Makefiles into import/; truncating at 20 keeps the
 // terminal usable while still answering the common "what are the
 // 5 files still sitting in upload?" question for a small drop.
 const summaryListMax = 20
@@ -786,11 +786,11 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 		// One rollup, not per-file noise: exhaustion hits the batch
 		// tail en masse, and the cause is the bound, not the files.
 		_, _ = fmt.Fprintf(w,
-			"compile budget exhausted — %d file(s) unprocessed; they remain in upload/ — re-run, or raise --compile-timeout\n",
+			"compile budget exhausted — %d file(s) unprocessed; they remain in import/ — re-run, or raise --compile-timeout\n",
 			budgetExhausted)
 	}
 
-	// Final per-file rundown of anything still sitting in upload/.
+	// Final per-file rundown of anything still sitting in import/.
 	// This is exactly the set the operator needs to act on (delete,
 	// re-classify, or fix the source MIB).
 	var leftover []result
@@ -803,7 +803,7 @@ func printSummary(w io.Writer, moves []result, moved, refused, skippedNonMIB, pa
 	if len(leftover) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintln(w, "left in upload/:")
+	_, _ = fmt.Fprintln(w, "left in import/:")
 	for i, r := range leftover {
 		if i == summaryListMax {
 			_, _ = fmt.Fprintf(w, "  ...and %d more (use --dry-run to see the full list)\n",

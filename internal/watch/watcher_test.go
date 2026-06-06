@@ -333,3 +333,68 @@ func TestWatcherSkipsHiddenSubtree(t *testing.T) {
 		t.Errorf("watcher fired %d times for files under %s; expected 0", calls, hidden)
 	}
 }
+
+// TestSingleModeIgnoresSubdirs: the import pipeline's watcher shape —
+// only the watched dir itself fires; moves into subdirectories
+// (quarantine dirs) produce no re-processing callbacks.
+func TestSingleModeIgnoresSubdirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "failed"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var batches [][]string
+	w := NewSingle(dir, 50*time.Millisecond, func(_ context.Context, files []string) {
+		mu.Lock()
+		batches = append(batches, files)
+		mu.Unlock()
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = w.Run(ctx) }()
+	time.Sleep(150 * time.Millisecond) // watcher up
+
+	// A file in the watched dir fires.
+	f := filepath.Join(dir, "PROBE-MIB.mib")
+	if err := os.WriteFile(f, []byte("DEFINITIONS ::= BEGIN"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(batches)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no callback for a file in the watched dir")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Quarantine-shaped move: file leaves the watched dir into an
+	// unwatched subdir. The move event on the OLD path may fire (it
+	// is in the watched dir), but nothing inside failed/ ever does.
+	mu.Lock()
+	before := len(batches)
+	mu.Unlock()
+	if err := os.Rename(f, filepath.Join(dir, "failed", "PROBE-MIB.mib")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "failed", "INNER-MIB.mib"),
+		[]byte("DEFINITIONS ::= BEGIN"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // > debounce
+	mu.Lock()
+	defer mu.Unlock()
+	for _, b := range batches[before:] {
+		for _, p := range b {
+			if filepath.Dir(p) != dir {
+				t.Fatalf("callback for a path outside the watched dir: %s", p)
+			}
+		}
+	}
+}

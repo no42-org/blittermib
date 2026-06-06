@@ -63,13 +63,20 @@ RUN apk add --no-cache libsmi ca-certificates tzdata \
     && addgroup -g 1000 -S blittermib \
     && adduser -u 1000 -S -G blittermib -h /home/blittermib blittermib \
     && mkdir -p /var/lib/blittermib/mibs /var/lib/blittermib/data \
+    # Pre-create the import skeleton: on read-only root filesystems
+    # (Helm default) the boot-time EnsureDirs would otherwise fail.
+    # MkdirAll on existing directories is a no-op, so writable
+    # deployments are unaffected.
+    && mkdir -p /var/lib/blittermib/mibs/import/failed \
+                /var/lib/blittermib/mibs/import/duplicate \
+                /var/lib/blittermib/mibs/import/.tmp \
     && chown -R blittermib:blittermib /var/lib/blittermib
 
 USER blittermib
 WORKDIR /home/blittermib
 
 COPY --from=build /out/blittermib /usr/local/bin/blittermib
-# Ingest CLI — routes MIBs dropped into mibs/upload/ to their
+# Ingest CLI — routes MIBs dropped into mibs/import/ to their
 # canonical corpus paths. Requires a read-write corpus bind-mount;
 # see README "Routing uploaded MIBs into the corpus".
 COPY --from=build /out/blittermib-ingest /usr/local/bin/blittermib-ingest

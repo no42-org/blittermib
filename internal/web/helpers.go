@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"html"
 	"net/url"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -1246,27 +1245,12 @@ type WorkspaceView struct {
 	// time by handleWorkspace; zero when the closure couldn't
 	// be resolved (the templ falls back gracefully).
 	BundleFileCount int
-	// ModuleDeletable is true when web uploads are enabled
-	// (BLITTERMIB_UPLOAD_ENABLED) AND the module's source file
-	// resolves under mibs/upload/. Drives whether the module-info
-	// bar renders an inline ✕ button alongside the download
-	// affordances — operators looking at a module they uploaded
-	// can remove it from the same page they're reading per
-	// design.md D8 (8c).
-	ModuleDeletable bool
 	// HasNotifications is true when the module defines at least one
 	// NOTIFICATION-TYPE or TRAP-TYPE. Drives whether the module-info
 	// bar surfaces the `↓ events.xml` OpenNMS eventconf export link —
 	// hidden otherwise, since the endpoint 404s for a module with no
 	// notifications.
 	HasNotifications bool
-}
-
-// uploadFilename returns the basename of a path — used by the
-// module-info bar's inline ✕ button to pick the correct
-// /api/v1/upload/<name> URL for a deletable module's source file.
-func uploadFilename(p string) string {
-	return filepath.Base(p)
 }
 
 // moduleSummaryPreview returns the first-sentence preview of a

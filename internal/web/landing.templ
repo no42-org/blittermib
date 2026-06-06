@@ -91,7 +91,7 @@ templ DropZone() {
 			<p class="drop-zone-headline">Drop MIB files here, or
 				<button type="button" class="drop-zone-browse" x-on:click="$refs.file.click()">click to browse</button>
 			</p>
-			<p class="drop-zone-hint"><code>.mib</code> · <code>.txt</code> · <code>.my</code> — files land in <code>mibs/upload/</code> and load instantly.</p>
+			<p class="drop-zone-hint"><code>.mib</code> · <code>.txt</code> · <code>.my</code> — files run through the import pipeline and are filed into the curated tree.</p>
 		</div>
 		<div class="drop-zone-progress" x-show="state === 'uploading'" x-cloak>
 			<p>Uploading <span x-text="filesInFlight"></span>&hellip;</p>

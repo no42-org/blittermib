@@ -27,9 +27,10 @@ import (
 // When BLITTERMIB_UPLOAD_ENABLED is truthy, EnableUploads also
 // registers (via routesUpload):
 //
-//	/upload                        management page + drop zone
+//	/import                        management page + drop zone
+//	/upload                        301 → /import (legacy)
 //	/api/v1/upload                 multipart upload (POST)
-//	/api/v1/upload/{name}          delete (DELETE)
+//	/api/v1/upload/{name}          delete (DELETE; pending or quarantined)
 func (s *Server) routes() {
 	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler(s.version)), withLogging, withRecover))
 
@@ -61,7 +62,10 @@ func (s *Server) routes() {
 // disabled-state response, no information about whether the feature
 // exists.
 func (s *Server) routesUpload() {
-	s.mux.Handle("/upload", chain(http.HandlerFunc(s.handleUploadIndex), withLogging, withRecover))
+	s.mux.Handle("/import", chain(http.HandlerFunc(s.handleImportIndex), withLogging, withRecover))
+	s.mux.Handle("/upload", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/import", http.StatusMovedPermanently)
+	}), withLogging, withRecover))
 	s.mux.Handle("/api/v1/upload", chain(http.HandlerFunc(s.handleUpload), withLogging, withRecover))
 	s.mux.Handle("/api/v1/upload/", chain(http.HandlerFunc(s.handleUploadDelete), withLogging, withRecover))
 }

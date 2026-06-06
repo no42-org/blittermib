@@ -1,8 +1,8 @@
 // blittermib-ingest is the contributor-facing drop-folder workflow
 // for adding MIBs to the corpus.
 //
-// A contributor copies one or more MIB files into mibs/upload/ and
-// runs `make ingest`. The tool walks the upload folder, parses each
+// A contributor copies one or more MIB files into mibs/import/ and
+// runs `make ingest`. The tool walks the import folder, parses each
 // MIB via libsmi, classifies its destination per the routing rules in
 // `internal/mibcorpus` (the same rules the migrate tool uses), and
 // moves the file to the canonical corpus path (vendors/{PEN}-{slug}/,
@@ -10,7 +10,7 @@
 //
 // Files that don't parse, lack the SMI lexical marker, or whose
 // destination filename already exists in the corpus stay in
-// mibs/upload/ for manual review. The tool refuses to overwrite an
+// mibs/import/ for manual review. The tool refuses to overwrite an
 // existing corpus file.
 //
 // After all moves complete (and unless --no-index is passed), the

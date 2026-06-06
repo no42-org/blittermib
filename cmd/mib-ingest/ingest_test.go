@@ -11,7 +11,7 @@ import (
 	"github.com/no42-org/blittermib/internal/mibcorpus"
 )
 
-// TestWalkUploadFiltersNonMIBs covers the upload-folder gate: hidden
+// TestWalkUploadFiltersNonMIBs covers the import-folder gate: hidden
 // files (.gitkeep), wrong extensions, and files lacking the MIB
 // marker stay out of the result set's downstream pipeline. (walkUpload
 // itself returns extension-matching files; the marker filter happens
@@ -50,11 +50,11 @@ func TestWalkUploadFiltersNonMIBs(t *testing.T) {
 func TestPlanMovesRoutesByConfidence(t *testing.T) {
 	root := t.TempDir()
 	results := []result{
-		{src: "mibs/upload/CISCO-FOO-MIB.mib", dst: "mibs/vendors/9-cisco/CISCO-FOO-MIB", conf: mibcorpus.ConfidenceHigh},
-		{src: "mibs/upload/MYSTERY-MIB", dst: "mibs/vendors/999999-unknown/MYSTERY-MIB", conf: mibcorpus.ConfidenceMedium},
-		{src: "mibs/upload/SOMEONE-ELSES-MIB", dst: "mibs/unsorted/SOMEONE-ELSES-MIB", conf: mibcorpus.ConfidenceLow},
-		{src: "mibs/upload/README.txt", outcome: outcomeSkippedNonMIB, reason: "no MIB marker"},
-		{src: "mibs/upload/BROKEN-MIB", outcome: outcomeParseError, reason: "smidump failed"},
+		{src: "mibs/import/CISCO-FOO-MIB.mib", dst: "mibs/vendors/9-cisco/CISCO-FOO-MIB", conf: mibcorpus.ConfidenceHigh},
+		{src: "mibs/import/MYSTERY-MIB", dst: "mibs/vendors/999999-unknown/MYSTERY-MIB", conf: mibcorpus.ConfidenceMedium},
+		{src: "mibs/import/SOMEONE-ELSES-MIB", dst: "mibs/unsorted/SOMEONE-ELSES-MIB", conf: mibcorpus.ConfidenceLow},
+		{src: "mibs/import/README.txt", outcome: outcomeSkippedNonMIB, reason: "no MIB marker"},
+		{src: "mibs/import/BROKEN-MIB", outcome: outcomeParseError, reason: "smidump failed"},
 	}
 	moves, refused, skippedNonMIB, parseErrors, budgetExhausted := planMoves(results, root)
 	_ = budgetExhausted
@@ -87,7 +87,7 @@ func TestPlanMovesRefusesOnExistingDst(t *testing.T) {
 		t.Fatal(err)
 	}
 	results := []result{
-		{src: "mibs/upload/CISCO-FOO-MIB.mib", dst: dstRel, conf: mibcorpus.ConfidenceHigh},
+		{src: "mibs/import/CISCO-FOO-MIB.mib", dst: dstRel, conf: mibcorpus.ConfidenceHigh},
 	}
 	moves, refused, skippedNonMIB, parseErrors, budgetExhausted := planMoves(results, root)
 	_ = budgetExhausted
@@ -112,7 +112,7 @@ func TestPlanMovesRefusesOnExistingDst(t *testing.T) {
 // Note: r.dst is REPO-RELATIVE — applyMoves joins with root.
 func TestApplyMovesRenames(t *testing.T) {
 	root := t.TempDir()
-	upload := filepath.Join(root, "mibs/upload")
+	upload := filepath.Join(root, "mibs/import")
 	if err := os.MkdirAll(upload, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestApplyMovesGitAdd(t *testing.T) {
 	if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
 		t.Fatalf("git init: %v", err)
 	}
-	upload := filepath.Join(root, "mibs/upload")
+	upload := filepath.Join(root, "mibs/import")
 	if err := os.MkdirAll(upload, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -213,23 +213,23 @@ func TestPrintSummaryGitAddFailures(t *testing.T) {
 }
 
 // TestPrintSummaryLeftoverListing asserts the summary lists every
-// file still sitting in upload/ (non-MIB skipped, parse errors,
+// file still sitting in import/ (non-MIB skipped, parse errors,
 // refused) so the operator can see what to act on.
 func TestPrintSummaryLeftoverListing(t *testing.T) {
 	var buf bytes.Buffer
 	moves := []result{
 		{outcome: outcomeMoved, conf: mibcorpus.ConfidenceHigh},
-		{outcome: outcomeSkippedNonMIB, src: "mibs/upload/README.txt", reason: "no MIB marker"},
-		{outcome: outcomeParseError, src: "mibs/upload/BROKEN-MIB", reason: "smidump rejected module"},
-		{outcome: outcomeRefused, src: "mibs/upload/CISCO-FOO-MIB", reason: "destination already exists: mibs/vendors/9-cisco/CISCO-FOO-MIB"},
+		{outcome: outcomeSkippedNonMIB, src: "mibs/import/README.txt", reason: "no MIB marker"},
+		{outcome: outcomeParseError, src: "mibs/import/BROKEN-MIB", reason: "smidump rejected module"},
+		{outcome: outcomeRefused, src: "mibs/import/CISCO-FOO-MIB", reason: "destination already exists: mibs/vendors/9-cisco/CISCO-FOO-MIB"},
 	}
 	printSummary(&buf, moves, 1, 1, 1, 1, 0, 0)
 	got := buf.String()
 	for _, want := range []string{
-		"left in upload/:",
-		"[non-mib    ] mibs/upload/README.txt",
-		"[parse-error] mibs/upload/BROKEN-MIB",
-		"[refuse     ] mibs/upload/CISCO-FOO-MIB",
+		"left in import/:",
+		"[non-mib    ] mibs/import/README.txt",
+		"[parse-error] mibs/import/BROKEN-MIB",
+		"[refuse     ] mibs/import/CISCO-FOO-MIB",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("summary missing %q; got:\n%s", want, got)
@@ -246,7 +246,7 @@ func TestPrintSummaryLeftoverTruncated(t *testing.T) {
 	for i := 0; i < summaryListMax+5; i++ {
 		moves = append(moves, result{
 			outcome: outcomeSkippedNonMIB,
-			src:     "mibs/upload/junk",
+			src:     "mibs/import/junk",
 			reason:  "no MIB marker",
 		})
 	}
@@ -258,7 +258,7 @@ func TestPrintSummaryLeftoverTruncated(t *testing.T) {
 }
 
 // TestPrintSummaryNoLeftover asserts the trailing block is omitted
-// when nothing is left in upload/ — a clean run prints just the
+// when nothing is left in import/ — a clean run prints just the
 // summary line.
 func TestPrintSummaryNoLeftover(t *testing.T) {
 	var buf bytes.Buffer
@@ -276,7 +276,7 @@ func TestPrintSummaryNoLeftover(t *testing.T) {
 // regen INDEX.yaml.
 func TestIngestDryRun(t *testing.T) {
 	root := t.TempDir()
-	upload := filepath.Join(root, "mibs/upload")
+	upload := filepath.Join(root, "mibs/import")
 	if err := os.MkdirAll(upload, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,7 @@ func TestIngestDryRun(t *testing.T) {
 // `git add` failures do.
 func TestIngestExitCode(t *testing.T) {
 	root := t.TempDir()
-	upload := filepath.Join(root, "mibs/upload")
+	upload := filepath.Join(root, "mibs/import")
 	if err := os.MkdirAll(upload, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,169 @@
+package web
+
+import "fmt"
+
+// ImportPendingRow is a file sitting in mibs/import/ awaiting the
+// pipeline (normally transient; visible when the engine deferred a
+// settling file or a bulk drop is mid-flight).
+type ImportPendingRow struct {
+	Name string
+	Size int64
+}
+
+// ImportQuarantineRow is one file in import/failed/ or
+// import/duplicate/ with its sidecar reason.
+type ImportQuarantineRow struct {
+	Name       string
+	Size       int64
+	Reason     string
+	Existing   string
+	OccurredAt string
+}
+
+// ImportRecentRow is a recent pipeline outcome from the store.
+type ImportRecentRow struct {
+	Name       string
+	Status     string
+	Module     string
+	Detail     string
+	OccurredAt string
+}
+
+// ImportView is the /import management page view-model.
+type ImportView struct {
+	Pending   []ImportPendingRow
+	Failed    []ImportQuarantineRow
+	Duplicate []ImportQuarantineRow
+	Recent    []ImportRecentRow
+}
+
+// ImportIndex renders /import: drop zone, pending intake, the two
+// quarantines with reasons, and recent pipeline outcomes.
+templ ImportIndex(v ImportView) {
+	@Base("Import — blittermib") {
+		<article class="upload-page">
+			<h1>Import</h1>
+			<p class="upload-tagline">Drop MIB files here or into <code>mibs/import/</code> — valid files are compiled and filed into the curated tree automatically.</p>
+			@DropZone()
+			if len(v.Pending) > 0 {
+				<h2>Pending ({ fmt.Sprintf("%d", len(v.Pending)) })</h2>
+				<ul class="upload-list">
+					for _, r := range v.Pending {
+						<li class="upload-row" data-state="pending">
+							<span class="upload-row-name">{ r.Name }</span>
+							<span class="upload-row-size">{ fmt.Sprintf("%d B", r.Size) }</span>
+							@importDeleteButton(r.Name, "pending")
+						</li>
+					}
+				</ul>
+			}
+			<h2>Failed ({ fmt.Sprintf("%d", len(v.Failed)) })</h2>
+			if len(v.Failed) == 0 {
+				<p class="upload-empty">Nothing in <code>import/failed/</code>.</p>
+			} else {
+				<ul class="upload-list">
+					for _, r := range v.Failed {
+						<li class="upload-row" data-state="failed">
+							<span class="upload-row-name">{ r.Name }</span>
+							<span class="upload-row-state">{ r.Reason }</span>
+							<span class="upload-row-size">{ fmt.Sprintf("%d B", r.Size) }</span>
+							@importDeleteButton(r.Name, "failed")
+						</li>
+					}
+				</ul>
+			}
+			<h2>Duplicates ({ fmt.Sprintf("%d", len(v.Duplicate)) })</h2>
+			if len(v.Duplicate) == 0 {
+				<p class="upload-empty">Nothing in <code>import/duplicate/</code>.</p>
+			} else {
+				<ul class="upload-list">
+					for _, r := range v.Duplicate {
+						<li class="upload-row" data-state="duplicate">
+							<span class="upload-row-name">{ r.Name }</span>
+							<span class="upload-row-state">
+								{ r.Reason }
+								if r.Existing != "" {
+									— <code>{ r.Existing }</code>
+								}
+							</span>
+							<span class="upload-row-size">{ fmt.Sprintf("%d B", r.Size) }</span>
+							<button class="upload-row-replace"
+								type="button"
+								title="Replace the existing module with this file"
+								onclick={ importReplace(r.Name) }>
+								replace existing
+							</button>
+							@importDeleteButton(r.Name, "duplicate")
+						</li>
+					}
+				</ul>
+			}
+			if len(v.Recent) > 0 {
+				<h2>Recent imports</h2>
+				<ul class="upload-list">
+					for _, r := range v.Recent {
+						<li class="upload-row" data-state={ r.Status }>
+							<span class="upload-row-name">
+								if r.Status == "imported" && r.Module != "" {
+									<a href={ templ.URL("/m/" + r.Module) }>{ r.Name }</a>
+								} else {
+									{ r.Name }
+								}
+							</span>
+							<span class="upload-row-state">{ r.Status }</span>
+							if r.Detail != "" {
+								<span class="upload-row-shadow"><code>{ r.Detail }</code></span>
+							}
+							<span class="upload-row-size">{ r.OccurredAt }</span>
+						</li>
+					}
+				</ul>
+			}
+		</article>
+	}
+}
+
+templ importDeleteButton(name, from string) {
+	<button class="upload-row-delete"
+		type="button"
+		data-name={ name }
+		onclick={ importDelete(name, from) }>
+		✕
+	</button>
+}
+
+// importDelete removes a pending or quarantined file (+ sidecar).
+script importDelete(name string, from string) {
+	if (!window.confirm('Delete ' + name + '?')) return;
+	fetch('/api/v1/upload/' + encodeURIComponent(name) + '?from=' + from, {
+		method: 'DELETE',
+		headers: { 'X-Blittermib-Upload': '1' },
+	})
+		.then(function (resp) {
+			if (resp.status === 204) {
+				window.location.reload();
+				return;
+			}
+			window.alert('Delete failed: HTTP ' + resp.status);
+		})
+		.catch(function (err) {
+			window.alert('Delete failed: ' + err);
+		});
+}
+
+// importReplace re-runs a quarantined duplicate through the pipeline
+// with replacement allowed — the sanctioned overwrite path for
+// updating an existing module.
+script importReplace(name string) {
+	if (!window.confirm('Replace the existing module with ' + name + '?')) return;
+	fetch('/api/v1/upload/' + encodeURIComponent(name) + '?action=replace&from=duplicate', {
+		method: 'POST',
+		headers: { 'X-Blittermib-Upload': '1' },
+	})
+		.then(function (resp) {
+			window.location.reload();
+		})
+		.catch(function (err) {
+			window.alert('Replace failed: ' + err);
+		});
+}

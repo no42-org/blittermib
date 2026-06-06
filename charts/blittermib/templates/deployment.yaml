@@ -88,7 +88,7 @@ spec:
               mountPath: /tmp
             {{- if .Values.uploads.enabled }}
             - name: upload
-              mountPath: /var/lib/blittermib/mibs/upload
+              mountPath: /var/lib/blittermib/mibs/import
             {{- end }}
             {{- if .Values.extraMibs.enabled }}
             {{- /* subPath mounts each file as a real file rather than the

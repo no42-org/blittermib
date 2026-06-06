@@ -138,3 +138,31 @@ CREATE TRIGGER IF NOT EXISTS symbol_au AFTER UPDATE ON symbol BEGIN
     INSERT INTO symbol_fts(rowid, name, oid, description, module_name)
     VALUES (new.id, new.name, new.oid, new.description, new.module_name);
 END;
+
+-- source_file fingerprints every curated MIB file the loader has
+-- compiled. The import pipeline is the curated tree's only writer
+-- (mib-import-pipeline), which makes the cache trustworthy: boot
+-- validates by stat walk against these rows and compiles only
+-- drift. sha also serves byte-identical duplicate detection on
+-- import (lookup by hash instead of re-hashing the corpus).
+CREATE TABLE IF NOT EXISTS source_file (
+    path        TEXT PRIMARY KEY,  -- relative to the corpus root
+    size        INTEGER NOT NULL,
+    mtime_ns    INTEGER NOT NULL,
+    sha256      TEXT NOT NULL,
+    module_name TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS source_file_sha_idx    ON source_file(sha256);
+CREATE INDEX IF NOT EXISTS source_file_module_idx ON source_file(module_name);
+
+-- import_outcome records recent import-pipeline results for the
+-- management UI. The filesystem (quarantine dirs + sidecars) is the
+-- source of truth; these rows are display state, pruned on insert.
+CREATE TABLE IF NOT EXISTS import_outcome (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,     -- original filename
+    status      TEXT NOT NULL,     -- imported | failed | duplicate
+    module_name TEXT NOT NULL DEFAULT '',
+    detail      TEXT NOT NULL DEFAULT '',  -- dest path / reason / existing path
+    occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

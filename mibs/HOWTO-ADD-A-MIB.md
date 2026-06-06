@@ -24,29 +24,29 @@ go version
 brew install grep
 ```
 
-## 1. Drop the file in `mibs/upload/` and run `make ingest`
+## 1. Drop the file in `mibs/import/` and run `make ingest`
 
 ```bash
-cp ~/Downloads/CISCO-RTTMON-MIB.mib mibs/upload/
+cp ~/Downloads/CISCO-RTTMON-MIB.mib mibs/import/
 make ingest
 ```
 
 > **Refreshing standard MIBs?** `make fetch-standard-mibs` is the
 > same flow: it downloads the upstream libsmi snapshot into
-> `mibs/upload/`, and `make ingest` then routes the standard IETF/IANA
+> `mibs/import/`, and `make ingest` then routes the standard IETF/IANA
 > MIBs into `mibs/ietf/{group}/` + `mibs/iana/` exactly like a
 > contributor MIB. There is no separate "bundle" path.
 
 > **Running blittermib already?** If your deployment has
 > `BLITTERMIB_UPLOAD_ENABLED=true`, you can drop files into
-> `mibs/upload/` straight from the browser via the drop zone on
+> `mibs/import/` straight from the browser via the drop zone on
 > the landing page or `/upload`. Same destination, same loader,
 > same outcome — just no shell needed. The web upload doesn't
 > auto-classify into `mibs/{vendors,ietf,iana,...}/` though, so
 > for contributor MIBs that should land in the corpus tree you
 > still want the `cp` + `make ingest` flow described here.
 
-The ingest tool walks `mibs/upload/`, parses each MIB via libsmi,
+The ingest tool walks `mibs/import/`, parses each MIB via libsmi,
 classifies its destination per the routing rules below, and moves
 the file to the canonical corpus path with the extension stripped.
 After all moves complete it auto-runs `make index` so
@@ -59,8 +59,8 @@ Outcomes by classification confidence:
 | **high** (clean parse, PEN known) | move to `mibs/vendors/{PEN}-{slug}/<NAME>` (or `mibs/ietf/{group}/<NAME>`, etc.) |
 | **medium** (PEN not in curated registry) | move to `mibs/vendors/{PEN}-unknown/<NAME>` with a warning |
 | **low** (OID outside known prefixes) | move to `mibs/unsorted/<original-filename>` for operator review |
-| destination already exists        | refuse + leave in `mibs/upload/`; operator resolves manually |
-| no MIB marker / parse failed      | leave in `mibs/upload/`; check the log for the reason |
+| destination already exists        | refuse + leave in `mibs/import/`; operator resolves manually |
+| no MIB marker / parse failed      | leave in `mibs/import/`; check the log for the reason |
 
 Useful flags (run the binary directly rather than `make ingest`):
 
@@ -106,7 +106,7 @@ canonical implementation. Existing examples: `9-cisco`,
 
 ## 3. Manual placement (fallback when ingest can't classify)
 
-If your MIB ends up in `mibs/upload/` (parse failed, no marker)
+If your MIB ends up in `mibs/import/` (parse failed, no marker)
 or `mibs/unsorted/` (OID outside known prefixes), you can resolve
 it manually:
 
@@ -115,7 +115,7 @@ it manually:
 3. Move + rename:
 
 ```bash
-mv mibs/upload/CISCO-RTTMON-MIB.mib mibs/vendors/9-cisco/CISCO-RTTMON-MIB
+mv mibs/import/CISCO-RTTMON-MIB.mib mibs/vendors/9-cisco/CISCO-RTTMON-MIB
 #                    extension dropped ──────────────────────────────────^
 ```
 
@@ -208,7 +208,7 @@ A green CI + maintainer review = merge.
 
 | Symptom                                                       | Cause                                                  | Fix                                                       |
 |---------------------------------------------------------------|--------------------------------------------------------|-----------------------------------------------------------|
-| `make ingest` left my file in `mibs/upload/`                  | parse failed, no `DEFINITIONS ::= BEGIN`, or destination already exists | check the ingest log for the per-file reason; resolve manually then run again |
+| `make ingest` left my file in `mibs/import/`                  | parse failed, no `DEFINITIONS ::= BEGIN`, or destination already exists | check the ingest log for the per-file reason; resolve manually then run again |
 | `make ingest` moved my file to `mibs/unsorted/`               | OID is outside the known prefixes (`.1.3.6.1.{2,3,4,6}`) | move manually to the right directory, OR extend `internal/mibcorpus/classify.go::Classify` if the prefix should be supported |
 | Tier 2: filename mismatch                                      | left the `.mib` / `.txt` extension on (only happens with the manual fallback flow) | rename the file (or use `make ingest`, which strips it) |
 | Tier 3: "module 'X' not found"                                 | imported MIB isn't in the corpus                        | add the parent MIB to the same PR                          |

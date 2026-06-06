@@ -18,7 +18,7 @@ func renderInfoBar(t *testing.T, hasNotifications bool) string {
 	t.Helper()
 	mod := &model.Module{Name: "TEST-MIB", Description: "A test module."}
 	var buf bytes.Buffer
-	if err := moduleInfoBar(mod, false, 0, false, hasNotifications).Render(context.Background(), &buf); err != nil {
+	if err := moduleInfoBar(mod, false, 0, hasNotifications).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("render moduleInfoBar: %v", err)
 	}
 	return buf.String()

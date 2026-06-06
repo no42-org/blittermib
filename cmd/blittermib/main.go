@@ -16,7 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/no42-org/blittermib/internal/compile"
+	"github.com/no42-org/blittermib/internal/mibcorpus"
+	"github.com/no42-org/blittermib/internal/mibimport"
 	"github.com/no42-org/blittermib/internal/server"
 	"github.com/no42-org/blittermib/internal/store"
 	"github.com/no42-org/blittermib/internal/watch"
@@ -35,6 +36,7 @@ type config struct {
 	dataDir string
 	listen  string
 	verbose bool
+	rebuild bool
 }
 
 func main() {
@@ -64,6 +66,7 @@ func parseFlags(args []string, errOut io.Writer) (config, error) {
 	fs.StringVar(&cfg.dataDir, "data", "./data", "directory for the SQLite database and runtime state")
 	fs.StringVar(&cfg.listen, "listen", ":8080", "HTTP listen address (host:port)")
 	fs.BoolVar(&cfg.verbose, "v", false, "verbose logging (DEBUG level)")
+	fs.BoolVar(&cfg.rebuild, "rebuild", false, "discard the corpus cache fingerprints and recompile every MIB at boot")
 	showVersion := fs.Bool("version", false, "print version and exit")
 
 	fs.Usage = func() {
@@ -89,6 +92,12 @@ func newLogger(verbose bool) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 }
 
+// rescanInterval drives the periodic import/ sweep — the universal
+// recovery path (design D6): files that arrived while the server was
+// down, platform event-queue overflow, and mounts that deliver no
+// change events all converge on the same ReadDir.
+const rescanInterval = 5 * time.Minute
+
 func run(cfg config) error {
 	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -96,11 +105,7 @@ func run(cfg config) error {
 	if err := os.MkdirAll(cfg.mibsDir, 0o750); err != nil {
 		return fmt.Errorf("create mibs dir: %w", err)
 	}
-	if n, err := sweepUploadTmp(cfg.mibsDir); err != nil {
-		slog.Warn("upload tmp sweep failed", "err", err)
-	} else if n > 0 {
-		slog.Info("cleaned upload tmp orphans", "count", n)
-	}
+	migrateLegacyUpload(cfg.mibsDir)
 	dbPath := filepath.Join(cfg.dataDir, "blittermib.db")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -119,54 +124,94 @@ func run(cfg config) error {
 		"listen", cfg.listen,
 	)
 
-	// Single source of truth: the corpus at cfg.mibsDir. Post
-	// unify-mib-sources (2026-05-07) the embedded bundle and its
-	// {data}/standard-mibs/ staging dir are gone — every MIB the
-	// binary serves comes from the corpus, including the standard
-	// IETF/IANA MIBs.
-	//
-	// libsmi resolves IMPORTS via SMIPATH (set in the compile
-	// subprocess env). SMIPATH treats every entry as a flat
-	// directory of MIB files, so we expand cfg.mibsDir to its
-	// recursive subdir list — otherwise modules under `upload/`,
-	// `vendors/{PEN}-{slug}/`, or any non-standard subdir would be
-	// invisible to the parser when another MIB imports them.
-	importPaths, err := walkMIBDirs(cfg.mibsDir)
+	// The import engine is the curated tree's only writer
+	// (mib-import-pipeline): every custom MIB enters through
+	// mibs/import/, and the persisted store is therefore a
+	// trustworthy cache — boot validates fingerprints instead of
+	// recompiling the corpus.
+	groups, err := mibcorpus.LoadGroups(filepath.Join(cfg.mibsDir, "_groups.yaml"))
 	if err != nil {
-		return fmt.Errorf("walk mibs dir: %w", err)
+		return fmt.Errorf("load groups: %w", err)
 	}
-
-	loader := &loader{
-		compiler: &compile.Compiler{
-			Smidump: &compile.Smidump{Path: "smidump", Paths: importPaths},
-			Smilint: &compile.Smilint{Path: "smilint", Paths: importPaths},
-		},
-		store: st,
+	engine := mibimport.New(cfg.mibsDir, st, groups)
+	engine.Smilint = "smilint"
+	// A read-only corpus (e.g. readOnlyRootFilesystem with no volume
+	// over the baked tree) can't host an intake directory. Degrade
+	// gracefully: keep serving the corpus, disable the pipeline.
+	importOK := true
+	if err := engine.EnsureDirs(); err != nil {
+		slog.Error("import pipeline DISABLED — intake directory is not writable; mount a writable volume to import MIBs",
+			"dir", engine.Dir(), "err", err)
+		importOK = false
 	}
-
-	if err := loader.loadAll(ctx, cfg.mibsDir); err != nil {
-		slog.Warn("initial mib load encountered errors", "err", err)
-	}
-
-	// Watcher: hot-reload on any change in the MIB directory.
-	watcher := watch.New(cfg.mibsDir, 250*time.Millisecond, func(ctx context.Context, files []string) {
-		if err := loader.loadFiles(ctx, files); err != nil {
-			slog.Warn("hot-reload failed", "err", err)
+	if importOK {
+		if n, err := engine.SweepTmp(); err != nil {
+			slog.Warn("import tmp sweep failed", "err", err)
+		} else if n > 0 {
+			slog.Info("cleaned import tmp orphans", "count", n)
 		}
-	})
+	}
 
+	if cfg.rebuild {
+		slog.Info("-rebuild: discarding corpus cache fingerprints")
+		if err := st.ResetSourceFiles(ctx); err != nil {
+			return fmt.Errorf("rebuild: %w", err)
+		}
+	}
+	if _, _, err := engine.SyncCorpus(ctx); err != nil {
+		slog.Warn("corpus cache validation encountered errors", "err", err)
+	}
+
+	// Process anything already sitting in import/ (boot rescan),
+	// then watch the intake dir — non-recursively; the outcome
+	// subdirectories are unwatched by construction.
+	rescan := func(ctx context.Context) {
+		pending, err := engine.Pending()
+		if err != nil {
+			slog.Warn("import rescan failed", "err", err)
+			return
+		}
+		if len(pending) > 0 {
+			engine.Import(ctx, pending)
+		}
+	}
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := watcher.Run(ctx); err != nil {
-			slog.Warn("watcher exited with error", "err", err)
-		}
-	}()
+	if importOK {
+		rescan(ctx)
+
+		watcher := watch.NewSingle(engine.Dir(), 250*time.Millisecond, func(ctx context.Context, files []string) {
+			engine.Import(ctx, files)
+		})
+
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if err := watcher.Run(ctx); err != nil {
+				slog.Warn("watcher exited with error", "err", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			tick := time.NewTicker(rescanInterval)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					rescan(ctx)
+				}
+			}
+		}()
+	}
 
 	web.SetVersion(version)
 	srv := server.New(st, cfg.listen, version, cfg.mibsDir)
-	srv.EnableUploads(loader.loadFilesOutcomes)
+	if importOK {
+		srv.EnableUploads(engine)
+	} else {
+		srv.EnableUploads(nil) // env on + nil engine fails closed with a WARN
+	}
 	err = srv.Start(ctx)
 	wg.Wait()
 
@@ -175,4 +220,25 @@ func run(cfg config) error {
 	}
 	slog.Info("blittermib stopped")
 	return nil
+}
+
+// migrateLegacyUpload renames the pre-import-pipeline drop folder:
+// deployments upgrading in place keep working, their pending files
+// flow through the new pipeline on this same boot.
+func migrateLegacyUpload(mibsDir string) {
+	legacy := filepath.Join(mibsDir, "upload")
+	current := filepath.Join(mibsDir, "import")
+	if _, err := os.Stat(legacy); err != nil {
+		return
+	}
+	if _, err := os.Stat(current); err == nil {
+		slog.Warn("legacy mibs/upload/ present alongside mibs/import/ — not migrating; move its files into import/ manually",
+			"legacy", legacy)
+		return
+	}
+	if err := os.Rename(legacy, current); err != nil {
+		slog.Warn("legacy upload/ migration failed", "err", err)
+		return
+	}
+	slog.Info("migrated legacy mibs/upload/ to mibs/import/")
 }

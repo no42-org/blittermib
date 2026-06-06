@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/no42-org/blittermib/internal/mibcorpus"
+	"github.com/no42-org/blittermib/internal/mibimport"
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/web"
 )
@@ -40,25 +40,30 @@ const (
 	errCodeTooLarge    = "too-large"
 	errCodeIO          = "io"
 	errCodeCompile     = "compile-failed"
+	errCodeDuplicate   = "duplicate"
 )
 
-// uploadOutcome is the per-file response shape. JSON tags align with
-// the spec scenarios in
-// openspec/changes/web-upload/specs/web-upload/spec.md.
+// uploadOutcome is the per-file response shape. Uploads traverse the
+// import pipeline (mib-import-pipeline), so the outcome carries the
+// pipeline status: imported (with module detail + curated dest),
+// failed (reason; file in import/failed/), or duplicate (existing
+// corpus path; file in import/duplicate/). OK stays as the legacy
+// boolean (true only for imported).
 //
 // httpStatus is internal — it lets the handler pick a meaningful
-// HTTP status code on a single-file batch (200/400/409/413/422) so
-// the spec's "the response is 413" scenarios hold without making the
-// caller scrape an HTTP body to discover what went wrong. For
-// multi-file batches, we always return 200 and the per-file outcomes
-// carry the detail.
+// HTTP status code on a single-file batch so the spec's "the
+// response is 413" scenarios hold. Multi-file batches always return
+// 200 with per-file detail.
 type uploadOutcome struct {
 	Name        string             `json:"name"`
 	OK          bool               `json:"ok"`
+	Status      string             `json:"status,omitempty"` // imported | failed | duplicate
 	Module      string             `json:"module,omitempty"`
 	Symbols     int                `json:"symbols,omitempty"`
 	OID         string             `json:"oid,omitempty"`
 	Diagnostics []model.Diagnostic `json:"diagnostics,omitempty"`
+	Dest        string             `json:"dest,omitempty"`     // curated path (imported)
+	Existing    string             `json:"existing,omitempty"` // corpus path (duplicate)
 	Replaced    bool               `json:"replaced,omitempty"`
 	Error       string             `json:"error,omitempty"`
 	ErrorCode   string             `json:"errorCode,omitempty"`
@@ -70,22 +75,10 @@ type uploadResponse struct {
 	Uploaded []uploadOutcome `json:"uploaded"`
 }
 
-// handleUpload implements the multi-file batched upload pipeline
-// per design.md D4 + D5 + D6a:
-//
-//  1. validate each multipart part's filename (ValidModuleName)
-//  2. enforce 10 MB cap per file via a LimitReader
-//  3. atomic-write the bytes to mibs/upload/.tmp/<name>.upload
-//  4. sniff the temp file with HasMIBOpener
-//  5. on collision, refuse unless ?replace=true
-//  6. rename(2) into mibs/upload/<name>
-//  7. once ALL accepted parts are written, fire one loadFiles call
-//     so smidump's IMPORTS resolver sees the whole batch on disk
-//  8. emit per-file outcomes as JSON
-//
-// All step-level failures attach to the per-file outcome and the
-// handler keeps processing remaining parts. The watcher will fire
-// after the renames and recompile redundantly (D6b — accepted).
+// handleUpload accepts a multipart batch, atomically stages each
+// accepted part into import/ (the single intake path), then runs the
+// import pipeline once for the whole batch so intra-batch IMPORTS
+// resolve. The response reports the pipeline outcome per file.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -105,8 +98,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpDir := filepath.Join(s.uploadDir, ".tmp")
-	if err := os.MkdirAll(tmpDir, 0o750); err != nil {
+	if err := s.importer.EnsureDirs(); err != nil {
 		s.internalError(w, r, err)
 		return
 	}
@@ -123,45 +115,65 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "malformed multipart body", http.StatusBadRequest)
 			return
 		}
-		oc := s.processUploadPart(part, replace, tmpDir)
+		oc := s.processUploadPart(part, replace)
 		_ = part.Close()
 		outcomes = append(outcomes, oc)
 		if oc.OK {
-			acceptedPaths = append(acceptedPaths, filepath.Join(s.uploadDir, oc.Name))
+			acceptedPaths = append(acceptedPaths, filepath.Join(s.importer.Dir(), oc.Name))
 		}
 	}
 
-	// D14 — write all parts first, fire loadFiles ONCE so smidump's
+	// Stage all parts first, run the pipeline ONCE so smidump's
 	// IMPORTS resolver sees prerequisites on disk regardless of part
 	// arrival order in the multipart body.
-	if len(acceptedPaths) > 0 && s.loadFiles != nil {
-		results := s.loadFiles(r.Context(), acceptedPaths)
-		byPath := make(map[string]LoadOutcome, len(results))
-		for _, r := range results {
-			byPath[r.Path] = r
+	if len(acceptedPaths) > 0 {
+		var results []mibimport.Outcome
+		if replace {
+			results = s.importer.ImportReplace(r.Context(), acceptedPaths)
+		} else {
+			results = s.importer.Import(r.Context(), acceptedPaths)
+		}
+		byPath := make(map[string]mibimport.Outcome, len(results))
+		for _, res := range results {
+			byPath[res.Path] = res
 		}
 		for i := range outcomes {
 			if !outcomes[i].OK {
 				continue
 			}
-			path := filepath.Join(s.uploadDir, outcomes[i].Name)
-			res, ok := byPath[path]
+			res, ok := byPath[filepath.Join(s.importer.Dir(), outcomes[i].Name)]
 			if !ok {
+				// Pipeline deferred the file (settle window / budget);
+				// the rescan will pick it up. NOT a success — the
+				// import has not happened yet.
+				outcomes[i].OK = false
+				outcomes[i].Status = "pending"
+				outcomes[i].Error = "import deferred; the file is queued and will be processed shortly"
+				outcomes[i].ErrorCode = "pending"
 				continue
 			}
-			if res.Err != nil {
+			outcomes[i].Status = string(res.Status)
+			switch res.Status {
+			case mibimport.StatusImported:
+				if res.Module != nil {
+					outcomes[i].Module = res.Module.Name
+					outcomes[i].OID = res.Module.OIDRoot
+				}
+				outcomes[i].Symbols = res.SymbolCount
+				outcomes[i].Diagnostics = res.Diagnostics
+				outcomes[i].Dest = res.Dest
+			case mibimport.StatusDuplicate:
 				outcomes[i].OK = false
-				outcomes[i].Error = "compile failed: " + res.Err.Error()
+				outcomes[i].Existing = res.Existing
+				outcomes[i].Error = res.Reason
+				outcomes[i].ErrorCode = errCodeDuplicate
+				outcomes[i].httpStatus = http.StatusConflict
+			default: // failed
+				outcomes[i].OK = false
+				outcomes[i].Error = res.Reason
 				outcomes[i].ErrorCode = errCodeCompile
 				outcomes[i].httpStatus = http.StatusUnprocessableEntity
-				continue
 			}
-			if res.Module != nil {
-				outcomes[i].Module = res.Module.Name
-				outcomes[i].OID = res.Module.OIDRoot
-			}
-			outcomes[i].Symbols = res.SymbolCount
-			outcomes[i].Diagnostics = res.Diagnostics
 		}
 	}
 
@@ -181,23 +193,18 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// processUploadPart handles a single multipart part end-to-end:
-// validate, write to tmp, sniff, rename. Returns an outcome that
-// already has Name + OK + Error + httpStatus filled in; the
-// post-batch compile pass adds Module/OID/Symbols/Diagnostics for
-// successful entries.
+// processUploadPart stages a single multipart part into import/:
+// validate, write to import/.tmp, sniff, link/rename into place.
+// Returns an outcome with Name + OK + Error + httpStatus filled in;
+// the pipeline pass fills the rest for accepted entries.
 func (s *Server) processUploadPart(part interface {
 	FileName() string
 	io.Reader
-}, replace bool, tmpDir string) uploadOutcome {
+}, replace bool) uploadOutcome {
 	raw := part.FileName()
 	// Reject path separators and traversal segments BEFORE
 	// filepath.Base — otherwise `../../../etc/passwd` collapses to
-	// `passwd` and silently writes to mibs/upload/passwd.
-	// Reject only the literal traversal forms (`.`, `..`, the empty
-	// string) and characters that have no business in a MIB filename
-	// (path separators, NUL). Don't reject embedded `..` substrings —
-	// names like `MY..DRAFT-MIB` are legitimate per ValidModuleName.
+	// `passwd` and silently writes into the intake dir.
 	if raw == "" || raw == "." || raw == ".." ||
 		strings.ContainsAny(raw, "/\\\x00") {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
@@ -219,7 +226,7 @@ func (s *Server) processUploadPart(part interface {
 		return oc
 	}
 
-	target := filepath.Join(s.uploadDir, name)
+	target := filepath.Join(s.importer.Dir(), name)
 	existed := false
 	if _, err := os.Lstat(target); err == nil {
 		existed = true
@@ -232,7 +239,7 @@ func (s *Server) processUploadPart(part interface {
 	}
 	if existed && !replace {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
-		oc.Error = "destination already exists"
+		oc.Error = "a file with this name is already pending import"
 		oc.ErrorCode = errCodeExists
 		oc.httpStatus = http.StatusConflict
 		return oc
@@ -248,8 +255,8 @@ func (s *Server) processUploadPart(part interface {
 		oc.httpStatus = http.StatusInternalServerError
 		return oc
 	}
-	tmpPath := filepath.Join(tmpDir, name+"."+suffix+".upload")
-	// #nosec G304 -- tmpPath is filepath.Join(tmpDir, validatedName + crypto-random suffix); rooted under s.uploadDir/.tmp.
+	tmpPath := filepath.Join(s.importer.TmpDir(), name+"."+suffix+".upload")
+	// #nosec G304 -- tmpPath is filepath.Join(TmpDir, validatedName + crypto-random suffix); rooted under import/.tmp.
 	f, err := os.Create(tmpPath)
 	if err != nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
@@ -294,6 +301,9 @@ func (s *Server) processUploadPart(part interface {
 		return oc
 	}
 	if !ok {
+		// The synchronous front rejects non-MIBs at the door without
+		// touching import/ (folder drops of non-MIBs quarantine
+		// instead — they have no requester to answer).
 		_ = os.Remove(tmpPath)
 		oc.Error = "no MIB marker"
 		oc.ErrorCode = errCodeNoMarker
@@ -302,17 +312,10 @@ func (s *Server) processUploadPart(part interface {
 	}
 
 	// Two paths:
-	//   replace=true  → os.Rename (clobbers existing target). The
-	//                   user explicitly asked for replace, so we
-	//                   honour it regardless of whether Lstat saw
-	//                   the file at request start (a concurrent
-	//                   uploader may have created it since).
-	//   replace=false → os.Link (atomic claim). Link returns EEXIST
-	//                   if the target already exists, eliminating
-	//                   the Lstat→Rename TOCTOU. Even though we
-	//                   already checked for collision above, this
-	//                   guards against a concurrent uploader that
-	//                   created the target after our Lstat.
+	//   replace=true  → os.Rename (clobbers a same-name pending file).
+	//   replace=false → os.Link (atomic claim; EEXIST eliminates the
+	//                   Lstat→Rename TOCTOU against a concurrent
+	//                   uploader).
 	if replace {
 		if err := os.Rename(tmpPath, target); err != nil {
 			_ = os.Remove(tmpPath)
@@ -325,7 +328,7 @@ func (s *Server) processUploadPart(part interface {
 		if err := os.Link(tmpPath, target); err != nil {
 			_ = os.Remove(tmpPath)
 			if errors.Is(err, os.ErrExist) {
-				oc.Error = "destination already exists"
+				oc.Error = "a file with this name is already pending import"
 				oc.ErrorCode = errCodeExists
 				oc.httpStatus = http.StatusConflict
 				return oc
@@ -335,10 +338,6 @@ func (s *Server) processUploadPart(part interface {
 			oc.httpStatus = http.StatusInternalServerError
 			return oc
 		}
-		// Link succeeded; remove the now-redundant tmp file. A
-		// remove failure leaks a tmp file but the upload itself
-		// is durable; log once at WARN so the operator can spot
-		// recurring leaks via slog filters.
 		if err := os.Remove(tmpPath); err != nil {
 			slog.Warn("upload tmp cleanup failed", "path", tmpPath, "err", err)
 		}
@@ -360,19 +359,14 @@ func randHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// handleUploadDelete removes a single file from mibs/upload/. The
-// only accepted path shape is /api/v1/upload/<name> where <name>
-// passes ValidModuleName; anything escaping mibs/upload/ via
-// ../-style traversal or absolute paths is refused.
+// handleUploadDelete serves /api/v1/upload/{name}:
 //
-// On success, the watcher's debounced reload drops the corresponding
-// module from the store within ~250 ms (per the existing fsnotify
-// pipeline); we don't need to wire a synchronous unload here.
+//	DELETE ?from=pending|failed|duplicate  → remove the file (and its
+//	        sidecar for quarantined entries). Default: pending.
+//	POST   ?action=replace&from=duplicate|failed → re-run the file
+//	        through the pipeline with replacement allowed (the
+//	        sanctioned overwrite path for updating a module, D11).
 func (s *Server) handleUploadDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	if r.Header.Get(uploadCSRFHeader) == "" {
 		http.Error(w, "missing CSRF header", http.StatusForbidden)
 		return
@@ -382,203 +376,110 @@ func (s *Server) handleUploadDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rawName := strings.TrimPrefix(r.URL.Path, prefix)
-	// URL-decoded by net/http during routing; defend against any
-	// surviving traversal characters by going through filepath.Base
-	// + ValidModuleName.
-	name := filepath.Base(rawName)
-	if name == "" || name == "." || name == ".." {
+	name := filepath.Base(strings.TrimPrefix(r.URL.Path, prefix))
+	if name == "" || name == "." || name == ".." ||
+		!mibcorpus.ValidModuleName.MatchString(name) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if !mibcorpus.ValidModuleName.MatchString(name) {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+
+	dir := s.importer.Dir()
+	switch r.URL.Query().Get("from") {
+	case "failed":
+		dir = s.importer.FailedDir()
+	case "duplicate":
+		dir = s.importer.DuplicateDir()
+	case "", "pending":
+	default:
+		http.Error(w, "invalid from", http.StatusBadRequest)
 		return
 	}
-	target := filepath.Join(s.uploadDir, name)
-	// Defence-in-depth: even after ValidModuleName, refuse anything
-	// that doesn't resolve to a child of s.uploadDir.
-	rel, err := filepath.Rel(s.uploadDir, target)
-	if err != nil || !filepath.IsLocal(rel) {
-		http.Error(w, "invalid name", http.StatusBadRequest)
-		return
-	}
-	if err := os.Remove(target); err != nil {
-		if os.IsNotExist(err) {
-			http.NotFound(w, r)
+
+	switch r.Method {
+	case http.MethodDelete:
+		if err := mibimport.RemoveQuarantined(dir, name); err != nil {
+			if os.IsNotExist(err) {
+				http.NotFound(w, r)
+				return
+			}
+			s.internalError(w, r, err)
 			return
 		}
-		s.internalError(w, r, err)
-		return
+		w.WriteHeader(http.StatusNoContent)
+
+	case http.MethodPost:
+		if r.URL.Query().Get("action") != "replace" {
+			http.Error(w, "unknown action", http.StatusBadRequest)
+			return
+		}
+		// The sanctioned overwrite path applies to QUARANTINED files
+		// only (design D11) — pending intake files go through the
+		// normal pipeline, which quarantines duplicates for an
+		// explicit decision.
+		if dir == s.importer.Dir() {
+			http.Error(w, "replace applies to quarantined files (from=failed|duplicate)", http.StatusBadRequest)
+			return
+		}
+		res := s.importer.ImportReplacing(r.Context(), filepath.Join(dir, name))
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if res.Status != mibimport.StatusImported {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+		}
+		_ = json.NewEncoder(w).Encode(res)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleUploadIndex renders the /upload management page: the same
-// drop zone the landing page hosts, plus a list of every entry
-// currently in mibs/upload/ regardless of load state. Each row
-// shows the filename, size, load state (loaded / parse error /
-// non-MIB), and a delete affordance. Files whose module name also
-// resolves to a corpus path outside upload/ get a `shadows: <path>`
-// annotation per design.md D10.
-func (s *Server) handleUploadIndex(w http.ResponseWriter, r *http.Request) {
+// handleImportIndex renders the /import management page: drop zone,
+// pending intake files, the failed/ and duplicate/ quarantines with
+// their sidecar reasons, and recent pipeline outcomes from the store.
+func (s *Server) handleImportIndex(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	rows, err := s.uploadRows(r.Context())
-	if err != nil {
-		s.internalError(w, r, err)
-		return
+	view := web.ImportView{}
+
+	if pending, err := s.importer.Pending(); err == nil {
+		for _, p := range pending {
+			info, err := os.Stat(p)
+			if err != nil {
+				continue
+			}
+			view.Pending = append(view.Pending, web.ImportPendingRow{
+				Name: filepath.Base(p), Size: info.Size(),
+			})
+		}
 	}
-	render(w, r, http.StatusOK, web.UploadIndex(rows))
+	if failed, err := mibimport.ListQuarantine(s.importer.FailedDir()); err == nil {
+		for _, q := range failed {
+			view.Failed = append(view.Failed, quarantineRow(q))
+		}
+	}
+	if dups, err := mibimport.ListQuarantine(s.importer.DuplicateDir()); err == nil {
+		for _, q := range dups {
+			view.Duplicate = append(view.Duplicate, quarantineRow(q))
+		}
+	}
+	if recent, err := s.store.ListImportOutcomes(r.Context(), 50); err == nil {
+		for _, o := range recent {
+			view.Recent = append(view.Recent, web.ImportRecentRow{
+				Name: o.Name, Status: o.Status, Module: o.ModuleName,
+				Detail: o.Detail, OccurredAt: o.OccurredAt,
+			})
+		}
+	}
+	render(w, r, http.StatusOK, web.ImportIndex(view))
 }
 
-// uploadRows lists mibs/upload/ entries (skipping .gitkeep, hidden
-// dirs like .tmp/) and decorates each with load state + shadow
-// annotation.
-//
-// Load-state lookup keys by SourcePath, NOT by filename. A MIB's
-// module name (the identifier inside the file) is often unrelated to
-// its filename — `cisco-bgp4.mib` may declare module
-// `CISCO-BGP4-MIB`. Asking the store via GetModule(filename) would
-// silently misclassify those as "parse error".
-//
-// Shadow detection: if the basename appears anywhere else under
-// s.mibsDir (outside upload/), the row carries the corpus-relative
-// path of that file. Walked once per request — for a 322-file
-// corpus this is <50 ms; not worth caching for v1.
-func (s *Server) uploadRows(ctx context.Context) ([]web.UploadRow, error) {
-	entries, err := os.ReadDir(s.uploadDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
+func quarantineRow(q mibimport.QuarantineEntry) web.ImportQuarantineRow {
+	return web.ImportQuarantineRow{
+		Name:       q.Name,
+		Size:       q.Size,
+		Reason:     q.Sidecar.Reason,
+		Existing:   q.Sidecar.Existing,
+		OccurredAt: q.Sidecar.OccurredAt,
 	}
-	shadows, err := s.shadowMap()
-	if err != nil {
-		// Log and continue — shadow info is decorative, not load-
-		// bearing.
-		slog.Warn("shadow map walk failed; rows will lack shadow annotations", "err", err)
-		shadows = nil
-	}
-	// Build a path-keyed index of loaded modules so per-row lookup
-	// is O(1) on a path basis (vs the broken filename-based key).
-	bySrc, _ := s.modulesBySourcePath(ctx)
-
-	var rows []web.UploadRow
-	for _, e := range entries {
-		name := e.Name()
-		// Skip exactly the staging-only files: .gitkeep and the
-		// .tmp/ directory. Other dotfiles (real ones the operator
-		// dropped) still surface so they can be deleted via the UI.
-		if name == ".gitkeep" || (e.IsDir() && name == ".tmp") {
-			continue
-		}
-		if e.IsDir() {
-			continue
-		}
-		path := filepath.Join(s.uploadDir, name)
-		info, err := e.Info()
-		if err != nil {
-			slog.Warn("upload row stat failed; skipping", "name", name, "err", err)
-			continue
-		}
-		row := web.UploadRow{
-			Name: name,
-			Size: info.Size(),
-		}
-		if mod, ok := bySrc[path]; ok {
-			row.State = "loaded"
-			row.Module = mod.Name
-			if diags, dErr := s.store.ListDiagnosticsByModule(ctx, mod.Name); dErr == nil {
-				row.DiagCount = len(diags)
-			}
-		} else {
-			// Either nothing loaded for this file, or the loaded
-			// module under this name has a SourcePath elsewhere.
-			// Sniff the marker to decide between parse-error and
-			// non-MIB.
-			ok, sErr := mibcorpus.HasMIBOpener(path)
-			switch {
-			case sErr != nil:
-				slog.Warn("upload row sniff failed", "name", name, "err", sErr)
-				row.State = "parse error"
-			case ok:
-				row.State = "parse error"
-			default:
-				row.State = "non-MIB skipped"
-			}
-		}
-		// Shadow annotation: this upload masks a corpus file with
-		// the same basename.
-		if rel, ok := shadows[name]; ok {
-			row.Shadows = rel
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
-// modulesBySourcePath returns a map of canonical source path →
-// module pointer for every loaded module. Used by uploadRows to
-// resolve "is this file loaded?" correctly even when filename and
-// module name diverge.
-func (s *Server) modulesBySourcePath(ctx context.Context) (map[string]*model.Module, error) {
-	mods, err := s.store.ListModules(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]*model.Module, len(mods))
-	for i := range mods {
-		if mods[i].SourcePath == "" {
-			continue
-		}
-		out[mods[i].SourcePath] = &mods[i]
-	}
-	return out, nil
-}
-
-// shadowMap builds a basename → corpus-relative path index of every
-// MIB-shaped file UNDER s.mibsDir but NOT under s.uploadDir. The
-// /upload page uses this to flag which uploads mask a curated
-// corpus file (the operator deserves to know: deleting the upload
-// entry will unload the module entirely, not "fall back" to the
-// corpus version automatically).
-func (s *Server) shadowMap() (map[string]string, error) {
-	out := make(map[string]string)
-	err := filepath.WalkDir(s.mibsDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if path != s.mibsDir && (strings.HasPrefix(name, ".") || name == "LICENSES" || name == "upload") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		base := d.Name()
-		if strings.HasPrefix(base, ".") {
-			return nil
-		}
-		// Sniff per file: the upload sniffer accepts anything that
-		// passes HasMIBOpener regardless of extension, so shadow
-		// detection mirrors that policy. Without this, README,
-		// LICENSE, Makefile and other non-MIB corpus files would
-		// generate spurious shadow annotations on uploads with
-		// matching basenames.
-		ok, err := mibcorpus.HasMIBOpener(path)
-		if err != nil || !ok {
-			return nil
-		}
-		rel, err := filepath.Rel(s.mibsDir, path)
-		if err != nil {
-			return nil
-		}
-		out[base] = rel
-		return nil
-	})
-	return out, err
 }

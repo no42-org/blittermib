@@ -261,7 +261,7 @@ func findDivergentIdentity(parsed []result) []Finding {
 
 // findBrokenAndNonMIB converts the parseErrors slice (the second
 // return of classifyFiles) into `broken` and `non-mib` findings
-// so the report surfaces every upload-folder leftover in one
+// so the report surfaces every import-folder leftover in one
 // place. `outcomeParseError` → `broken` (severity `warn`, the
 // file has the SMI marker but smidump rejected it); other
 // outcomes that surface in parseErrors are non-MIB skips —
@@ -371,9 +371,9 @@ func crossDirectory(sources []string, srcRoot string) bool {
 }
 
 // immediateParentUnder returns the name of the immediate child of
-// `srcRoot` on `src`'s ancestor chain. For `srcRoot=mibs/upload`
-// and `src=mibs/upload/archive-a/foo.mib` it returns `archive-a`.
-// For `src=mibs/upload/foo.mib` (file directly under srcRoot) it
+// `srcRoot` on `src`'s ancestor chain. For `srcRoot=mibs/import`
+// and `src=mibs/import/archive-a/foo.mib` it returns `archive-a`.
+// For `src=mibs/import/foo.mib` (file directly under srcRoot) it
 // returns the empty string. Returns the empty string on any
 // `filepath.Rel` failure (e.g. abs-vs-rel mismatch).
 func immediateParentUnder(src, srcRoot string) string {

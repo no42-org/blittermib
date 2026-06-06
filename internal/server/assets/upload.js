@@ -86,13 +86,21 @@ window.dropZone = function () {
 						self.results.unshift({
 							name: r.name,
 							ok: !!r.ok,
+							// Pipeline status: imported | failed |
+							// duplicate (mib-import-pipeline). Older
+							// fields stay for the result row template.
+							status: r.status || (r.ok ? 'imported' : 'failed'),
 							module: r.module || '',
 							symbols: r.symbols || 0,
+							dest: r.dest || '',
+							existing: r.existing || '',
 							error: r.error || '',
 							// canReplace is driven by the server's
-							// stable errorCode field (was a fragile
-							// substring match on English error text).
-							canReplace: !r.ok && r.errorCode === 'exists',
+							// stable errorCode fields: a same-name
+							// pending collision OR a module duplicate
+							// both offer the explicit replace path.
+							canReplace: !r.ok &&
+								(r.errorCode === 'exists' || r.errorCode === 'duplicate'),
 							ts: ts,
 						});
 					});

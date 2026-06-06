@@ -45,5 +45,5 @@ coverage.html
 # Local drop-folder contents must never bake into the image — the
 # corpus ships, the operator's pending uploads don't. (.gitkeep
 # stays so the upload/ directory exists in the image.)
-mibs/upload/*
-!mibs/upload/.gitkeep
+mibs/import/*
+!mibs/import/.gitkeep

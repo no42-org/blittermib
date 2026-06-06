@@ -14,7 +14,7 @@ import (
 templ Workspace(view *WorkspaceView) {
 	@Base(view.Module.Name + " · blittermib") {
 		@workspaceStatusBar(view)
-		@moduleInfoBar(view.Module, view.ModuleDownloadable, view.BundleFileCount, view.ModuleDeletable, view.HasNotifications)
+		@moduleInfoBar(view.Module, view.ModuleDownloadable, view.BundleFileCount, view.HasNotifications)
 		@typeDefsBar(view)
 		// The htmx swap attributes live ONCE here and are inherited by
 		// every in-workspace hx-get inside the grid (tree links, list
@@ -375,8 +375,8 @@ templ trapSimulatorModal() {
 // has focus, and `click.stop` alone leaves the keyboard path
 // unprotected. With both modifiers, the user can keyboard-Tab to
 // the link and press Enter to download without toggling the bar.
-templ moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int, deletable bool, hasNotifications bool) {
-	if mod != nil && (mod.Description != "" || mod.Organization != "" || len(mod.Imports) > 0 || downloadable || deletable || hasNotifications) {
+templ moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int, hasNotifications bool) {
+	if mod != nil && (mod.Description != "" || mod.Organization != "" || len(mod.Imports) > 0 || downloadable || hasNotifications) {
 		<details class="module-info">
 			<summary class="module-info-summary">
 				<span class="module-info-chevron" aria-hidden="true">▸</span>
@@ -415,14 +415,6 @@ templ moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int, d
 								x-on:keydown.stop>↓ events.xml</a>
 						}
 					</span>
-				}
-				if deletable {
-					<button class="module-info-delete"
-						type="button"
-						title={ "Remove " + mod.Name + " from mibs/upload/" }
-						onclick={ confirmAndDeleteModule(mod.Name, uploadFilename(mod.SourcePath)) }
-						x-on:click.stop
-						x-on:keydown.stop>✕</button>
 				}
 			</summary>
 			<div class="module-info-body">
@@ -1135,29 +1127,3 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 }
 
 
-// confirmAndDeleteModule is the inline-✕ click handler on the
-// module-info bar. Mirrors the /upload page's row-level affordance
-// (D9 — window.confirm before destruction). The prompt names the
-// FILENAME (what's actually being deleted), not the module name —
-// they often diverge (file `cisco-bgp4.mib` declaring module
-// `CISCO-BGP4-MIB`). Adds the X-Blittermib-Upload sentinel header
-// so cross-origin browsers can't trigger DELETE without a CORS
-// preflight (which we don't honour). On 204, redirects to /.
-script confirmAndDeleteModule(moduleName, fileName string) {
-	var label = fileName === moduleName ? fileName : (fileName + ' (module ' + moduleName + ')');
-	if (!window.confirm('Delete ' + label + ' from mibs/upload/?')) return;
-	fetch('/api/v1/upload/' + encodeURIComponent(fileName), {
-		method: 'DELETE',
-		headers: { 'X-Blittermib-Upload': '1' },
-	})
-		.then(function (resp) {
-			if (resp.status === 204) {
-				window.location.href = '/';
-				return;
-			}
-			window.alert('Delete failed: HTTP ' + resp.status);
-		})
-		.catch(function (err) {
-			window.alert('Delete failed: ' + err);
-		});
-}

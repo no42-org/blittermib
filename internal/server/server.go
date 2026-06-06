@@ -6,34 +6,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
-	"github.com/no42-org/blittermib/internal/model"
+	"github.com/no42-org/blittermib/internal/mibimport"
 	"github.com/no42-org/blittermib/internal/store"
 )
-
-// LoadOutcome is a per-file result of a synchronous compile + store
-// pass triggered by the upload handler. The handler folds these
-// into the JSON response so the operator sees parse status without a
-// follow-up request (per design.md D3). cmd/blittermib's loader is
-// responsible for populating these from compile.Result; the server
-// package never imports compile directly.
-type LoadOutcome struct {
-	Path        string
-	Module      *model.Module // nil when Err != nil
-	SymbolCount int
-	Diagnostics []model.Diagnostic
-	Err         error
-}
-
-// LoadFunc compiles + ingests one or more MIB files into the store
-// and returns one outcome per input path (in any order). Wired by
-// the parent (cmd/blittermib) via EnableUploads so the upload handler
-// can compile inline without the internal/server package depending
-// on the loader implementation.
-type LoadFunc func(ctx context.Context, paths []string) []LoadOutcome
 
 // Server is the blittermib HTTP server.
 type Server struct {
@@ -43,10 +21,11 @@ type Server struct {
 
 	// Upload surface — wired by EnableUploads when
 	// BLITTERMIB_UPLOAD_ENABLED is true. Both fields stay nil/false
-	// in the default boring configuration.
+	// in the default boring configuration. The importer is the
+	// single intake pipeline (mib-import-pipeline): uploads land in
+	// import/ and traverse the same engine as filesystem drops.
 	uploadsEnabled bool
-	uploadDir      string
-	loadFiles      LoadFunc
+	importer       *mibimport.Engine
 
 	mux  *http.ServeMux
 	http *http.Server
@@ -86,25 +65,24 @@ func New(st *store.Store, addr, version, mibsDir string) *Server {
 // so they 404 via the catch-all, and the conditional UI fragments
 // keyed off s.UploadsEnabled() stay absent from rendered HTML.
 //
-// The load callback is invoked inline by the upload handler to
-// compile newly-written files synchronously (per D3). Passing a
-// nil load function while the env var is truthy is a configuration
+// The import engine is invoked inline by the upload handler so the
+// response carries per-file imported/failed/duplicate outcomes.
+// Passing a nil engine while the env var is truthy is a configuration
 // error; uploads are still disabled in that case so a misconfigured
 // deployment fails closed rather than open. The mismatch is logged
 // at WARN so an operator who set the env var but wired no callback
 // gets a signal in the log instead of silent 404s.
-func (s *Server) EnableUploads(loadFiles LoadFunc) {
+func (s *Server) EnableUploads(importer *mibimport.Engine) {
 	envOn := uploadEnvEnabled()
 	if !envOn {
 		return
 	}
-	if loadFiles == nil {
-		slog.Warn("BLITTERMIB_UPLOAD_ENABLED is true but no load callback was wired; uploads stay disabled")
+	if importer == nil {
+		slog.Warn("BLITTERMIB_UPLOAD_ENABLED is true but no import engine was wired; uploads stay disabled")
 		return
 	}
 	s.uploadsEnabled = true
-	s.uploadDir = filepath.Join(s.mibsDir, "upload")
-	s.loadFiles = loadFiles
+	s.importer = importer
 	s.routesUpload()
 }
 

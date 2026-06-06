@@ -71,22 +71,22 @@ fetch-fonts:
 	@echo "fetched Inter + JetBrains Mono -> internal/server/assets/fonts/"
 
 # Fetch IETF/IANA standard MIBs from libsmi's source distribution into
-# mibs/upload/. They are then classified and committed into the corpus
+# mibs/import/. They are then classified and committed into the corpus
 # the same way as contributor MIBs: run `make ingest` after this and
 # review the resulting tree under mibs/ietf/ + mibs/iana/.
 LIBSMI_TARBALL := https://www.ibr.cs.tu-bs.de/projects/libsmi/download/libsmi-0.5.0.tar.gz
 fetch-standard-mibs:
-	@mkdir -p mibs/upload
+	@mkdir -p mibs/import
 	@tmp=$$(mktemp -d) && \
 	curl -fL --silent --show-error -o $$tmp/libsmi.tar.gz $(LIBSMI_TARBALL) && \
 	tar -xz -C $$tmp -f $$tmp/libsmi.tar.gz && \
 	src=$$(find $$tmp -maxdepth 2 -type d -name mibs | head -1) && \
-	cp $$src/iana/* mibs/upload/ 2>/dev/null || true && \
-	cp $$src/ietf/* mibs/upload/ 2>/dev/null || true && \
-	cp $$src/site/* mibs/upload/ 2>/dev/null || true && \
+	cp $$src/iana/* mibs/import/ 2>/dev/null || true && \
+	cp $$src/ietf/* mibs/import/ 2>/dev/null || true && \
+	cp $$src/site/* mibs/import/ 2>/dev/null || true && \
 	rm -rf $$tmp && \
-	count=$$(ls mibs/upload/ | grep -v '^\.gitkeep$$' | wc -l | tr -d ' ') && \
-	echo "fetched $$count standard MIBs -> mibs/upload/" && \
+	count=$$(ls mibs/import/ | grep -v '^\.gitkeep$$' | wc -l | tr -d ' ') && \
+	echo "fetched $$count standard MIBs -> mibs/import/" && \
 	echo "next: run 'make ingest' to classify them into the corpus"
 
 # refresh-pen pulls the upstream IANA Private Enterprise Number registry
@@ -132,7 +132,7 @@ index:
 	$(GO) run ./cmd/mib-index --root mibs --out mibs/INDEX.yaml --overrides mibs/_overrides.yaml
 
 # ingest classifies and routes MIBs that contributors drop into
-# mibs/upload/ — moves successfully-classified files to their
+# mibs/import/ — moves successfully-classified files to their
 # canonical corpus destinations and runs `make index` afterwards.
 # For flag-bearing invocations (`--dry-run`, `--git-add`,
 # `--no-index`), invoke the binary directly:
@@ -140,7 +140,7 @@ index:
 ingest:
 	$(GO) run ./cmd/mib-ingest
 
-# ingest-report runs the read-only triage report against mibs/upload/.
+# ingest-report runs the read-only triage report against mibs/import/.
 # Recommended pre-flight for large vendor archives — surfaces seven
 # finding categories in one pass without moving any files:
 # byte-identical, module-name-collision, oid-arc-sharing,
@@ -319,7 +319,7 @@ help:
 	@echo "make refresh-pen refresh the IANA PEN registry snapshot"
 	@echo "make index       regenerate mibs/INDEX.yaml from the corpus"
 	@echo "make verify-mibs run the local MIB-corpus checks (lexical + naming + parse)"
-	@echo "make ingest      classify and route MIBs in mibs/upload/ into the corpus"
+	@echo "make ingest      classify and route MIBs in mibs/import/ into the corpus"
 	@echo "                 (flags: 'go run ./cmd/mib-ingest --dry-run|--git-add|--no-index')"
-	@echo "make ingest-report read-only triage of mibs/upload/ (recommended for large archives)"
-	@echo "make fetch-standard-mibs  download IETF/IANA standard MIBs into mibs/upload/ (then run make ingest)"
+	@echo "make ingest-report read-only triage of mibs/import/ (recommended for large archives)"
+	@echo "make fetch-standard-mibs  download IETF/IANA standard MIBs into mibs/import/ (then run make ingest)"

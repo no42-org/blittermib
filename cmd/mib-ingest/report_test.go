@@ -28,10 +28,10 @@ func r(src, mod, oid, lu, sha string) result {
 
 func TestFindByteIdentical(t *testing.T) {
 	t.Run("two identical files in different archives", func(t *testing.T) {
-		srcRoot := filepath.FromSlash("mibs/upload")
+		srcRoot := filepath.FromSlash("mibs/import")
 		parsed := []result{
-			r(filepath.FromSlash("mibs/upload/archive-a/SNMPv2-SMI.txt"), "SNMPv2-SMI", "", "", "sha-abc"),
-			r(filepath.FromSlash("mibs/upload/archive-b/SNMPv2-SMI.txt"), "SNMPv2-SMI", "", "", "sha-abc"),
+			r(filepath.FromSlash("mibs/import/archive-a/SNMPv2-SMI.txt"), "SNMPv2-SMI", "", "", "sha-abc"),
+			r(filepath.FromSlash("mibs/import/archive-b/SNMPv2-SMI.txt"), "SNMPv2-SMI", "", "", "sha-abc"),
 		}
 		got := findByteIdentical(parsed, srcRoot)
 		if len(got) != 1 {
@@ -49,8 +49,8 @@ func TestFindByteIdentical(t *testing.T) {
 		}
 		// Sources must be lex-sorted.
 		want := []string{
-			filepath.FromSlash("mibs/upload/archive-a/SNMPv2-SMI.txt"),
-			filepath.FromSlash("mibs/upload/archive-b/SNMPv2-SMI.txt"),
+			filepath.FromSlash("mibs/import/archive-a/SNMPv2-SMI.txt"),
+			filepath.FromSlash("mibs/import/archive-b/SNMPv2-SMI.txt"),
 		}
 		if !reflect.DeepEqual(f.Sources, want) {
 			t.Errorf("sources = %v, want %v", f.Sources, want)
@@ -58,10 +58,10 @@ func TestFindByteIdentical(t *testing.T) {
 	})
 
 	t.Run("same-parent duplicates → cross_directory false", func(t *testing.T) {
-		srcRoot := filepath.FromSlash("mibs/upload")
+		srcRoot := filepath.FromSlash("mibs/import")
 		parsed := []result{
-			r(filepath.FromSlash("mibs/upload/foo.mib"), "X-MIB", "", "", "sha-x"),
-			r(filepath.FromSlash("mibs/upload/bar.mib"), "X-MIB", "", "", "sha-x"),
+			r(filepath.FromSlash("mibs/import/foo.mib"), "X-MIB", "", "", "sha-x"),
+			r(filepath.FromSlash("mibs/import/bar.mib"), "X-MIB", "", "", "sha-x"),
 		}
 		got := findByteIdentical(parsed, srcRoot)
 		if len(got) != 1 {
@@ -257,7 +257,7 @@ func TestFindBrokenAndNonMIB(t *testing.T) {
 	t.Run("parse error → broken / warn", func(t *testing.T) {
 		input := []result{
 			{
-				src:     "mibs/upload/BROKEN.mib",
+				src:     "mibs/import/BROKEN.mib",
 				outcome: outcomeParseError,
 				reason:  "smidump failed: syntax error at line 47",
 			},
@@ -270,7 +270,7 @@ func TestFindBrokenAndNonMIB(t *testing.T) {
 		if f.Category != CategoryBroken || f.Severity != SeverityWarn {
 			t.Errorf("category/severity = %s/%s", f.Category, f.Severity)
 		}
-		if len(f.Sources) != 1 || f.Sources[0] != "mibs/upload/BROKEN.mib" {
+		if len(f.Sources) != 1 || f.Sources[0] != "mibs/import/BROKEN.mib" {
 			t.Errorf("sources = %v", f.Sources)
 		}
 		if f.Detail["reason"] != "smidump failed: syntax error at line 47" {
@@ -281,7 +281,7 @@ func TestFindBrokenAndNonMIB(t *testing.T) {
 	t.Run("non-mib skip → non-mib / info", func(t *testing.T) {
 		input := []result{
 			{
-				src:     "mibs/upload/README.txt",
+				src:     "mibs/import/README.txt",
 				outcome: outcomeSkippedNonMIB,
 				reason:  "no MIB marker (DEFINITIONS ::= BEGIN absent in first 32 KB)",
 			},
@@ -301,9 +301,9 @@ func TestFindBrokenAndNonMIB(t *testing.T) {
 
 	t.Run("mixed input → both categories", func(t *testing.T) {
 		input := []result{
-			{src: "mibs/upload/BROKEN.mib", outcome: outcomeParseError, reason: "smidump failed: X"},
-			{src: "mibs/upload/README.txt", outcome: outcomeSkippedNonMIB, reason: "no MIB marker"},
-			{src: "mibs/upload/dangling", outcome: outcomeSkippedNonMIB, reason: "read failed: EISDIR"},
+			{src: "mibs/import/BROKEN.mib", outcome: outcomeParseError, reason: "smidump failed: X"},
+			{src: "mibs/import/README.txt", outcome: outcomeSkippedNonMIB, reason: "no MIB marker"},
+			{src: "mibs/import/dangling", outcome: outcomeSkippedNonMIB, reason: "read failed: EISDIR"},
 		}
 		got := findBrokenAndNonMIB(input)
 		if len(got) != 3 {

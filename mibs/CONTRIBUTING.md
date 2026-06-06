@@ -8,10 +8,10 @@
 
 Adding a MIB takes three steps in the common case:
 
-1. **Drop the file in `mibs/upload/`** and run `make ingest`. The
+1. **Drop the file in `mibs/import/`** and run `make ingest`. The
    tool classifies each MIB, moves it to the canonical destination
    (with the extension stripped), and re-runs `make index`. Files
-   that don't classify cleanly stay in `mibs/upload/` or land in
+   that don't classify cleanly stay in `mibs/import/` or land in
    `mibs/unsorted/` for manual review.
 2. **Tag the license** (in `_overrides.yaml` if the auto-detector
    produced `unknown`).
@@ -135,7 +135,7 @@ get buried underneath. Use `make ingest-report` as a read-only
 pre-flight first:
 
 ```bash
-unzip vendor-archive.zip -d mibs/upload/
+unzip vendor-archive.zip -d mibs/import/
 make ingest-report                      # text output for terminal review
 go run ./cmd/mib-ingest --report --report-format=json > /tmp/report.json
 jq '.[] | select(.category == "corpus-collision") | .module_name' /tmp/report.json
@@ -146,7 +146,7 @@ operator decision:
 
 | Category                  | Severity   | Operator action                                                 |
 |---------------------------|------------|-----------------------------------------------------------------|
-| `byte-identical`          | `info`     | Delete the dupes from `mibs/upload/` (or use `--auto-collapse-identical`) |
+| `byte-identical`          | `info`     | Delete the dupes from `mibs/import/` (or use `--auto-collapse-identical`) |
 | `module-name-collision`   | `warn`     | Pick a revision; delete the others (compare `detail.candidates[].last_updated_normalised` to pick the newer one) |
 | `oid-arc-sharing`         | `warn`     | Likely vendor rename or OEM rebrand — investigate, keep one      |
 | `divergent-identity`      | `error`    | Red flag: same name + same `LAST-UPDATED`, different bytes — file a vendor bug |
@@ -158,7 +158,7 @@ operator decision:
 (safe to proceed) and non-zero when any `warn` or `error`
 finding is present — so CI integrators can gate "the archive is
 clean" without parsing the output. After the report has been
-triaged and `mibs/upload/` curated to the set you actually want
+triaged and `mibs/import/` curated to the set you actually want
 in the corpus, run `make ingest` normally. The
 `--auto-collapse-identical` flag is the opt-in shortcut for "I
 trust the byte-identical findings — just prune them before

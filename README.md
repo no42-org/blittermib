@@ -44,14 +44,14 @@ docker run --rm -p 8080:8080 ghcr.io/no42-org/blittermib:latest
 ```
 
 To layer your own MIBs on top of the baked-in corpus, bind-mount a
-host directory at `/var/lib/blittermib/mibs/upload` — the watcher
+host directory at `/var/lib/blittermib/mibs/import` — the watcher
 picks them up alongside the standard corpus:
 
 ```bash
 mkdir -p ./my-mibs
 # drop your .mib / .txt / .my files into ./my-mibs
 docker run --rm -p 8080:8080 \
-    -v "$PWD/my-mibs:/var/lib/blittermib/mibs/upload:ro" \
+    -v "$PWD/my-mibs:/var/lib/blittermib/mibs/import:ro" \
     ghcr.io/no42-org/blittermib:latest
 ```
 
@@ -61,8 +61,8 @@ auto-restart on failure):
 ```bash
 git clone https://github.com/no42-org/blittermib.git
 cd blittermib
-mkdir -p mibs/upload
-# drop your MIBs into mibs/upload/ — they'll be layered on top of
+mkdir -p mibs/import
+# drop your MIBs into mibs/import/ — they'll be layered on top of
 # the corpus that ships in the image.
 docker compose up
 ```
@@ -72,7 +72,7 @@ Open <http://localhost:8080>.
 #### Routing uploaded MIBs into the corpus
 
 The image ships `blittermib-ingest`, the same classify-and-route tool
-contributors use: it moves files from `mibs/upload/` to their
+contributors use: it moves files from `mibs/import/` to their
 canonical corpus paths (`vendors/{PEN}-{slug}/`, `ietf/{group}/`,
 `iana/`, low-confidence to `unsorted/`), dedupes byte-identical
 copies, and refuses to overwrite modules already in the corpus.
@@ -87,7 +87,7 @@ operator-managed-corpus mount (see the commented variant there):
 
 ```bash
 # trailing /. copies the directory CONTENTS — ./mibs already exists
-# (the quickstart created ./mibs/upload), and without it docker cp
+# (the quickstart created ./mibs/import), and without it docker cp
 # would nest the corpus at ./mibs/mibs/.
 docker compose cp blittermib:/var/lib/blittermib/mibs/. ./mibs
 # docker cp writes root-owned files on rootful Linux
@@ -102,17 +102,17 @@ docker compose up -d
 Then, per batch of incoming MIBs:
 
 ```bash
-# 1. drop files into ./mibs/upload/ (subdirectories are fine)
+# 1. drop files into ./mibs/import/ (subdirectories are fine)
 
 # 2. optional read-only pre-flight: dupes, collisions, broken files.
 #    A non-zero exit means the report FOUND actionable findings —
 #    that's it working, not crashing. Review the output, then proceed.
 docker compose exec blittermib blittermib-ingest --report \
-    --src /var/lib/blittermib/mibs/upload --root /var/lib/blittermib
+    --src /var/lib/blittermib/mibs/import --root /var/lib/blittermib
 
 # 3. collapse byte-identical duplicates, then route
 docker compose exec blittermib blittermib-ingest --auto-collapse-identical \
-    --src /var/lib/blittermib/mibs/upload --root /var/lib/blittermib \
+    --src /var/lib/blittermib/mibs/import --root /var/lib/blittermib \
     --no-index
 ```
 
@@ -239,7 +239,7 @@ Environment variables:
        and DELETE /api/v1/upload/{name}. Off by default. This is an
        UNAUTHENTICATED write surface — only enable on deployments
        you control end-to-end (private LAN, reverse proxy with auth,
-       single-user dev box). Files land in mibs/upload/ and load
+       single-user dev box). Files land in mibs/import/ and load
        through the same watcher pipeline as files copied with `cp`.
 ```
 
@@ -259,8 +259,8 @@ URL surfaces:
 
    When BLITTERMIB_UPLOAD_ENABLED=true (off by default):
    /upload                 management page: drop zone + file list
-   /api/v1/upload          multi-file POST → mibs/upload/, sync compile
-   /api/v1/upload/{name}   DELETE single file from mibs/upload/
+   /api/v1/upload          multi-file POST → mibs/import/, sync compile
+   /api/v1/upload/{name}   DELETE single file from mibs/import/
 ```
 
 ## Architecture

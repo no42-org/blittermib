@@ -301,7 +301,7 @@ END
 }
 
 // TestIndexSkipsUploadDirectory asserts that the TOP-LEVEL
-// `upload/` directory is excluded from the corpus walk, but that a
+// `import/` directory is excluded from the corpus walk, but that a
 // directory named `upload` deeper in the tree (e.g. inside a vendor
 // subtree) is still indexed. The skip is anchored at root so a
 // nested coincidentally-named directory isn't accidentally pruned.
@@ -317,10 +317,10 @@ END
 END
 `
 	mustWrite(t, filepath.Join(dir, "ietf/core/CORPUS-MIB"), corpus)
-	// Top-level upload/ → SHALL be skipped.
-	mustWrite(t, filepath.Join(dir, "upload/DROPPED-MIB.mib"), dropped)
-	// Nested upload/ inside a vendor subtree → SHALL be indexed.
-	mustWrite(t, filepath.Join(dir, "vendors/9-cisco/upload/NESTED-UPLOAD-MIB"), nestedUpload)
+	// Top-level import/ → SHALL be skipped.
+	mustWrite(t, filepath.Join(dir, "import/DROPPED-MIB.mib"), dropped)
+	// Nested import/ inside a vendor subtree → SHALL be indexed.
+	mustWrite(t, filepath.Join(dir, "vendors/9-cisco/import/NESTED-UPLOAD-MIB"), nestedUpload)
 
 	out := filepath.Join(t.TempDir(), "INDEX.yaml")
 	if err := indexCmd([]string{
@@ -336,11 +336,11 @@ END
 	if !strings.Contains(got, "module: CORPUS-MIB") {
 		t.Errorf("corpus MIB missing from INDEX.yaml:\n%s", got)
 	}
-	if strings.Contains(got, "DROPPED-MIB") || strings.Contains(got, "file: upload/") {
-		t.Errorf("top-level upload/ contents leaked into INDEX.yaml:\n%s", got)
+	if strings.Contains(got, "DROPPED-MIB") || strings.Contains(got, "file: import/") {
+		t.Errorf("top-level import/ contents leaked into INDEX.yaml:\n%s", got)
 	}
 	if !strings.Contains(got, "module: NESTED-UPLOAD-MIB") {
-		t.Errorf("nested upload/ subtree was wrongly skipped; output:\n%s", got)
+		t.Errorf("nested import/ subtree was wrongly skipped; output:\n%s", got)
 	}
 }
 

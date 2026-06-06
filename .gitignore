@@ -38,12 +38,12 @@ go.work.sum
 /data/
 /var/
 
-# MIB-ingest drop folder — contributors drop files in mibs/upload/
+# MIB-ingest drop folder — contributors drop files in mibs/import/
 # and run `make ingest` to have them classified into the corpus.
 # Successfully-classified files are moved out; .gitkeep keeps the
 # directory present in clones.
-/mibs/upload/*
-!/mibs/upload/.gitkeep
+/mibs/import/*
+!/mibs/import/.gitkeep
 
 # Coverage
 coverage.out

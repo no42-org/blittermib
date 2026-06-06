@@ -36,6 +36,14 @@ type Watcher struct {
 	// filenames are conventionally `.mib`, `.txt`, or no extension.
 	mibExt []string
 
+	// single restricts the watch to dir itself — no recursive walk,
+	// no auto-watch of created subdirectories. The import pipeline
+	// uses this shape (fsnotify's native one): the intake dir is the
+	// only watched surface, so moves into the unwatched outcome
+	// subdirectories (failed/, duplicate/) fire no re-processing
+	// events by construction.
+	single bool
+
 	mu      sync.Mutex
 	pending map[string]struct{}
 	timer   *time.Timer
@@ -53,6 +61,15 @@ func New(dir string, debounce time.Duration, cb Callback) *Watcher {
 		mibExt:   []string{".mib", ".txt", ".my", ""},
 		pending:  make(map[string]struct{}),
 	}
+}
+
+// NewSingle constructs a non-recursive Watcher: only dir itself is
+// watched, subdirectories are never registered. This is the import
+// pipeline's shape — the curated tree is app-owned and unwatched.
+func NewSingle(dir string, debounce time.Duration, cb Callback) *Watcher {
+	w := New(dir, debounce, cb)
+	w.single = true
+	return w
 }
 
 // Run watches dir and every subdirectory beneath it until ctx is
@@ -75,13 +92,22 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 	defer func() { _ = fsw.Close() }()
 
-	added, failed, err := w.addRecursive(fsw, w.dir)
-	if err != nil {
-		return fmt.Errorf("fsnotify add %s: %w", w.dir, err)
+	var added, failed int
+	if w.single {
+		if err := fsw.Add(w.dir); err != nil {
+			return fmt.Errorf("fsnotify add %s: %w", w.dir, err)
+		}
+		added = 1
+	} else {
+		added, failed, err = w.addRecursive(fsw, w.dir)
+		if err != nil {
+			return fmt.Errorf("fsnotify add %s: %w", w.dir, err)
+		}
 	}
 	slog.Info("mib watcher started",
 		"dir", w.dir,
 		"debounce", w.debounce,
+		"single", w.single,
 		"subdirs", added-1,
 		"failed", failed,
 	)
@@ -101,7 +127,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			// still produce events; THEN walk the directory to pick
 			// up anything that beat us to it. The walk emits
 			// synthetic enqueue calls for files already present.
-			if ev.Op&fsnotify.Create != 0 {
+			if ev.Op&fsnotify.Create != 0 && !w.single {
 				if w.handleDirCreate(ctx, fsw, ev.Name) {
 					continue
 				}
