@@ -12,8 +12,14 @@ func TestParseFlags_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
-	if cfg.mibsDir != "./mibs" || cfg.dataDir != "./data" || cfg.listen != ":8080" {
+	// -mibs defaults to EMPTY at parse time (resolved to <data>/mibs
+	// in run() — the standard-mibs-image relocation); mibsSet tracks
+	// explicit use for the override path.
+	if cfg.mibsDir != "" || cfg.mibsSet || cfg.dataDir != "./data" || cfg.listen != ":8080" {
 		t.Errorf("defaults wrong: %+v", cfg)
+	}
+	if cfg.standardDir != "/usr/share/blittermib/mibs" {
+		t.Errorf("standardDir default wrong: %q", cfg.standardDir)
 	}
 	if cfg.verbose {
 		t.Error("verbose should default to false")

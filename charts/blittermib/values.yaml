@@ -27,34 +27,28 @@ service:
   type: ClusterIP
   port: 8080
 
-# Persist the SQLite cache (and, when uploads are enabled, the upload
-# dir) across restarts. OFF by default: the cache is rebuilt from the
-# baked-in MIB corpus on every boot (~5s), so persistence is optional.
-# Enabling it switches the Deployment strategy to Recreate (an RWO
-# volume can't attach to two pods during a rolling update).
+# Persist the data directory — ONE volume holding the curated corpus
+# tree, the import/ intake, and the SQLite cache. STRONGLY recommended
+# when importing MIBs: with the default emptyDir, imported MIBs and
+# the cache vanish on pod replacement (the image's standard corpus is
+# re-mirrored at boot either way). Enabling persistence switches the
+# Deployment strategy to Recreate (an RWO volume can't attach to two
+# pods during a rolling update).
 persistence:
   enabled: false
   storageClass: ""
   accessMode: ReadWriteOnce
   size: 1Gi
 
-# Enable the in-browser MIB upload feature (sets BLITTERMIB_UPLOAD_ENABLED).
-# Pair with persistence.enabled so uploads survive a pod restart;
-# otherwise they live in an emptyDir and are lost on replacement.
+# Enable the in-browser MIB upload feature (sets
+# BLITTERMIB_UPLOAD_ENABLED). Uploads run through the import
+# pipeline; pair with persistence.enabled so imported MIBs survive
+# pod replacement. To seed MIBs declaratively, use an initContainer
+# that copies files into /var/lib/blittermib/data/mibs/import/ (the
+# pipeline routes them on boot) — the former extraMibs ConfigMap
+# mechanism is gone.
 uploads:
   enabled: false
-
-# Declaratively layer vendor MIBs on top of the baked corpus via a
-# ConfigMap mounted read-only at mibs/extra. ConfigMap data is capped at
-# ~1 MiB total — fine for a handful of MIBs; for large sets use a
-# pre-populated PVC instead. `files` is a map of filename -> file content.
-extraMibs:
-  enabled: false
-  files: {}
-    # MY-VENDOR-MIB: |
-    #   MY-VENDOR-MIB DEFINITIONS ::= BEGIN
-    #   ...
-    #   END
 
 # Classic Ingress. Mutually exclusive with httpRoute (enabling both
 # fails the render).

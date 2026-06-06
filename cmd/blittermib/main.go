@@ -32,11 +32,13 @@ var version = "dev"
 var errPrintVersion = fmt.Errorf("print version")
 
 type config struct {
-	mibsDir string
-	dataDir string
-	listen  string
-	verbose bool
-	rebuild bool
+	mibsDir     string
+	mibsSet     bool // -mibs passed explicitly
+	standardDir string
+	dataDir     string
+	listen      string
+	verbose     bool
+	rebuild     bool
 }
 
 func main() {
@@ -62,7 +64,8 @@ func parseFlags(args []string, errOut io.Writer) (config, error) {
 	fs.SetOutput(errOut)
 
 	var cfg config
-	fs.StringVar(&cfg.mibsDir, "mibs", "./mibs", "directory containing user MIB files")
+	fs.StringVar(&cfg.mibsDir, "mibs", "", "corpus directory (default: <data>/mibs — tree, import/ intake, and cache persist as one unit)")
+	fs.StringVar(&cfg.standardDir, "standard-mibs", "/usr/share/blittermib/mibs", "read-only standard corpus to mirror into the corpus root at boot (missing = skip)")
 	fs.StringVar(&cfg.dataDir, "data", "./data", "directory for the SQLite database and runtime state")
 	fs.StringVar(&cfg.listen, "listen", ":8080", "HTTP listen address (host:port)")
 	fs.BoolVar(&cfg.verbose, "v", false, "verbose logging (DEBUG level)")
@@ -78,6 +81,11 @@ func parseFlags(args []string, errOut io.Writer) (config, error) {
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "mibs" {
+			cfg.mibsSet = true
+		}
+	})
 	if *showVersion {
 		return cfg, errPrintVersion
 	}
@@ -102,8 +110,29 @@ func run(cfg config) error {
 	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
+	// Default corpus location: INSIDE the data directory (the
+	// standard-mibs-image change) — curated tree, import/ intake,
+	// and SQLite cache persist as one unit on one volume, and the
+	// import move stays same-filesystem by construction. -mibs
+	// remains an override for deployments keeping the old layout.
+	if !cfg.mibsSet || cfg.mibsDir == "" {
+		cfg.mibsDir = filepath.Join(cfg.dataDir, "mibs")
+		warnLegacyCorpus(cfg.mibsDir)
+	}
 	if err := os.MkdirAll(cfg.mibsDir, 0o750); err != nil {
-		return fmt.Errorf("create mibs dir: %w", err)
+		// Unwritable corpus root (e.g. docker run --read-only without
+		// a data volume): fall back to SERVING the read-only standard
+		// set in place. Imports are disabled; the corpus is whatever
+		// the image ships — matching what such deployments got from
+		// the old baked-corpus layout.
+		if _, sErr := os.Stat(cfg.standardDir); sErr == nil {
+			slog.Error("corpus root is not writable — serving the read-only standard corpus; imports DISABLED",
+				"root", cfg.mibsDir, "standard", cfg.standardDir, "err", err)
+			cfg.mibsDir = cfg.standardDir
+			cfg.standardDir = "" // nothing to mirror onto itself
+		} else {
+			return fmt.Errorf("create mibs dir: %w", err)
+		}
 	}
 	migrateLegacyUpload(cfg.mibsDir)
 	dbPath := filepath.Join(cfg.dataDir, "blittermib.db")
@@ -129,11 +158,7 @@ func run(cfg config) error {
 	// mibs/import/, and the persisted store is therefore a
 	// trustworthy cache — boot validates fingerprints instead of
 	// recompiling the corpus.
-	groups, err := mibcorpus.LoadGroups(filepath.Join(cfg.mibsDir, "_groups.yaml"))
-	if err != nil {
-		return fmt.Errorf("load groups: %w", err)
-	}
-	engine := mibimport.New(cfg.mibsDir, st, groups)
+	engine := mibimport.New(cfg.mibsDir, st, mibcorpus.GroupMap{})
 	engine.Smilint = "smilint"
 	// A read-only corpus (e.g. readOnlyRootFilesystem with no volume
 	// over the baked tree) can't host an intake directory. Degrade
@@ -158,6 +183,22 @@ func run(cfg config) error {
 			return fmt.Errorf("rebuild: %w", err)
 		}
 	}
+	// Mirror the image's standard corpus into the writable root
+	// BEFORE validation: upgrades refresh ietf/ + iana/ (only
+	// changed files are written, so only they recompile);
+	// operator-owned paths are never touched.
+	if importOK {
+		if _, _, err := engine.SyncStandard(cfg.standardDir); err != nil {
+			slog.Warn("standard corpus sync encountered errors", "err", err)
+		}
+	}
+	// Load the IETF groups map AFTER the standard sync — on a first
+	// boot it arrives with the mirrored standard set.
+	groups, err := mibcorpus.LoadGroups(filepath.Join(cfg.mibsDir, "_groups.yaml"))
+	if err != nil {
+		return fmt.Errorf("load groups: %w", err)
+	}
+	engine.Groups = groups
 	if _, _, err := engine.SyncCorpus(ctx); err != nil {
 		slog.Warn("corpus cache validation encountered errors", "err", err)
 	}
@@ -220,6 +261,24 @@ func run(cfg config) error {
 	}
 	slog.Info("blittermib stopped")
 	return nil
+}
+
+// warnLegacyCorpus flags a populated pre-relocation corpus at the
+// old container path when the relocated default is in effect — an
+// upgraded deployment whose volume still mounts there would
+// otherwise be silently ignored (drops never imported, vendor MIBs
+// invisible). Heuristic on the well-known container path only.
+func warnLegacyCorpus(newRoot string) {
+	const legacyRoot = "/var/lib/blittermib/mibs"
+	if legacyRoot == newRoot {
+		return
+	}
+	entries, err := os.ReadDir(legacyRoot)
+	if err != nil || len(entries) == 0 {
+		return
+	}
+	slog.Warn("legacy corpus detected at the pre-v0.10 path — it is NOT being served; pass -mibs to keep that layout, or copy its vendors/ into the new corpus root (see README: Upgrading)",
+		"legacy", legacyRoot, "active", newRoot)
 }
 
 // migrateLegacyUpload renames the pre-import-pipeline drop folder:

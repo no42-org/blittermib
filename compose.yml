@@ -1,24 +1,22 @@
 # compose.yml — example self-host configuration.
 #
-# The image ships the curated corpus at /var/lib/blittermib/mibs
-# (~322 standard IETF/IANA MIBs). Drop your own MIB files into
-# ./mibs/import on the host: the import pipeline compiles each one
-# and files it into the curated tree automatically (failures land in
-# import/failed/, duplicates in import/duplicate/, each with a JSON
-# reason sidecar). The mount MUST be read-write — the pipeline MOVES
-# files out of import/. The data volume holds the SQLite cache.
+# ONE data volume holds everything that matters: the curated corpus
+# tree, the import/ intake, and the SQLite cache — they persist (and
+# back up) as a unit. The image ships only the STANDARD corpus
+# (~322 IETF/IANA MIBs) at a read-only path; at boot the server
+# mirrors it into the corpus tree, so image upgrades refresh the
+# standard set while your imported MIBs persist untouched.
 #
-#   mkdir -p mibs/import
+# Importing MIBs: drop files into ./import on the host (bound into
+# the intake below) or use the web upload. Valid files are compiled
+# and filed into the curated tree automatically; failures land in
+# ./import/failed/, duplicates in ./import/duplicate/, each with a
+# JSON reason sidecar you can read right on the host.
+#
+#   mkdir -p import
 #   docker compose up
 #
 # then open http://localhost:8080.
-#
-# NOTE on persistence: with only the import/ mount below, imported
-# MIBs are filed into the CONTAINER's corpus layer — they survive
-# restarts but are lost when the container is recreated (the cache
-# self-heals: vanished files are pruned at boot). For durable
-# imports, use the operator-managed whole-corpus mount described
-# further down.
 
 services:
   blittermib:
@@ -30,20 +28,13 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./mibs/import:/var/lib/blittermib/mibs/import
       - blittermib-data:/var/lib/blittermib/data
-      # Operator-managed corpus (opt-in): replace the import-only
-      # mount above with a read-write mount of the WHOLE corpus so
-      # imported MIBs persist across container recreation. CAVEAT:
-      # this masks the corpus baked into the image, so image upgrades
-      # no longer refresh the standard MIBs — you own the tree from
-      # then on. Seed it once before switching (the trailing /.
-      # copies the directory CONTENTS — ./mibs already exists, plain
-      # cp would nest it):
-      #   docker compose cp blittermib:/var/lib/blittermib/mibs/. ./mibs
-      #   sudo chown -R 1000:1000 mibs
-      # then REMOVE the import-only line above and use this instead:
-      #   - ./mibs:/var/lib/blittermib/mibs
+      # Host-visible intake: drop MIBs here, watch the quarantine
+      # subfolders for outcomes. The bind sits inside the data
+      # volume's corpus tree; imports cross the mount boundary via
+      # the engine's copy fallback. Remove this line if you only
+      # import through the web UI.
+      - ./import:/var/lib/blittermib/data/mibs/import
     restart: unless-stopped
     # blittermib drains in-flight requests for up to 30 s before
     # exiting (server.shutdown timeout). Set above the default 10 s

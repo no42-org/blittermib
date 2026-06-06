@@ -36,108 +36,64 @@ anything to a third party.
 
 ### Docker
 
-The published image ships the curated corpus (~322 standard IETF/IANA
-MIBs) baked in, so you can run it without cloning anything:
+The image ships the **standard corpus** (~322 IETF/IANA MIBs) at a
+read-only path and mirrors it into the working corpus at every boot —
+so upgrades refresh the standard set while your imported MIBs persist.
+Everything that matters (curated tree, `import/` intake, SQLite
+cache) lives in ONE data volume:
 
 ```bash
-docker run --rm -p 8080:8080 ghcr.io/no42-org/blittermib:latest
-```
-
-To layer your own MIBs on top of the baked-in corpus, bind-mount a
-host directory at `/var/lib/blittermib/mibs/import` — the watcher
-picks them up alongside the standard corpus:
-
-```bash
-mkdir -p ./my-mibs
-# drop your .mib / .txt / .my files into ./my-mibs
 docker run --rm -p 8080:8080 \
-    -v "$PWD/my-mibs:/var/lib/blittermib/mibs/import:ro" \
+    -v blittermib-data:/var/lib/blittermib/data \
     ghcr.io/no42-org/blittermib:latest
 ```
 
-Or with `compose.yml` (uses a named data volume for the SQLite DB and
-auto-restart on failure):
+#### Importing your own MIBs
+
+Drop files into the corpus's `import/` directory (or use the web
+upload, `BLITTERMIB_UPLOAD_ENABLED=true`). The import pipeline
+compiles each file and routes it into the curated tree
+(`vendors/{PEN}-{vendor}/`, `ietf/{group}/`, `iana/`) — imported
+modules are browsable immediately, no restart. Files that fail land
+in `import/failed/`, already-known content in `import/duplicate/`,
+each with a `.reason.json` sidecar explaining why.
+
+The bundled `compose.yml` binds `./import` on the host into the
+intake, so dropping and reviewing quarantined files is a plain
+filesystem affair:
 
 ```bash
 git clone https://github.com/no42-org/blittermib.git
 cd blittermib
-mkdir -p mibs/import
-# drop your MIBs into mibs/import/ — they'll be layered on top of
-# the corpus that ships in the image.
+mkdir -p import
 docker compose up
+# in another shell:
+cp ~/Downloads/SOME-VENDOR-MIB ./import/
+ls ./import/failed ./import/duplicate   # outcomes + reasons
 ```
 
-Open <http://localhost:8080>.
+Open <http://localhost:8080>; the `/import` page shows pending files,
+quarantines with reasons, and recent imports.
 
-#### Routing uploaded MIBs into the corpus
+#### Upgrading from ≤ v0.9.x
 
-The image ships `blittermib-ingest`, the same classify-and-route tool
-contributors use: it moves files from `mibs/import/` to their
-canonical corpus paths (`vendors/{PEN}-{slug}/`, `ietf/{group}/`,
-`iana/`, low-confidence to `unsorted/`), dedupes byte-identical
-copies, and refuses to overwrite modules already in the corpus.
-Running it against a deployment needs the **whole corpus**
-bind-mounted **read-write** (moves cross directories), which masks
-the corpus baked into the image — image upgrades then no longer
-refresh the standard MIBs; you own the tree from that point on.
-
-One-time setup — seed the host tree from the image, chown to the
-container user (uid 1000), and switch `compose.yml` to the
-operator-managed-corpus mount (see the commented variant there):
-
-```bash
-# trailing /. copies the directory CONTENTS — ./mibs already exists
-# (the quickstart created ./mibs/import), and without it docker cp
-# would nest the corpus at ./mibs/mibs/.
-docker compose cp blittermib:/var/lib/blittermib/mibs/. ./mibs
-# docker cp writes root-owned files on rootful Linux
-sudo chown -R 1000:1000 mibs
-# volumes: REPLACE the upload-only line with
-#   - ./mibs:/var/lib/blittermib/mibs
-# (keeping both would leave upload/ read-only inside the container
-# and block ingest moves)
-docker compose up -d
-```
-
-Then, per batch of incoming MIBs:
-
-```bash
-# 1. drop files into ./mibs/import/ (subdirectories are fine)
-
-# 2. optional read-only pre-flight: dupes, collisions, broken files.
-#    A non-zero exit means the report FOUND actionable findings —
-#    that's it working, not crashing. Review the output, then proceed.
-docker compose exec blittermib blittermib-ingest --report \
-    --src /var/lib/blittermib/mibs/import --root /var/lib/blittermib
-
-# 3. collapse byte-identical duplicates, then route
-docker compose exec blittermib blittermib-ingest --auto-collapse-identical \
-    --src /var/lib/blittermib/mibs/import --root /var/lib/blittermib \
-    --no-index
-```
-
-`--no-index` is required in-container: the post-ingest `make index`
-step needs the repo checkout, and `INDEX.yaml` has no runtime role.
-The running server's watcher picks the moves up immediately — no
-restart. Files that don't parse or would collide with an existing
-corpus module stay in `upload/` for review — the ingest summary
-lists each with its reason. (`/diagnostics` shows warnings for
-modules that did load; a file that failed to parse never reaches
-it.)
-
-Two bounds to know for bulk imports:
-
-- The compile pass is time-bounded as a hang backstop, scaled to the
-  batch (`max(5m, 1s × files)`) so bulk drops never trip it in normal
-  operation. `--compile-timeout` overrides the default (`0` disables
-  the bound). If the bound does fire, the cut-off files are reported
-  as one "compile budget exhausted" rollup — they stay in `upload/`
-  and a re-run picks them up.
-- The import search path (SMIPATH) is walked at boot, so a module
-  importing from a corpus directory the ingest *just created* shows
-  unresolved-import diagnostics until the next start. Finish any
-  batch that created new vendor directories with one
-  `docker compose restart blittermib`.
+- The corpus root moved INSIDE the data directory (`<data>/mibs`).
+  Deployments that mounted a corpus at `/var/lib/blittermib/mibs`
+  can keep that layout by passing `-mibs /var/lib/blittermib/mibs`,
+  or migrate by copying the tree into the data volume
+  (`<data>/mibs/`) and dropping the old mount.
+- Images no longer ship vendor MIBs or the `blittermib-ingest`
+  binary — vendor MIBs enter through `import/` (drop your previous
+  vendor set in once), and the old in-container ingest runbook is
+  fully replaced by the pipeline.
+- Helm: upgrading a release that used the old uploads PVC leaves (or
+  with some Helm versions deletes) the now-unmanaged
+  `<release>-upload` claim — back up any pending/quarantined files in
+  it BEFORE upgrading, then delete the orphaned PVC.
+- A legacy `upload/` directory is renamed to `import/` automatically
+  when the server's corpus root points at the old tree (i.e. with
+  `-mibs`); on the relocated default a populated legacy corpus is
+  flagged with a boot warning instead.
 
 ### Bare metal
 
@@ -171,9 +127,8 @@ Common values:
 
 | Value | Default | Purpose |
 |-------|---------|---------|
-| `persistence.enabled` | `false` | Persist the SQLite cache + uploads in a PVC (else an `emptyDir` rebuilt on restart; switches the deploy strategy to `Recreate`). |
-| `uploads.enabled` | `false` | Enable the in-browser MIB upload (`BLITTERMIB_UPLOAD_ENABLED`); pair with `persistence.enabled` to keep uploads. |
-| `extraMibs.enabled` + `extraMibs.files` | `false` / `{}` | Layer vendor MIBs declaratively via a ConfigMap mounted at `mibs/extra` (≤ ~1 MiB total). |
+| `persistence.enabled` | `false` | Persist the data volume — corpus tree, `import/` intake, and SQLite cache as one unit. Strongly recommended when importing MIBs (else an `emptyDir`: imports vanish on pod replacement; standards re-mirror from the image either way). Switches the deploy strategy to `Recreate`. |
+| `uploads.enabled` | `false` | Enable the in-browser MIB upload (`BLITTERMIB_UPLOAD_ENABLED`); uploads run through the import pipeline. To seed MIBs declaratively, use an initContainer copying into `<data>/mibs/import/`. |
 | `ingress.enabled` | `false` | Expose via a classic `Ingress`. |
 | `httpRoute.enabled` | `false` | Expose via a Gateway API `HTTPRoute` (set `httpRoute.parentRefs` to an existing Gateway). Mutually exclusive with `ingress`. |
 
@@ -224,11 +179,16 @@ file, *and* the tag-ref shape — a signature from any other workflow
 
 ```
 Flags:
-  -mibs PATH      MIB corpus directory              (./mibs)
-  -data PATH      directory for SQLite + state      (./data)
-  -listen ADDR    HTTP listen address               (:8080)
-  -v              verbose logging                   (DEBUG level)
-  -version        print version and exit
+  -data PATH           directory for SQLite + state      (./data)
+  -mibs PATH           corpus directory override         (<data>/mibs)
+  -standard-mibs PATH  read-only standard set mirrored
+                       into the corpus at boot           (/usr/share/blittermib/mibs;
+                                                          missing = skip)
+  -rebuild             discard cache fingerprints and
+                       recompile every MIB at boot
+  -listen ADDR         HTTP listen address               (:8080)
+  -v                   verbose logging (DEBUG level)
+  -version             print version and exit
 ```
 
 Environment variables:

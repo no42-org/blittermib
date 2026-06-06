@@ -14,22 +14,4 @@ spec:
   {{- if .Values.persistence.storageClass }}
   storageClassName: {{ .Values.persistence.storageClass }}
   {{- end }}
-{{- if .Values.uploads.enabled }}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "blittermib.fullname" . }}-upload
-  labels:
-    {{- include "blittermib.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - {{ .Values.persistence.accessMode }}
-  resources:
-    requests:
-      storage: {{ .Values.persistence.size }}
-  {{- if .Values.persistence.storageClass }}
-  storageClassName: {{ .Values.persistence.storageClass }}
-  {{- end }}
-{{- end }}
 {{- end }}

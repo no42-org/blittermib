@@ -104,27 +104,51 @@ jobs:
         run: |
           kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
 
-      - name: Install chart (httpRoute + extraMibs paths)
-        # Pin image.tag to a published tag so the smoke doesn't depend on
-        # Chart.yaml's appVersion matching an already-pushed image.
-        # extraMibs.enabled exercises the subPath ConfigMap mount under
-        # the default read-only root filesystem (the path that silently
-        # ingested nothing with a plain ConfigMap mount).
+      - name: Build and load the PR image into kind
+        # The chart and the binary move together (the chart's args
+        # assume the <data>/mibs corpus default) — smoke against the
+        # PR's own image, not a published tag.
+        run: |
+          make docker-build TAG=blittermib:ci
+          kind load docker-image blittermib:ci
+
+      - name: Install chart (httpRoute path)
         run: |
           helm install blittermib charts/blittermib \
-            --set image.tag=latest \
+            --set image.repository=blittermib \
+            --set image.tag=ci \
+            --set image.pullPolicy=Never \
             --set httpRoute.enabled=true \
-            --set 'httpRoute.parentRefs[0].name=dummy-gateway' \
-            --set extraMibs.enabled=true \
-            --set-string 'extraMibs.files.CI-SMOKE-MIB=ci smoke placeholder'
+            --set 'httpRoute.parentRefs[0].name=dummy-gateway'
 
       - name: Wait for pod Ready
         run: kubectl rollout status deploy/blittermib --timeout=180s
 
-      - name: Confirm the ConfigMap MIB mounted (subPath, not skipped symlink)
+      - name: Standards served on first boot
+        # Readiness implies boot finished (the listener starts after
+        # the standard sync + validation), so a shipped standard
+        # module must already be servable.
         run: |
           kubectl exec deploy/blittermib -- \
-            test -f /var/lib/blittermib/mibs/extra/CI-SMOKE-MIB
+            wget -qO- http://127.0.0.1:8080/m/IF-MIB >/dev/null
+
+      - name: Import-drop smoke (file into import/ becomes a served module)
+        # kubectl cp needs tar INSIDE the container — alpine's busybox
+        # provides it. The import/ tree exists before readiness (boot
+        # ordering: EnsureDirs precedes the listener).
+        run: |
+          kubectl cp .github/ci-fixtures/CI-SMOKE-MIB \
+            "$(kubectl get pod -l app.kubernetes.io/name=blittermib -o jsonpath='{.items[0].metadata.name}')":/var/lib/blittermib/data/mibs/import/CI-SMOKE-MIB
+          for _ in $(seq 1 30); do
+            if kubectl exec deploy/blittermib -- \
+                 wget -qO- http://127.0.0.1:8080/m/CI-SMOKE-MIB >/dev/null 2>&1; then
+              echo "imported and served"; exit 0
+            fi
+            sleep 2
+          done
+          echo "CI-SMOKE-MIB never became servable" >&2
+          kubectl exec deploy/blittermib -- ls -R /var/lib/blittermib/data/mibs/import || true
+          exit 1
 
       - name: Dump diagnostics on failure
         if: failure()

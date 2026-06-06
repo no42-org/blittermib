@@ -235,11 +235,16 @@ docker-build:
 	docker build --build-arg VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
 		-t $(TAG) .
 
-# docker-smoke asserts the runtime image's tool surface: the ingest
-# CLI must be present and runnable as the image's unprivileged user
-# (guards the Dockerfile COPY against silent loss in a refactor).
+# docker-smoke asserts the runtime image's surface: the server runs
+# as the unprivileged user and the read-only standard corpus is
+# where the boot sync expects it (guards the Dockerfile COPY set
+# against silent loss in a refactor).
 docker-smoke:
-	docker run --rm --entrypoint blittermib-ingest $(TAG) --help >/dev/null
+	docker run --rm $(TAG) --version
+	docker run --rm --entrypoint ls $(TAG) \
+		/usr/share/blittermib/mibs/ietf \
+		/usr/share/blittermib/mibs/iana \
+		/usr/share/blittermib/mibs/_groups.yaml >/dev/null
 
 # --- Helm chart -----------------------------------------------------
 CHART_DIR := charts/blittermib

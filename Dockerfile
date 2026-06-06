@@ -40,17 +40,15 @@ RUN go mod download
 COPY . .
 
 # Generate templ output and embed assets, then build the static
-# binaries: the server and the ingest CLI (shipped alongside so
-# operators can route upload/ MIBs into the corpus on a running
-# deployment via `docker compose exec`).
+# server binary. The ingest CLI no longer ships in the image — the
+# always-on import pipeline (drop files into the corpus root's
+# import/ directory) replaced the in-container runbook.
 ARG VERSION=docker
 ENV CGO_ENABLED=0
 RUN make generate \
     && make prepare-assets \
     && go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
-        -o /out/blittermib ./cmd/blittermib \
-    && go build -trimpath -ldflags="-s -w" \
-        -o /out/blittermib-ingest ./cmd/mib-ingest
+        -o /out/blittermib ./cmd/blittermib
 
 # --- runtime stage --------------------------------------------------
 
@@ -62,35 +60,29 @@ FROM alpine:${ALPINE_VERSION} AS runtime
 RUN apk add --no-cache libsmi ca-certificates tzdata \
     && addgroup -g 1000 -S blittermib \
     && adduser -u 1000 -S -G blittermib -h /home/blittermib blittermib \
-    && mkdir -p /var/lib/blittermib/mibs /var/lib/blittermib/data \
-    # Pre-create the import skeleton: on read-only root filesystems
-    # (Helm default) the boot-time EnsureDirs would otherwise fail.
-    # MkdirAll on existing directories is a no-op, so writable
-    # deployments are unaffected.
-    && mkdir -p /var/lib/blittermib/mibs/import/failed \
-                /var/lib/blittermib/mibs/import/duplicate \
-                /var/lib/blittermib/mibs/import/.tmp \
+    && mkdir -p /var/lib/blittermib/data \
     && chown -R blittermib:blittermib /var/lib/blittermib
 
 USER blittermib
 WORKDIR /home/blittermib
 
 COPY --from=build /out/blittermib /usr/local/bin/blittermib
-# Ingest CLI — routes MIBs dropped into mibs/import/ to their
-# canonical corpus paths. Requires a read-write corpus bind-mount;
-# see README "Routing uploaded MIBs into the corpus".
-COPY --from=build /out/blittermib-ingest /usr/local/bin/blittermib-ingest
 
-# Ship the curated corpus (standard IETF / IANA MIBs + any vendor
-# MIBs the maintainer has merged into the repo) so `docker run`
-# without a volume mount works end-to-end. Operators who want to
-# layer their own MIBs on top can bind-mount over /var/lib/blittermib/mibs
-# (compose.yml does exactly that for the dev workflow), which masks
-# the baked-in corpus until the mount is removed.
-COPY --chown=blittermib:blittermib mibs/ /var/lib/blittermib/mibs/
+# Standard corpus only (IETF + IANA + corpus metadata), at a
+# READ-ONLY path outside the runtime corpus root. The boot-time
+# standard sync mirrors it into <data>/mibs on every start —
+# upgrades refresh the standard set, operator-imported MIBs persist
+# untouched. Vendor/unsorted MIBs never ship in the image; they
+# enter through the import pipeline.
+COPY mibs/ietf/        /usr/share/blittermib/mibs/ietf/
+COPY mibs/iana/        /usr/share/blittermib/mibs/iana/
+COPY mibs/_groups.yaml /usr/share/blittermib/mibs/_groups.yaml
+COPY mibs/LICENSES/    /usr/share/blittermib/mibs/LICENSES/
 
 EXPOSE 8080
 
-# A user can override -mibs / -data / -listen on `docker run`.
+# The corpus root defaults to <data>/mibs — curated tree, import/
+# intake, and SQLite cache persist as ONE unit on the data volume.
+# Override with -mibs to keep a legacy split layout.
 ENTRYPOINT ["/usr/local/bin/blittermib"]
-CMD ["-mibs", "/var/lib/blittermib/mibs", "-data", "/var/lib/blittermib/data", "-listen", "0.0.0.0:8080"]
+CMD ["-data", "/var/lib/blittermib/data", "-listen", "0.0.0.0:8080"]

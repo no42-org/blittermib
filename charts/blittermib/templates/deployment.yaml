@@ -44,8 +44,9 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           args:
-            - "-mibs"
-            - "/var/lib/blittermib/mibs"
+            # Corpus root defaults to <data>/mibs — curated tree,
+            # import/ intake, and SQLite cache persist as one unit
+            # on the data volume.
             - "-data"
             - "/var/lib/blittermib/data"
             - "-listen"
@@ -86,23 +87,6 @@ spec:
               mountPath: /var/lib/blittermib/data
             - name: tmp
               mountPath: /tmp
-            {{- if .Values.uploads.enabled }}
-            - name: upload
-              mountPath: /var/lib/blittermib/mibs/import
-            {{- end }}
-            {{- if .Values.extraMibs.enabled }}
-            {{- /* subPath mounts each file as a real file rather than the
-                   ConfigMap symlink farm (..data/...), which blittermib's
-                   loader skips as a symlink. Trade-off: subPath mounts do
-                   not receive live ConfigMap updates — fine here, MIBs are
-                   read once at boot. */}}
-            {{- range $name, $_ := .Values.extraMibs.files }}
-            - name: extra-mibs
-              mountPath: /var/lib/blittermib/mibs/extra/{{ $name }}
-              subPath: {{ $name }}
-              readOnly: true
-            {{- end }}
-            {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -113,20 +97,6 @@ spec:
           {{- end }}
         - name: tmp
           emptyDir: {}
-        {{- if .Values.uploads.enabled }}
-        - name: upload
-          {{- if .Values.persistence.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "blittermib.fullname" . }}-upload
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
-        {{- end }}
-        {{- if .Values.extraMibs.enabled }}
-        - name: extra-mibs
-          configMap:
-            name: {{ include "blittermib.fullname" . }}-extra-mibs
-        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
