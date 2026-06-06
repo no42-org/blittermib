@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke helm-lint helm-template chart-package
+.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -245,62 +245,6 @@ docker-smoke:
 		/usr/share/blittermib/mibs/ietf \
 		/usr/share/blittermib/mibs/iana \
 		/usr/share/blittermib/mibs/_groups.yaml >/dev/null
-
-# --- Helm chart -----------------------------------------------------
-CHART_DIR := charts/blittermib
-
-# helm-lint lints the chart.
-helm-lint:
-	@command -v helm >/dev/null 2>&1 || { echo "helm not installed"; exit 1; }
-	helm lint $(CHART_DIR)
-
-# helm-template renders the chart with default values plus an overrides
-# pass exercising the Gateway API (httpRoute), persistence, uploads, and
-# ConfigMap-MIB paths so template breakage is caught in CI.
-helm-template:
-	@command -v helm >/dev/null 2>&1 || { echo "helm not installed"; exit 1; }
-	helm template blittermib $(CHART_DIR) >/dev/null
-	helm template blittermib $(CHART_DIR) \
-		--set httpRoute.enabled=true --set 'httpRoute.parentRefs[0].name=gw' \
-		--set persistence.enabled=true --set uploads.enabled=true \
-		--set extraMibs.enabled=true --set extraMibs.files.EXAMPLE-MIB=x >/dev/null
-	@# The validation guards must fail the render for each bad input.
-	@if helm template blittermib $(CHART_DIR) \
-		--set ingress.enabled=true --set httpRoute.enabled=true >/dev/null 2>&1; then \
-		echo "FAIL: enabling both ingress and httpRoute should have errored"; exit 1; \
-	else echo "OK: ingress+httpRoute mutual-exclusion guard fires"; fi
-	@if helm template blittermib $(CHART_DIR) --set replicaCount=2 >/dev/null 2>&1; then \
-		echo "FAIL: replicaCount=2 should have errored"; exit 1; \
-	else echo "OK: replicaCount guard fires"; fi
-	@if helm template blittermib $(CHART_DIR) --set httpRoute.enabled=true >/dev/null 2>&1; then \
-		echo "FAIL: httpRoute without parentRefs should have errored"; exit 1; \
-	else echo "OK: httpRoute parentRefs guard fires"; fi
-
-# chart-package builds the chart tarball into dist/, stamping BOTH the
-# chart version and appVersion. CI passes APP_VERSION (the pushed tag,
-# leading `v` stripped) — the same value the docker job tags the image
-# with, so the chart's OCI tag and the image tag are the same number.
-# Locally it falls back to `git describe`; if that yields nothing (no
-# reachable tags), helm keeps Chart.yaml's placeholder version and
-# appVersion. Invoked by the release CI job.
-chart-package:
-	@command -v helm >/dev/null 2>&1 || { echo "helm not installed"; exit 1; }
-	mkdir -p dist
-	@# Chart version and appVersion are BOTH stamped from the release
-	@# tag — the chart's OCI tag (helm push tags by chart version)
-	@# then equals the blittermib release version, so one version
-	@# number works everywhere (install, upgrade, cosign verify).
-	@# Empty fallback (no APP_VERSION, no git tags) keeps Chart.yaml's
-	@# placeholder values for local packaging.
-	@# No `--always` on git describe: with no reachable tags it would
-	@# emit a bare commit hash, which helm rejects as a non-semver
-	@# `--version`. Failing describe → empty → placeholder branch.
-	@v="$${APP_VERSION:-$$(git describe --tags --dirty 2>/dev/null | sed 's/^v//')}"; \
-	if [ -n "$$v" ]; then \
-		helm package $(CHART_DIR) --destination dist --version "$$v" --app-version "$$v"; \
-	else \
-		helm package $(CHART_DIR) --destination dist; \
-	fi
 
 help:
 	@echo "make build       compile the binary"

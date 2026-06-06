@@ -112,29 +112,14 @@ make build
 
 ### Kubernetes (Helm)
 
-The chart is published as an OCI artifact on GHCR. The chart version
-equals the blittermib release version — one number for install,
-upgrade, and signature verification alike:
+The Helm chart lives in its own repository —
+[no42-org/blittermib-chart](https://github.com/no42-org/blittermib-chart) —
+with independent versioning: the chart's `appVersion` pins the
+blittermib release it is tested against.
 
 ```bash
-helm install blittermib oci://ghcr.io/no42-org/charts/blittermib --version <version>
-kubectl port-forward svc/blittermib 8080:8080   # then open http://localhost:8080
+helm install blittermib oci://ghcr.io/no42-org/charts/blittermib --version <chart-version>
 ```
-
-blittermib is **single-instance** (`replicaCount: 1`) — the SQLite cache
-is per-pod and uploads are node-local, so it doesn't scale horizontally.
-Common values:
-
-| Value | Default | Purpose |
-|-------|---------|---------|
-| `persistence.enabled` | `false` | Persist the data volume — corpus tree, `import/` intake, and SQLite cache as one unit. Strongly recommended when importing MIBs (else an `emptyDir`: imports vanish on pod replacement; standards re-mirror from the image either way). Switches the deploy strategy to `Recreate`. |
-| `uploads.enabled` | `false` | Enable the in-browser MIB upload (`BLITTERMIB_UPLOAD_ENABLED`); uploads run through the import pipeline. To seed MIBs declaratively, use an initContainer copying into `<data>/mibs/import/`. |
-| `ingress.enabled` | `false` | Expose via a classic `Ingress`. |
-| `httpRoute.enabled` | `false` | Expose via a Gateway API `HTTPRoute` (set `httpRoute.parentRefs` to an existing Gateway). Mutually exclusive with `ingress`. |
-
-The chart pins the official image (it bundles libsmi, which the binary
-needs at runtime) — don't override `image.repository` with a stripped
-rebuild.
 
 ### Verifying releases
 
@@ -156,8 +141,10 @@ cosign verify ghcr.io/no42-org/blittermib:<version> \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 
-# Helm chart (OCI artifact)
-cosign verify ghcr.io/no42-org/charts/blittermib:<version> \
+# Helm chart: versions > 0.10.0 are signed by the CHART repository's
+# workflow — see github.com/no42-org/blittermib-chart#verifying-releases.
+# Chart versions <= 0.10.0 were signed by THIS repository's identity:
+cosign verify ghcr.io/no42-org/charts/blittermib:<version-le-0.10.0> \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 
