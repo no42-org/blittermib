@@ -245,6 +245,15 @@ docker-smoke:
 		/usr/share/blittermib/mibs/ietf \
 		/usr/share/blittermib/mibs/iana \
 		/usr/share/blittermib/mibs/_groups.yaml >/dev/null
+	# The entrypoint starts as root (to repair volume ownership) and
+	# MUST drop to uid 1000 via su-exec before exec'ing the server.
+	# Exercise the REAL entrypoint (not su-exec directly) and assert the
+	# server it exec's is PID 1 running as uid 1000.
+	cid=$$(docker run -d $(TAG)) || exit 1; \
+		trap 'docker rm -f $$cid >/dev/null 2>&1' EXIT; \
+		sleep 2; \
+		uid=$$(docker exec $$cid awk '/^Uid:/{print $$2}' /proc/1/status) || { docker logs $$cid; exit 1; }; \
+		test "$$uid" = 1000
 
 help:
 	@echo "make build       compile the binary"

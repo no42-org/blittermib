@@ -57,16 +57,20 @@ FROM alpine:${ALPINE_VERSION} AS runtime
 # libsmi provides smidump and smilint at runtime (subprocessed by
 # the compile pipeline). ca-certificates and tzdata are standard
 # baseline for any HTTP service.
-RUN apk add --no-cache libsmi ca-certificates tzdata \
+RUN apk add --no-cache libsmi ca-certificates tzdata su-exec \
     && addgroup -g 1000 -S blittermib \
     && adduser -u 1000 -S -G blittermib -h /home/blittermib blittermib \
     && mkdir -p /var/lib/blittermib/data \
     && chown -R blittermib:blittermib /var/lib/blittermib
 
-USER blittermib
+# NOTE: no `USER blittermib` here. The image starts as root so the
+# entrypoint can repair ownership of the data volume (Docker creates
+# nested bind-mount parents as root), then drops to uid 1000 via
+# su-exec. The server itself never runs as root.
 WORKDIR /home/blittermib
 
 COPY --from=build /out/blittermib /usr/local/bin/blittermib
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Standard corpus only (IETF + IANA + corpus metadata), at a
 # READ-ONLY path outside the runtime corpus root. The boot-time
@@ -84,5 +88,5 @@ EXPOSE 8080
 # The corpus root defaults to <data>/mibs — curated tree, import/
 # intake, and SQLite cache persist as ONE unit on the data volume.
 # Override with -mibs to keep a legacy split layout.
-ENTRYPOINT ["/usr/local/bin/blittermib"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["-data", "/var/lib/blittermib/data", "-listen", "0.0.0.0:8080"]
