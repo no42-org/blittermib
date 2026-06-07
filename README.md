@@ -86,10 +86,6 @@ quarantines with reasons, and recent imports.
   binary — vendor MIBs enter through `import/` (drop your previous
   vendor set in once), and the old in-container ingest runbook is
   fully replaced by the pipeline.
-- Helm: upgrading a release that used the old uploads PVC leaves (or
-  with some Helm versions deletes) the now-unmanaged
-  `<release>-upload` claim — back up any pending/quarantined files in
-  it BEFORE upgrading, then delete the orphaned PVC.
 - A legacy `upload/` directory is renamed to `import/` automatically
   when the server's corpus root points at the old tree (i.e. with
   `-mibs`); on the relocated default a populated legacy corpus is
@@ -123,14 +119,18 @@ helm install blittermib oci://ghcr.io/no42-org/charts/blittermib --version <char
 
 ### Verifying releases
 
-Everything the release pipeline publishes is signed with
+Everything the release pipeline publishes — the container image and
+the binary archives — is signed with
 [cosign](https://github.com/sigstore/cosign) **keyless signing**: the
 signing identity is this repository's `release.yml` workflow (no
 project-held keys exist), and every signature is recorded in the
-public Rekor transparency log.
+public Rekor transparency log. (The Helm chart is published and
+signed independently from
+[no42-org/blittermib-chart](https://github.com/no42-org/blittermib-chart);
+see its README for chart verification.)
 
 `<version>` below is the release version with the `v` stripped (e.g.
-`0.8.0`) — image tag and chart version are the same number.
+`0.8.0`).
 
 ```bash
 IDENTITY='^https://github.com/no42-org/blittermib/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
@@ -138,13 +138,6 @@ ISSUER='https://token.actions.githubusercontent.com'
 
 # container image — the digest signature also covers `latest`
 cosign verify ghcr.io/no42-org/blittermib:<version> \
-  --certificate-identity-regexp="$IDENTITY" \
-  --certificate-oidc-issuer="$ISSUER"
-
-# Helm chart: versions > 0.10.0 are signed by the CHART repository's
-# workflow — see github.com/no42-org/blittermib-chart#verifying-releases.
-# Chart versions <= 0.10.0 were signed by THIS repository's identity:
-cosign verify ghcr.io/no42-org/charts/blittermib:<version-le-0.10.0> \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 
