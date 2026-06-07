@@ -106,6 +106,39 @@ func newLogger(verbose bool) *slog.Logger {
 // change events all converge on the same ReadDir.
 const rescanInterval = 5 * time.Minute
 
+// bootstrapImportAndStandard prepares the intake skeleton and mirrors
+// the image's read-only standard corpus into the corpus root,
+// returning whether the import pipeline is usable.
+//
+// The standard mirror runs INDEPENDENTLY of intake writability. The
+// standard set lands in the corpus ROOT (writable by the time we get
+// here — run's os.MkdirAll on it succeeded, and the read-only fallback
+// already cleared standardDir to "" so the sync is a no-op). A
+// non-writable intake only disables imports; it must NOT leave the
+// browser serving an empty corpus, so the sync is not gated on it.
+func bootstrapImportAndStandard(engine *mibimport.Engine, standardDir string) (importOK bool) {
+	importOK = true
+	if err := engine.EnsureDirs(); err != nil {
+		slog.Error("import pipeline DISABLED — intake directory is not writable; mount a writable volume to import MIBs",
+			"dir", engine.Dir(), "err", err)
+		importOK = false
+	}
+	if importOK {
+		if n, err := engine.SweepTmp(); err != nil {
+			slog.Warn("import tmp sweep failed", "err", err)
+		} else if n > 0 {
+			slog.Info("cleaned import tmp orphans", "count", n)
+		}
+	}
+	// Mirror BEFORE validation (SyncCorpus): upgrades refresh ietf/ +
+	// iana/ (only changed files are written, so only they recompile);
+	// operator-owned paths are never touched.
+	if _, _, err := engine.SyncStandard(standardDir); err != nil {
+		slog.Warn("standard corpus sync encountered errors", "err", err)
+	}
+	return importOK
+}
+
 func run(cfg config) error {
 	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -163,33 +196,12 @@ func run(cfg config) error {
 	// A read-only corpus (e.g. readOnlyRootFilesystem with no volume
 	// over the baked tree) can't host an intake directory. Degrade
 	// gracefully: keep serving the corpus, disable the pipeline.
-	importOK := true
-	if err := engine.EnsureDirs(); err != nil {
-		slog.Error("import pipeline DISABLED — intake directory is not writable; mount a writable volume to import MIBs",
-			"dir", engine.Dir(), "err", err)
-		importOK = false
-	}
-	if importOK {
-		if n, err := engine.SweepTmp(); err != nil {
-			slog.Warn("import tmp sweep failed", "err", err)
-		} else if n > 0 {
-			slog.Info("cleaned import tmp orphans", "count", n)
-		}
-	}
+	importOK := bootstrapImportAndStandard(engine, cfg.standardDir)
 
 	if cfg.rebuild {
 		slog.Info("-rebuild: discarding corpus cache fingerprints")
 		if err := st.ResetSourceFiles(ctx); err != nil {
 			return fmt.Errorf("rebuild: %w", err)
-		}
-	}
-	// Mirror the image's standard corpus into the writable root
-	// BEFORE validation: upgrades refresh ietf/ + iana/ (only
-	// changed files are written, so only they recompile);
-	// operator-owned paths are never touched.
-	if importOK {
-		if _, _, err := engine.SyncStandard(cfg.standardDir); err != nil {
-			slog.Warn("standard corpus sync encountered errors", "err", err)
 		}
 	}
 	// Load the IETF groups map AFTER the standard sync — on a first
