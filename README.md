@@ -231,12 +231,8 @@ URL surfaces:
 ## Documentation
 
 - [mibs/README.md](mibs/README.md) — corpus directory layout
-- [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md) — adding a MIB:
-  4-step workflow, license-tag matrix, 4-tier CI expectations
-- [prototype/](prototype/) — static HTML reference for the design system
-  (open `prototype/index.html` directly)
-- `openspec/changes/` and `openspec/specs/` — proposals, design notes,
-  requirement specs, and task lists for landed + in-flight features
+- [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md) — adding a MIB: 4-step workflow, license-tag matrix, 4-tier CI expectations
+- [prototype/](prototype/) — static HTML reference for the design system (open `prototype/index.html` directly)
 
 ## Build from source
 
@@ -256,10 +252,7 @@ make check-tools    verify libsmi (smidump/smilint) is installed
 ## Project conventions
 
 - **Conventional Commits** for every commit
-- **Spec-driven** via OpenSpec — see `openspec/changes/`
-- **AI-assisted, human-reviewed** — every commit carries an
-  `Assisted-by` trailer; the human submitter is responsible for
-  reviewing AI-generated code
+- **AI-assisted, human-reviewed** — every commit carries an `Assisted-by` trailer; the human submitter is responsible for reviewing AI-generated code
 
 ## License
 
