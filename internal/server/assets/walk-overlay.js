@@ -47,18 +47,56 @@
 		}
 	}
 
-	// persistFromResultsPage runs on the /walk results page only.
+	// persistFromResultsPage runs on the /walk results page only. The
+	// workspace overlay reads the walk from localStorage, so this is the
+	// only bridge from the results page to the per-module value badges.
 	function persistFromResultsPage() {
 		var el = document.getElementById('blittermib-walk-data');
 		if (!el) return;
 		var raw = el.getAttribute('data-walk');
 		if (!raw) return;
 		try {
-			JSON.parse(raw); // validate before storing
+			JSON.parse(raw); // validate
+		} catch (e) {
+			return; // malformed payload — leave any prior walk untouched
+		}
+		try {
 			localStorage.setItem(KEY, raw);
 		} catch (e) {
-			/* malformed payload — leave any prior walk untouched */
+			// Storage full (large walks can exceed the per-origin quota)
+			// or disabled. Drop any stale walk so the workspace doesn't
+			// decorate the wrong data, and surface why — otherwise the
+			// values/chip silently never appear in the workspace.
+			try {
+				localStorage.removeItem(KEY);
+			} catch (e2) {
+				/* ignore */
+			}
+			warnPersistFailed();
 		}
+	}
+
+	// warnPersistFailed shows, on the results page, why a (too-large)
+	// walk won't decorate the workspace, with the actionable next step.
+	function warnPersistFailed() {
+		try {
+			console.warn(
+				'blittermib: the decoded walk is too large for browser storage, ' +
+				'so its values cannot be shown in the module workspace. Filter ' +
+				'the walk to a smaller subtree and decode again.'
+			);
+		} catch (e) {
+			/* ignore */
+		}
+		var head = document.querySelector('.walk-results-head');
+		if (!head || head.querySelector('.walk-store-warning')) return;
+		var note = document.createElement('p');
+		note.className = 'walk-note walk-store-warning';
+		note.textContent =
+			'This walk is too large for your browser to carry into the module ' +
+			'workspace, so decoded values will not appear there. Filter the walk ' +
+			'to a smaller subtree (e.g. one OID branch) and decode again.';
+		head.appendChild(note);
 	}
 
 	// valuesUnder collects the walk values whose OID is the row's OID
