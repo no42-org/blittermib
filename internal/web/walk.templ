@@ -1,5 +1,7 @@
 package web
 
+import "fmt"
+
 // walkIntakeForm is the shared capture-intake form: a paste textarea
 // wrapped in a drag-and-drop zone, a file picker, the decode submit,
 // and the privacy / size-cap copy. It posts multipart/form-data to
@@ -25,7 +27,7 @@ templ walkIntakeForm() {
 				<span data-walk-file-label>Or upload a file:</span>
 				<input type="file" name="walkfile" accept=".txt,text/plain" data-walk-file-input/>
 			</label>
-			<button type="submit">Decode</button>
+			<button type="submit" class="module-info-download-btn primary">Decode</button>
 		</div>
 		<p class="walk-hint">
 			The walk is parsed in memory and never written to disk, logged, or
@@ -75,7 +77,7 @@ templ WalkResults(view WalkResultsView) {
 					if view.HasResults {
 						<form method="post" action="/walk/bundle">
 							<input type="hidden" name="walk" value={ view.WalkText }/>
-							<button type="submit">↓ Download bundle</button>
+							<button type="submit" class="module-info-download-btn">↓ Download bundle</button>
 						</form>
 					}
 				</div>
@@ -89,29 +91,33 @@ templ WalkResults(view WalkResultsView) {
 			if !view.HasResults {
 				<p class="walk-empty">No OIDs in this capture resolved against the loaded MIBs.</p>
 			}
-			for _, g := range view.Groups {
-				<section class="walk-group">
-					<h2><a href={ moduleHref(g.Module) }>{ g.Module }</a></h2>
-					<table class="walk-table">
-						<thead>
-							<tr><th>OID</th><th>Symbol</th><th>Index</th><th>Type</th><th>Value</th></tr>
-						</thead>
-						<tbody>
-							for _, row := range g.Rows {
-								<tr>
-									<td class="walk-oid">{ row.OID }</td>
-									<td>{ row.Symbol }</td>
-									<td class="walk-index">{ row.Index }</td>
-									<td class="walk-type">{ row.Type }</td>
-									if row.NotPresent {
-										<td class="walk-absent">not present</td>
-									} else {
-										<td class="walk-value">{ row.Value }</td>
-									}
-								</tr>
-							}
-						</tbody>
-					</table>
+			if len(view.Modules) > 0 {
+				<section class="walk-modules">
+					<div class="walk-modules-head">
+						<h2>MIBs in this walk</h2>
+						if len(view.Modules) > 1 {
+							<div class="walk-sort" data-walk-sort-controls role="group" aria-label="Sort MIBs">
+								<span class="walk-sort-label">Sort</span>
+								<button type="button" class="walk-sort-btn" data-walk-sort="module">name</button>
+								<button type="button" class="walk-sort-btn" data-walk-sort="values">values</button>
+							</div>
+						}
+					</div>
+					<p class="walk-modules-intro">
+						Open a module to explore the decoded values in the workspace,
+						filtered to the OIDs this walk touched.
+					</p>
+					<ul class="walk-module-list" data-walk-sortable>
+						for _, m := range view.Modules {
+							<li class="walk-module-row"
+								data-module={ m.Module }
+								data-objects={ fmt.Sprintf("%d", m.ObjectCount) }
+								data-values={ fmt.Sprintf("%d", m.ValueCount) }>
+								<a class="walk-module-link" href={ moduleWalkHref(m.Module) }>{ m.Module }</a>
+								<span class="walk-module-counts">{ m.Counts }</span>
+							</li>
+						}
+					</ul>
 				</section>
 			}
 			if len(view.Notifications) > 0 {
@@ -124,11 +130,11 @@ templ WalkResults(view WalkResultsView) {
 						walk never carries trap definitions, so this is derived from the
 						module set, not observed in the capture.
 					</p>
-					<ul class="walk-notif-list">
+					<ul class="walk-module-list">
 						for _, n := range view.Notifications {
-							<li>
-								<a href={ moduleHref(n.Module) }>{ n.Module }</a>
-								<span class="walk-notif-count">{ n.Count }</span>
+							<li class="walk-module-row">
+								<a class="walk-module-link" href={ moduleHref(n.Module) }>{ n.Module }</a>
+								<span class="walk-module-counts">{ n.Count }</span>
 							</li>
 						}
 					</ul>

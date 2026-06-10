@@ -4162,6 +4162,67 @@ main.page:has(.workspace-grid) .content-inner,
   .walk-decode-label { display: none; }
 }
 
+/* results page — per-module summary launcher */
+.walk-modules { margin-top: 28px; }
+.walk-modules-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.walk-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.walk-sort-label {
+  color: var(--fg-3);
+  font-size: 12px;
+}
+.walk-sort-btn {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 12px;
+  color: var(--fg-3);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: all 80ms ease;
+}
+.walk-sort-btn:hover { color: var(--fg); border-color: var(--line-strong); }
+.walk-sort-btn[data-active="true"] {
+  color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent) 45%, transparent);
+}
+.walk-sort-btn[data-dir="asc"]::after { content: " ↑"; }
+.walk-sort-btn[data-dir="desc"]::after { content: " ↓"; }
+.walk-modules-intro { color: var(--fg-3); font-size: 13px; margin: 4px 0 14px; }
+.walk-module-list { list-style: none; margin: 0; padding: 0; }
+.walk-module-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  transition: border-color 100ms ease;
+}
+.walk-module-row:hover { border-color: var(--line-strong); }
+.walk-module-link {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 14px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.walk-module-link:hover { text-decoration: underline; }
+.walk-module-counts { color: var(--fg-3); font-size: 13px; white-space: nowrap; }
+
 .walk-results-head {
   display: flex;
   flex-wrap: wrap;
@@ -4221,16 +4282,6 @@ main.page:has(.workspace-grid) .content-inner,
   font-size: 13px;
   max-width: 70ch;
 }
-.walk-notif-list { list-style: none; padding: 0; margin-top: 12px; }
-.walk-notif-list li {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-.walk-notif-list a { color: var(--accent); text-decoration: none; }
-.walk-notif-count { color: var(--fg-3); font-size: 12px; }
 
 /* Workspace overlay (walk-overlay.js): value badge on matched rows, the
    "in walk" filter chip, and the status-bar indicator. All injected

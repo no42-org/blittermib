@@ -12,6 +12,10 @@
 //      value badge, expose an "in walk" filter chip, and show a
 //      status-bar indicator with a clear button.
 //
+// It also wires the client-side sort of the "MIBs in this walk" list on
+// the results page (by name or by value count) — no server round-trip,
+// reordering the rows already in the DOM.
+//
 // The server stays walk-unaware on the workspace surface (design
 // Decision 5). The page renders identically without a walk; all of
 // this is additive and purely client-side. Filtering is done with a
@@ -21,6 +25,15 @@
 	'use strict';
 
 	var KEY = 'blittermib-walk';
+	var FILTER_KEY = 'blittermib-walk-filter';
+
+	// walkFilterActive is the persistent state of the "in walk" filter.
+	// The closure variable survives htmx partial swaps (the list pane is
+	// replaced on scope changes, which would otherwise reset the filter
+	// and drop the `#in-walk` hash); sessionStorage survives full reloads
+	// of the pushed URL. Re-applied after every swap so the filter holds
+	// across in-workspace navigation.
+	var walkFilterActive = false;
 
 	function loadWalk() {
 		try {
@@ -102,21 +115,26 @@
 		return list.querySelectorAll('.list-row').length;
 	}
 
-	// injectChip adds an "in walk" toggle alongside the kind chips. It
-	// is plain JS (no Alpine bindings), so Alpine ignores it; toggling
-	// flips a `walk-only` class on the list pane that CSS uses to hide
-	// non-walk rows.
+	// injectChip adds an "in walk" toggle alongside the kind chips. It is
+	// plain JS (no Alpine bindings), so Alpine ignores it. Clicking it
+	// flips the persistent walkFilterActive state; the `walk-only` class
+	// on the list pane is what CSS uses to hide non-walk rows. The chip is
+	// re-injected after each list swap (the swap replaces the chip row),
+	// so its state is reflected from walkFilterActive, not the DOM.
 	function injectChip(list, matched) {
 		var chips = document.querySelector('.kind-chips');
 		if (!chips || chips.querySelector('.kind-walk')) return;
 		var chip = document.createElement('button');
 		chip.type = 'button';
 		chip.className = 'kind-chip kind-walk';
+		chip.setAttribute('role', 'tab');
 		chip.setAttribute('data-walk-active', 'false');
+		chip.title = 'Show only the OIDs present in the loaded walk';
 		chip.textContent = 'in walk (' + matched + ')';
 		chip.addEventListener('click', function () {
-			var on = list.classList.toggle('walk-only');
-			chip.setAttribute('data-walk-active', on ? 'true' : 'false');
+			walkFilterActive = !walkFilterActive;
+			persistFilter(walkFilterActive);
+			applyFilterState(list);
 		});
 		chips.appendChild(chip);
 	}
@@ -141,6 +159,7 @@
 		clear.addEventListener('click', function () {
 			try {
 				localStorage.removeItem(KEY);
+				sessionStorage.removeItem(FILTER_KEY);
 			} catch (e) {
 				/* ignore */
 			}
@@ -149,6 +168,40 @@
 		wrap.appendChild(clear);
 
 		bar.appendChild(wrap);
+	}
+
+	function persistFilter(on) {
+		try {
+			if (on) sessionStorage.setItem(FILTER_KEY, '1');
+			else sessionStorage.removeItem(FILTER_KEY);
+		} catch (e) {
+			/* storage unavailable — the closure variable still works */
+		}
+	}
+
+	// initFilterState seeds walkFilterActive once per page load: ON if the
+	// page was reached via a `#in-walk` launcher link, or if a prior
+	// toggle left it on (sessionStorage). Arriving via the link also
+	// persists the flag, so it survives the first scope-changing
+	// navigation — which drops the hash from the pushed URL.
+	function initFilterState() {
+		var stored = false;
+		try {
+			stored = sessionStorage.getItem(FILTER_KEY) === '1';
+		} catch (e) {
+			/* ignore */
+		}
+		walkFilterActive = location.hash === '#in-walk' || stored;
+		if (location.hash === '#in-walk') persistFilter(true);
+	}
+
+	// applyFilterState reflects walkFilterActive onto the list pane and the
+	// chip. Called on first paint and after every list swap, so the filter
+	// is preserved across in-workspace navigation instead of resetting.
+	function applyFilterState(list) {
+		list.classList.toggle('walk-only', walkFilterActive);
+		var chip = document.querySelector('.kind-walk');
+		if (chip) chip.setAttribute('data-walk-active', walkFilterActive ? 'true' : 'false');
 	}
 
 	function applyWorkspace() {
@@ -160,22 +213,76 @@
 		if (matched === 0) return; // walk touches nothing in this module
 		injectChip(list, matched);
 		injectIndicator(matched, rowCount(list));
+		applyFilterState(list);
+	}
+
+	// sortModuleRows reorders the "MIBs in this walk" rows in place by
+	// name (localeCompare) or value count (numeric). dir is +1 asc / -1
+	// desc; value ties break by name ascending for a stable order.
+	function sortModuleRows(list, key, dir) {
+		var rows = Array.prototype.slice.call(list.querySelectorAll('.walk-module-row'));
+		rows.sort(function (a, b) {
+			var an = a.getAttribute('data-module') || '';
+			var bn = b.getAttribute('data-module') || '';
+			if (key === 'values') {
+				var av = parseInt(a.getAttribute('data-values'), 10) || 0;
+				var bv = parseInt(b.getAttribute('data-values'), 10) || 0;
+				if (av !== bv) return (av - bv) * dir;
+				return an.localeCompare(bn);
+			}
+			return an.localeCompare(bn) * dir;
+		});
+		rows.forEach(function (r) { list.appendChild(r); });
+	}
+
+	// applyResultsSort wires the results-page sort controls. No-op on any
+	// page without them (workspace, etc.).
+	function applyResultsSort() {
+		var controls = document.querySelector('[data-walk-sort-controls]');
+		var list = document.querySelector('[data-walk-sortable]');
+		if (!controls || !list || controls.dataset.walkBound) return;
+		controls.dataset.walkBound = '1';
+
+		var key = null;
+		var dir = 1;
+		var btns = controls.querySelectorAll('[data-walk-sort]');
+		btns.forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				var k = btn.getAttribute('data-walk-sort');
+				if (k === key) {
+					dir = -dir; // re-click toggles direction
+				} else {
+					key = k;
+					dir = k === 'values' ? -1 : 1; // values default high→low, name A→Z
+				}
+				sortModuleRows(list, key, dir);
+				btns.forEach(function (b) {
+					b.removeAttribute('data-active');
+					b.removeAttribute('data-dir');
+				});
+				btn.setAttribute('data-active', 'true');
+				btn.setAttribute('data-dir', dir > 0 ? 'asc' : 'desc');
+			});
+		});
 	}
 
 	function init() {
 		persistFromResultsPage();
+		initFilterState();
 		applyWorkspace();
+		applyResultsSort();
 	}
 
 	// `defer` guarantees the DOM is parsed; run now, then re-decorate
-	// after the workspace's partial (htmx) list-pane swaps, which
-	// replace the rows we annotated.
+	// after the workspace's partial (htmx) navigation. A scope change
+	// replaces #workspace-list as an out-of-band swap that fires twice in
+	// quick succession (htmx:oobAfterSwap) — reacting to that mid-swap
+	// raced against a half-replaced DOM. Instead re-run on
+	// htmx:afterSettle, which fires once the swap (main + OOB) has settled,
+	// and re-query the live list inside applyWorkspace. Without this the
+	// filter, badges, and chip vanish on a column click with no way back.
 	init();
-	document.body.addEventListener('htmx:afterSwap', function (evt) {
-		var t = evt.detail && evt.detail.target;
-		if (!t) return;
-		if (t.id === 'workspace-list' || (t.querySelector && t.querySelector('#workspace-list'))) {
-			applyWorkspace();
-		}
+	document.body.addEventListener('htmx:afterSettle', function () {
+		if (document.getElementById('workspace-list')) applyWorkspace();
 	});
 })();

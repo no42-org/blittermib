@@ -22,11 +22,13 @@ anything to a third party.
   reordering); columnar varbinds stay position-based. UEI base
   overridable via `?uei=`
 - **Walk decoder** — paste or upload an `snmpwalk`/`snmpbulkwalk -On`
-  capture at `/walk`: it resolves each OID against the loaded MIBs,
-  groups the results by module, decodes simple table indexes, and tells
-  you which MIBs make sense of the walk — plus a derived list of which
-  of them define notifications/traps. OIDs no module covers fall back to
-  the IANA Private Enterprise Number registry for a vendor hint
+  capture at `/walk`: it resolves each OID against the loaded MIBs and
+  shows a per-module summary — one row per MIB the walk touched, with
+  object/value counts — plus a derived list of which of them define
+  notifications/traps. Click a module to open its workspace filtered to
+  the walk, where rows are decorated with the decoded values. OIDs no
+  module covers fall back to the IANA Private Enterprise Number registry
+  for a vendor hint
   (`PEN 2636 (Juniper Networks, Inc.) — load a vendor MIB`). Download a
   ZIP bundle (`walk.txt` + `README.txt` + the union import-closure MIBs +
   a `MISSING.txt` manifest) to decode the walk offline. The walk is

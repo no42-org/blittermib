@@ -168,27 +168,45 @@ func walkReadError(err error) (string, int, string) {
 // buildWalkResults maps a resolved walk + notification summary into the
 // logic-free view model. Display strings are computed here.
 func buildWalkResults(walkText string, rw walk.ResolvedWalk, notifs []walk.NotifModule) web.WalkResultsView {
-	// Resolved entries grouped by module, in the resolver's sorted
-	// module order.
-	rowsByModule := make(map[string][]web.WalkRow)
+	// Aggregate resolved, value-bearing entries per module, in the
+	// resolver's sorted module order. The counts mirror exactly what the
+	// workspace overlay decorates (numeric, present instances persisted
+	// to localStorage), so the "N objects" figure here matches the
+	// `in walk (N)` chip the user lands on after clicking through.
+	type modAgg struct {
+		objects map[string]struct{}
+		values  int
+	}
+	agg := make(map[string]*modAgg)
 	resolvedCount := 0
 	for _, re := range rw.Entries {
 		if !re.Resolved {
 			continue
 		}
 		resolvedCount++
-		rowsByModule[re.Module] = append(rowsByModule[re.Module], web.WalkRow{
-			OID:        re.Entry.Ident,
-			Symbol:     re.Symbol,
-			Index:      indexLabel(re),
-			Type:       re.Entry.Type,
-			Value:      re.Entry.Value,
-			NotPresent: re.Entry.NotPresent,
-		})
+		if re.Entry.NotPresent || !re.Entry.Numeric() {
+			continue
+		}
+		a := agg[re.Module]
+		if a == nil {
+			a = &modAgg{objects: make(map[string]struct{})}
+			agg[re.Module] = a
+		}
+		a.objects[re.Symbol] = struct{}{}
+		a.values++
 	}
-	var groups []web.WalkModuleGroup
+	var modules []web.WalkModuleSummary
 	for _, m := range rw.Modules {
-		groups = append(groups, web.WalkModuleGroup{Module: m, Rows: rowsByModule[m]})
+		a := agg[m]
+		if a == nil {
+			continue
+		}
+		modules = append(modules, web.WalkModuleSummary{
+			Module:      m,
+			ObjectCount: len(a.objects),
+			ValueCount:  a.values,
+			Counts:      moduleCountsLabel(len(a.objects), a.values),
+		})
 	}
 
 	unresolved := aggregateUnresolved(rw)
@@ -203,15 +221,15 @@ func buildWalkResults(walkText string, rw walk.ResolvedWalk, notifs []walk.Notif
 
 	view := web.WalkResultsView{
 		Summary: fmt.Sprintf("%d entries · %d resolved · %d module(s)",
-			len(rw.Entries), resolvedCount, len(groups)),
+			len(rw.Entries), resolvedCount, len(modules)),
 		SkippedLines:  rw.SkippedLines,
 		ParserNotes:   rw.ParserNotes,
-		Groups:        groups,
+		Modules:       modules,
 		Unresolved:    unresolved,
 		Notifications: notifView,
 		WalkText:      walkText,
 		WalkDataJSON:  walkDataJSON(rw),
-		HasResults:    len(groups) > 0 || len(unresolved) > 0,
+		HasResults:    len(modules) > 0 || len(unresolved) > 0,
 	}
 	return view
 }
@@ -235,19 +253,17 @@ func walkDataJSON(rw walk.ResolvedWalk) string {
 	return string(b)
 }
 
-// indexLabel renders the decoded (or raw) table index / instance.
-func indexLabel(re walk.ResolvedEntry) string {
-	switch re.IndexDecode {
-	case "integer":
-		return re.IndexName + "=" + re.IndexValue
-	case "raw-suffix":
-		return "suffix=." + re.Suffix
-	default:
-		if re.Suffix != "" {
-			return "." + re.Suffix
-		}
-		return ""
+// moduleCountsLabel renders the per-module summary counts, e.g.
+// "4 objects · 10 values".
+func moduleCountsLabel(objects, values int) string {
+	o, v := "objects", "values"
+	if objects == 1 {
+		o = "object"
 	}
+	if values == 1 {
+		v = "value"
+	}
+	return fmt.Sprintf("%d %s · %d %s", objects, o, values, v)
 }
 
 func notifCountLabel(n int) string {
