@@ -216,7 +216,9 @@ URL surfaces:
    /api/v1/search?q=…      JSON for the ⌘K palette
    /api/v1/symbol/{m}/{n}  symbol JSON
    /static/*               embedded design system + JS islands
-   /healthz, /version      ops endpoints
+   /healthz                liveness (200 once the process serves)
+   /readyz                 readiness (corpus loaded + store usable)
+   /version                build info
 
    When BLITTERMIB_UPLOAD_ENABLED=true (off by default):
    /upload                 management page: drop zone + file list

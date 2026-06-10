@@ -155,7 +155,30 @@ func validModuleName(s string) bool {
 
 // --- ops endpoints ---------------------------------------------------
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+// handleHealth is PURE LIVENESS: "is the process able to serve HTTP?"
+// It MUST NOT depend on the store or the corpus — a liveness probe
+// that fails during a long boot-time corpus load restarts the very pod
+// that is making progress (the CrashLoop this split exists to fix).
+// Readiness (corpus loaded, store usable) lives at /readyz.
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "ok",
+		"version": s.version,
+	})
+}
+
+// handleReady is READINESS: "is the corpus loaded and the store
+// usable?" 503 {"status":"loading"} while the boot-time corpus load is
+// still running; once the gate opens, a per-request store check guards
+// against a broken store without re-latching the gate.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if !s.Ready() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":  "loading",
+			"version": s.version,
+		})
+		return
+	}
 	if _, err := s.store.CountModules(r.Context()); err != nil {
 		http.Error(w, "store unhealthy", http.StatusServiceUnavailable)
 		return

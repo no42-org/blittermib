@@ -114,6 +114,106 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// TestHealthzIsLiveness pins the liveness contract: /healthz answers
+// 200 with NO store or corpus dependency and with the readiness gate
+// closed. A regression that re-adds a store check here reintroduces
+// the boot-time CrashLoop (liveness failing during the corpus load).
+func TestHealthzIsLiveness(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close() // any store query would now fail
+
+	s := New(st, "", "test", t.TempDir()) // gate closed, store broken
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("liveness status = %d, want 200 with a broken store and a closed gate", resp.StatusCode)
+	}
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["status"] != "ok" {
+		t.Errorf("status field = %v", got["status"])
+	}
+}
+
+// TestReadyzGate covers the readiness gate: 503 {"status":"loading"}
+// before SetReady, 200 {"status":"ok"} after.
+func TestReadyzGate(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	s := New(st, "", "test", t.TempDir())
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("pre-ready status = %d, want 503", resp.StatusCode)
+	}
+	var loading map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&loading); err != nil {
+		t.Fatal(err)
+	}
+	if loading["status"] != "loading" {
+		t.Errorf("pre-ready status field = %v, want loading", loading["status"])
+	}
+
+	s.SetReady()
+	resp, err = http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("post-ready status = %d, want 200", resp.StatusCode)
+	}
+	var ok map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&ok); err != nil {
+		t.Fatal(err)
+	}
+	if ok["status"] != "ok" {
+		t.Errorf("post-ready status field = %v, want ok", ok["status"])
+	}
+}
+
+// TestReadyzStoreUnhealthy: with the gate open but the store check
+// failing, /readyz reports 503 — without re-latching the gate.
+func TestReadyzStoreUnhealthy(t *testing.T) {
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close() // store check will fail
+
+	s := New(st, "", "test", t.TempDir())
+	s.SetReady()
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 when the store check fails", resp.StatusCode)
+	}
+}
+
 func TestVersion(t *testing.T) {
 	ts := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/version")

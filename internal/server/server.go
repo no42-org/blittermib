@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/no42-org/blittermib/internal/mibimport"
@@ -35,9 +36,24 @@ type Server struct {
 	// nothing to fail closed on.
 	walkEnabled bool
 
+	// ready is the readiness gate: false until the initial corpus load
+	// (SyncCorpus + boot rescan) completes. Binary and one-way — opened
+	// once by SetReady, never re-closed. A transient store error after
+	// the gate opens surfaces as a 503 from /readyz's per-request store
+	// check instead of re-latching the gate.
+	ready atomic.Bool
+
 	mux  *http.ServeMux
 	http *http.Server
 }
+
+// SetReady opens the readiness gate. Called once from the boot path
+// when the initial corpus load finishes; /readyz reports 503 "loading"
+// until then.
+func (s *Server) SetReady() { s.ready.Store(true) }
+
+// Ready reports whether the initial corpus load has completed.
+func (s *Server) Ready() bool { return s.ready.Load() }
 
 // New constructs a Server bound to addr backed by the given store.
 // mibsDir is the corpus root — shown to the user on the empty-state

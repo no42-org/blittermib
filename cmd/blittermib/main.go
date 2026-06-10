@@ -53,7 +53,7 @@ func main() {
 
 	slog.SetDefault(newLogger(cfg.verbose))
 
-	if err := run(cfg); err != nil {
+	if err := run(context.Background(), cfg); err != nil {
 		slog.Error("blittermib failed", "err", err)
 		os.Exit(1)
 	}
@@ -139,7 +139,16 @@ func bootstrapImportAndStandard(engine *mibimport.Engine, standardDir string) (i
 	return importOK
 }
 
-func run(cfg config) error {
+// testHookBeforeCorpusLoad, when non-nil, runs at the top of the
+// background corpus-load goroutine. Tests use it to hold the load open
+// and observe the serving-while-loading window (liveness up, readiness
+// 503). Nil in production.
+var testHookBeforeCorpusLoad func()
+
+// run boots the server. parent is the root context (main passes
+// Background; tests pass a cancellable context to stop the server) —
+// SIGINT/SIGTERM handling is layered on top of it.
+func run(parent context.Context, cfg config) error {
 	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
@@ -170,7 +179,7 @@ func run(cfg config) error {
 	migrateLegacyUpload(cfg.mibsDir)
 	dbPath := filepath.Join(cfg.dataDir, "blittermib.db")
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	st, err := store.Open(ctx, dbPath)
@@ -211,13 +220,24 @@ func run(cfg config) error {
 		return fmt.Errorf("load groups: %w", err)
 	}
 	engine.Groups = groups
-	if _, _, err := engine.SyncCorpus(ctx); err != nil {
-		slog.Warn("corpus cache validation encountered errors", "err", err)
-	}
 
-	// Process anything already sitting in import/ (boot rescan),
-	// then watch the intake dir — non-recursively; the outcome
-	// subdirectories are unwatched by construction.
+	// Construct the server and complete ALL route registration
+	// (EnableUploads AND EnableWalk both call mux.Handle) plus the
+	// write-once render globals BEFORE Start — registering on a live
+	// ServeMux is a data race. The listener must bind before the corpus
+	// load so liveness probes get a 200 instead of connection-refused
+	// during a long first compile (the Kubernetes CrashLoop fix).
+	web.SetVersion(version)
+	srv := server.New(st, cfg.listen, version, cfg.mibsDir)
+	if importOK {
+		srv.EnableUploads(engine)
+	} else {
+		srv.EnableUploads(nil) // env on + nil engine fails closed with a WARN
+	}
+	srv.EnableWalk()
+	web.SetWalkEnabled(srv.WalkEnabled())
+
+	// rescan processes anything already sitting in import/.
 	rescan := func(ctx context.Context) {
 		pending, err := engine.Pending()
 		if err != nil {
@@ -228,45 +248,75 @@ func run(cfg config) error {
 			engine.Import(ctx, pending)
 		}
 	}
+
 	var wg sync.WaitGroup
-	if importOK {
-		rescan(ctx)
 
-		watcher := watch.NewSingle(engine.Dir(), 250*time.Millisecond, func(ctx context.Context, files []string) {
-			engine.Import(ctx, files)
-		})
-
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			if err := watcher.Run(ctx); err != nil {
-				slog.Warn("watcher exited with error", "err", err)
+	// The heavy corpus load runs in the background; the readiness gate
+	// (/readyz) opens when the first pass completes. Joining via wg
+	// keeps shutdown ordered: the deferred store Close must not race a
+	// loader that is still writing.
+	//
+	// The intake watcher + periodic rescan start INSIDE this goroutine,
+	// after the initial sync: engine.Import serializes on the engine
+	// mutex but SyncCorpus does not, so launching the watcher earlier
+	// would let a file dropped into import/ during the load window run
+	// Import concurrently with SyncCorpus — an overlap that cannot
+	// happen today and that this reorder must not introduce.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// A panicking loader must not take the process down — the pod
+		// stays alive (liveness 200) and visibly not-ready (readiness
+		// 503), with the panic in the logs (design Risk 2).
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("corpus load panicked — readiness gate stays closed", "panic", r)
 			}
 		}()
-		go func() {
-			defer wg.Done()
-			tick := time.NewTicker(rescanInterval)
-			defer tick.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-tick.C:
-					rescan(ctx)
+		if hook := testHookBeforeCorpusLoad; hook != nil {
+			hook()
+		}
+		if _, _, err := engine.SyncCorpus(ctx); err != nil {
+			slog.Warn("corpus cache validation encountered errors", "err", err)
+		}
+		if importOK {
+			rescan(ctx)
+
+			watcher := watch.NewSingle(engine.Dir(), 250*time.Millisecond, func(ctx context.Context, files []string) {
+				engine.Import(ctx, files)
+			})
+
+			// Safe concurrent Add: this goroutine still holds a
+			// WaitGroup count, so the counter cannot reach zero while
+			// these are added.
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				if err := watcher.Run(ctx); err != nil {
+					slog.Warn("watcher exited with error", "err", err)
 				}
-			}
-		}()
-	}
+			}()
+			go func() {
+				defer wg.Done()
+				tick := time.NewTicker(rescanInterval)
+				defer tick.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-tick.C:
+						rescan(ctx)
+					}
+				}
+			}()
+		}
+		if ctx.Err() != nil {
+			return // shutting down mid-load — never report ready
+		}
+		srv.SetReady()
+		slog.Info("corpus loaded — readiness gate open")
+	}()
 
-	web.SetVersion(version)
-	srv := server.New(st, cfg.listen, version, cfg.mibsDir)
-	if importOK {
-		srv.EnableUploads(engine)
-	} else {
-		srv.EnableUploads(nil) // env on + nil engine fails closed with a WARN
-	}
-	srv.EnableWalk()
-	web.SetWalkEnabled(srv.WalkEnabled())
 	err = srv.Start(ctx)
 	wg.Wait()
 

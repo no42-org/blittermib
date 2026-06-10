@@ -21,7 +21,8 @@ import (
 //	/static/*                      embedded CSS, fonts, JS islands
 //	/imprint                       operator disclosure (§ 5 TMG)
 //	/privacy                       data-handling notice (GDPR)
-//	/healthz                       liveness check
+//	/healthz                       liveness (process serves HTTP; no store dependency)
+//	/readyz                        readiness (corpus loaded + store usable)
 //	/version                       build info
 //
 // When BLITTERMIB_UPLOAD_ENABLED is truthy, EnableUploads also
@@ -42,6 +43,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler(s.version)), withLogging, withRecover))
 
 	s.mux.Handle("/healthz", chain(http.HandlerFunc(s.handleHealth), withLogging, withRecover))
+	s.mux.Handle("/readyz", chain(http.HandlerFunc(s.handleReady), withLogging, withRecover))
 	s.mux.Handle("/version", chain(http.HandlerFunc(s.handleVersion), withLogging, withRecover))
 	s.mux.Handle("/imprint", chain(http.HandlerFunc(s.handleImprint), withLogging, withRecover))
 	s.mux.Handle("/privacy", chain(http.HandlerFunc(s.handlePrivacy), withLogging, withRecover))
