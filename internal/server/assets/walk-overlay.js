@@ -189,8 +189,9 @@
 		var wrap = document.createElement('span');
 		wrap.className = 'walk-indicator';
 
-		var label = document.createElement('a');
-		label.href = '/walk';
+		// Plain informational text — not a link. Navigating back to the
+		// upload page from a status-bar count made no sense.
+		var label = document.createElement('span');
 		label.className = 'walk-indicator-label';
 		label.textContent = matched + ' of ' + total + ' in walk';
 		wrap.appendChild(label);
