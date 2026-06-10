@@ -65,7 +65,7 @@ templ WalkUpload(view WalkUploadView) {
 templ WalkResults(view WalkResultsView) {
 	@Base("Walk results — blittermib") {
 		<!-- walk-overlay.js reads this on load and persists it to
-		localStorage so the workspace pages can decorate rows with
+		sessionStorage so the workspace pages can decorate rows with
 		walk values. The attribute value is templ-escaped. -->
 		<div id="blittermib-walk-data" data-walk={ view.WalkDataJSON } hidden></div>
 		<article class="walk-results">

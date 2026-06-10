@@ -1,11 +1,16 @@
 // walk-overlay.js — client-only walk decoration for the workspace.
 //
-// Two jobs, both keyed off a single localStorage entry
-// (`blittermib-walk`, a JSON `{oids:{instanceOID:value}}` map):
+// Two jobs, both keyed off a single sessionStorage entry
+// (`blittermib-walk`, a JSON `{oids:{instanceOID:value}}` map).
+// sessionStorage (not localStorage) on purpose: the walk is ephemeral,
+// and localStorage is shared with htmx's `htmx-history-cache` (full
+// page-HTML snapshots) — a multi-MB walk competing with that cache hit
+// the per-origin quota and failed to persist, leaving the workspace
+// with nothing to decorate. sessionStorage has its own quota.
 //
 //   1. Writer: on the /walk results page a hidden
 //      `#blittermib-walk-data` element carries the decoded walk as a
-//      data attribute. We persist it to localStorage so the workspace
+//      data attribute. We persist it to sessionStorage so the workspace
 //      can read it without another server round-trip.
 //   2. Reader: on a module workspace page (`#workspace-list` present),
 //      decorate each list row whose OID appears in the walk with a
@@ -37,7 +42,7 @@
 
 	function loadWalk() {
 		try {
-			var raw = localStorage.getItem(KEY);
+			var raw = sessionStorage.getItem(KEY);
 			if (!raw) return null;
 			var obj = JSON.parse(raw);
 			if (!obj || typeof obj.oids !== 'object' || obj.oids === null) return null;
@@ -48,8 +53,9 @@
 	}
 
 	// persistFromResultsPage runs on the /walk results page only. The
-	// workspace overlay reads the walk from localStorage, so this is the
-	// only bridge from the results page to the per-module value badges.
+	// workspace overlay reads the walk from sessionStorage, so this is
+	// the only bridge from the results page to the per-module value
+	// badges.
 	function persistFromResultsPage() {
 		var el = document.getElementById('blittermib-walk-data');
 		if (!el) return;
@@ -61,14 +67,14 @@
 			return; // malformed payload — leave any prior walk untouched
 		}
 		try {
-			localStorage.setItem(KEY, raw);
+			sessionStorage.setItem(KEY, raw);
 		} catch (e) {
 			// Storage full (large walks can exceed the per-origin quota)
 			// or disabled. Drop any stale walk so the workspace doesn't
 			// decorate the wrong data, and surface why — otherwise the
 			// values/chip silently never appear in the workspace.
 			try {
-				localStorage.removeItem(KEY);
+				sessionStorage.removeItem(KEY);
 			} catch (e2) {
 				/* ignore */
 			}
@@ -196,7 +202,7 @@
 		clear.title = 'Forget the loaded walk';
 		clear.addEventListener('click', function () {
 			try {
-				localStorage.removeItem(KEY);
+				sessionStorage.removeItem(KEY);
 				sessionStorage.removeItem(FILTER_KEY);
 			} catch (e) {
 				/* ignore */

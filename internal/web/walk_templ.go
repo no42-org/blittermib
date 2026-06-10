@@ -159,7 +159,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<!-- walk-overlay.js reads this on load and persists it to\n\t\tlocalStorage so the workspace pages can decorate rows with\n\t\twalk values. The attribute value is templ-escaped. --> <div id=\"blittermib-walk-data\" data-walk=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<!-- walk-overlay.js reads this on load and persists it to\n\t\tsessionStorage so the workspace pages can decorate rows with\n\t\twalk values. The attribute value is templ-escaped. --> <div id=\"blittermib-walk-data\" data-walk=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
