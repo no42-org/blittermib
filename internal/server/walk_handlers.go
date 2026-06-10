@@ -57,6 +57,16 @@ func (s *Server) handleWalkUpload(w http.ResponseWriter, r *http.Request) {
 	render(w, r, http.StatusOK, web.WalkUpload(web.WalkUploadView{}))
 }
 
+// renderWalkUploadError re-renders the intake page with an error
+// message. Like handleWalkUpload it marks the context as the walk page
+// so the shared layout suppresses the redundant topbar decode control
+// and modal — a rejected submit is the page the user is most likely to
+// retry from.
+func renderWalkUploadError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	r = r.WithContext(web.WithWalkPage(r.Context()))
+	render(w, r, status, web.WalkUpload(web.WalkUploadView{Error: msg}))
+}
+
 // handleWalkDecode parses a posted walk, resolves it against the store,
 // and renders the grouped results. The walk content is held only for
 // the duration of the request: no DB row, no file, no slog of values.
@@ -70,7 +80,7 @@ func (s *Server) handleWalkDecode(w http.ResponseWriter, r *http.Request) {
 
 	walkText, status, msg := s.readWalk(w, r)
 	if status != http.StatusOK {
-		render(w, r, status, web.WalkUpload(web.WalkUploadView{Error: msg}))
+		renderWalkUploadError(w, r, status, msg)
 		return
 	}
 
@@ -78,9 +88,8 @@ func (s *Server) handleWalkDecode(w http.ResponseWriter, r *http.Request) {
 	if len(parsed.Entries) == 0 && contentLooksLikeMIB(walkText) {
 		// A MIB module pasted into the walk box — nothing resolves and
 		// every line is "skipped". Redirect rather than dead-end.
-		render(w, r, http.StatusUnprocessableEntity, web.WalkUpload(web.WalkUploadView{
-			Error: "That looks like a MIB module, not an snmpwalk capture. Upload MIB files at /import instead.",
-		}))
+		renderWalkUploadError(w, r, http.StatusUnprocessableEntity,
+			"That looks like a MIB module, not an snmpwalk capture. Upload MIB files at /import instead.")
 		return
 	}
 
@@ -168,11 +177,16 @@ func walkReadError(err error) (string, int, string) {
 // buildWalkResults maps a resolved walk + notification summary into the
 // logic-free view model. Display strings are computed here.
 func buildWalkResults(walkText string, rw walk.ResolvedWalk, notifs []walk.NotifModule) web.WalkResultsView {
-	// Aggregate resolved, value-bearing entries per module, in the
-	// resolver's sorted module order. The counts mirror exactly what the
-	// workspace overlay decorates (numeric, present instances persisted
-	// to localStorage), so the "N objects" figure here matches the
-	// `in walk (N)` chip the user lands on after clicking through.
+	// Aggregate every resolved entry per module, in the resolver's
+	// sorted module order — name-prefixed records (the default snmpwalk
+	// output form) count the same as -On numeric ones, and a module
+	// whose objects only reported "no such instance" still appears
+	// (with a zero value count) so the summary, the bundle, and the
+	// notification section all describe the same module set.
+	// ObjectCount is distinct resolved symbols; ValueCount is
+	// value-bearing instances. (The workspace chip counts matched list
+	// rows instead, which includes ancestor table/entry rows — related
+	// figures, not the same number.)
 	type modAgg struct {
 		objects map[string]struct{}
 		values  int
@@ -184,16 +198,15 @@ func buildWalkResults(walkText string, rw walk.ResolvedWalk, notifs []walk.Notif
 			continue
 		}
 		resolvedCount++
-		if re.Entry.NotPresent || !re.Entry.Numeric() {
-			continue
-		}
 		a := agg[re.Module]
 		if a == nil {
 			a = &modAgg{objects: make(map[string]struct{})}
 			agg[re.Module] = a
 		}
 		a.objects[re.Symbol] = struct{}{}
-		a.values++
+		if !re.Entry.NotPresent {
+			a.values++
+		}
 	}
 	var modules []web.WalkModuleSummary
 	for _, m := range rw.Modules {
@@ -234,17 +247,28 @@ func buildWalkResults(walkText string, rw walk.ResolvedWalk, notifs []walk.Notif
 	return view
 }
 
-// walkDataJSON marshals the walk's numeric instance OIDs to their
+// walkDataJSON marshals the walk's resolved instance OIDs to their
 // values as {"oids":{oid:value}} for the workspace overlay to persist
-// in localStorage. Name-prefixed and not-present entries are skipped —
-// they can't be matched against a workspace row's numeric data-oid.
+// in sessionStorage. Name-prefixed records are normalised back to the
+// numeric instance OID (symbol OID + suffix) so they decorate the
+// workspace like -On records do. Not-present entries carry no value,
+// and unresolved entries can't match any loaded module's rows — both
+// are skipped, which also keeps the payload (and the browser-storage
+// quota it competes for) proportional to what can actually decorate.
 func walkDataJSON(rw walk.ResolvedWalk) string {
 	oids := make(map[string]string)
 	for _, re := range rw.Entries {
-		if re.Entry.NotPresent || !re.Entry.Numeric() {
+		if !re.Resolved || re.Entry.NotPresent {
 			continue
 		}
-		oids[re.Entry.Ident] = re.Entry.Value
+		ident := re.Entry.Ident
+		if !re.Entry.Numeric() {
+			ident = re.SymbolOID
+			if re.Suffix != "" {
+				ident += "." + re.Suffix
+			}
+		}
+		oids[ident] = re.Entry.Value
 	}
 	b, err := json.Marshal(map[string]any{"oids": oids})
 	if err != nil {
@@ -351,7 +375,7 @@ func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 
 	walkText, status, msg := s.readWalk(w, r)
 	if status != http.StatusOK {
-		render(w, r, status, web.WalkUpload(web.WalkUploadView{Error: msg}))
+		renderWalkUploadError(w, r, status, msg)
 		return
 	}
 

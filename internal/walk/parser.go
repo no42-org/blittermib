@@ -2,6 +2,7 @@ package walk
 
 import (
 	"bufio"
+	"fmt"
 	"strings"
 )
 
@@ -61,6 +62,16 @@ func Parse(text string) Walk {
 		e.Raw = raw
 		e.LineNumber = line
 		w.Entries = append(w.Entries, e)
+	}
+
+	// A scanner error (a single line beyond the 4 MB token cap — e.g. a
+	// binary paste or a capture with no newlines) aborts the loop early.
+	// Surface it: silently returning a clean-looking partial decode
+	// would contradict this parser's tolerant-but-honest contract.
+	if err := sc.Err(); err != nil {
+		w.ParserNotes = append(w.ParserNotes, fmt.Sprintf(
+			"reading stopped after line %d (%v) — the rest of the capture was not decoded",
+			line, err))
 	}
 
 	if w.SkippedLines > 0 {

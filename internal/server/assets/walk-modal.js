@@ -171,6 +171,21 @@
 		);
 
 		if (bindOnce(document.documentElement, 'walkModalGlobal')) {
+			// bfcache restore (Safari/Firefox Back) revives the mutated DOM
+			// without re-running scripts — without this reset the form
+			// comes back stuck on "Decoding…" with an animating bar.
+			window.addEventListener('pageshow', function (e) {
+				if (!e.persisted) return;
+				Array.prototype.forEach.call(
+					document.querySelectorAll('form.walk-intake.walk-decoding'),
+					function (form) {
+						form.classList.remove('walk-decoding');
+						form.removeAttribute('aria-busy');
+						var btn = form.querySelector('button[type="submit"]');
+						if (btn) btn.textContent = 'Decode';
+					}
+				);
+			});
 			document.addEventListener('keydown', function (e) {
 				if (e.key === 'Escape') {
 					close();

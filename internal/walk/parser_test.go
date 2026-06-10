@@ -3,6 +3,7 @@ package walk
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +84,29 @@ A::B::sysName.0 = STRING: "double colon"
 	}
 	if w.SkippedLines != 5 {
 		t.Errorf("SkippedLines = %d, want 5", w.SkippedLines)
+	}
+}
+
+// A single line beyond the scanner's 4 MB token cap aborts the scan;
+// the parser must surface that as a note instead of returning a
+// clean-looking truncated decode.
+func TestWalkParserScannerError(t *testing.T) {
+	capture := ".1.3.6.1.2.1.1.5.0 = STRING: ok\n" +
+		".1.3.6.1.2.1.1.6.0 = STRING: " + strings.Repeat("x", 5<<20) + "\n" +
+		".1.3.6.1.2.1.1.7.0 = INTEGER: 4\n"
+	w := Parse(capture)
+
+	if len(w.Entries) != 1 {
+		t.Fatalf("got %d entries, want 1 (the line before the oversized one)", len(w.Entries))
+	}
+	found := false
+	for _, n := range w.ParserNotes {
+		if strings.Contains(n, "not decoded") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a truncation note in ParserNotes, got %v", w.ParserNotes)
 	}
 }
 

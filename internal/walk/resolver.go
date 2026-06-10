@@ -51,6 +51,53 @@ type ResolvedWalk struct {
 	ParserNotes  []string
 }
 
+// resolver carries the store plus per-Resolve lookup memos. Walks are
+// massively repetitive — the same column prefix appears once per
+// instance, and unresolved vendor OIDs probe the same shrinking
+// prefixes tens of thousands of times — so memoizing both positive and
+// negative lookups turns an O(entries × OID-depth) query storm into a
+// handful of queries per distinct prefix.
+type resolver struct {
+	s      *store.Store
+	byOID  map[string]*model.Symbol // GetSymbolByOID memo; nil value = not found
+	byName map[string]*model.Symbol // GetSymbol memo, keyed module + "\x00" + name; nil = not found
+}
+
+func (r *resolver) symbolByOID(ctx context.Context, oid string) (*model.Symbol, error) {
+	if sym, ok := r.byOID[oid]; ok {
+		return sym, nil
+	}
+	sym, err := r.s.GetSymbolByOID(ctx, oid)
+	switch {
+	case err == nil:
+		r.byOID[oid] = sym
+		return sym, nil
+	case errors.Is(err, store.ErrNotFound):
+		r.byOID[oid] = nil
+		return nil, nil
+	default:
+		return nil, err
+	}
+}
+
+func (r *resolver) symbolByName(ctx context.Context, module, name string) (*model.Symbol, error) {
+	key := module + "\x00" + name
+	if sym, ok := r.byName[key]; ok {
+		return sym, nil
+	}
+	sym, err := r.s.GetSymbol(ctx, module, name)
+	switch {
+	case err == nil:
+		r.byName[key] = sym
+		return sym, nil
+	case errors.Is(err, store.ErrNotFound):
+		r.byName[key] = nil
+		return nil, nil
+	default:
+		return nil, err
+	}
+}
+
 // Resolve decorates every entry in the walk against the store. It
 // loads the module list once for the unresolved-OID root match and
 // makes no writes — resolution is a pure read over the corpus.
@@ -62,10 +109,21 @@ func Resolve(ctx context.Context, w Walk, s *store.Store) (ResolvedWalk, error) 
 		return rw, err
 	}
 
+	r := &resolver{
+		s:      s,
+		byOID:  make(map[string]*model.Symbol),
+		byName: make(map[string]*model.Symbol),
+	}
+
 	modSet := make(map[string]struct{})
 	lookupErrs := 0
 	for _, e := range w.Entries {
-		re, err := resolveEntry(ctx, s, mods, e)
+		// A 100k-entry walk shouldn't grind on for a caller that hung
+		// up — bail as soon as the request context is gone.
+		if err := ctx.Err(); err != nil {
+			return rw, err
+		}
+		re, err := r.resolveEntry(ctx, mods, e)
 		if err != nil {
 			// Degrade gracefully: a store lookup failure on one entry
 			// shouldn't discard the rest of the decode (matching the
@@ -91,10 +149,10 @@ func Resolve(ctx context.Context, w Walk, s *store.Store) (ResolvedWalk, error) 
 	return rw, nil
 }
 
-func resolveEntry(ctx context.Context, s *store.Store, mods []model.Module, e Entry) (ResolvedEntry, error) {
+func (r *resolver) resolveEntry(ctx context.Context, mods []model.Module, e Entry) (ResolvedEntry, error) {
 	re := ResolvedEntry{Entry: e}
 
-	oid, ok := numericOID(ctx, s, e)
+	oid, ok := r.numericOID(ctx, e)
 	if !ok {
 		// A name-prefixed identifier we couldn't normalise to an OID
 		// (the module/symbol isn't loaded). Surface it as unresolved
@@ -104,17 +162,17 @@ func resolveEntry(ctx context.Context, s *store.Store, mods []model.Module, e En
 		return re, nil
 	}
 
-	sym, suffix, found, err := findSymbol(ctx, s, oid)
+	sym, suffix, found, err := r.findSymbol(ctx, oid)
 	if err != nil {
 		return re, err
 	}
-	if found && !isShallowEnterpriseMatch(sym.OID, oid) {
+	if found && !isStructuralMatch(sym.OID, oid) {
 		re.Resolved = true
 		re.Module = sym.ModuleName
 		re.Symbol = sym.Name
 		re.SymbolOID = sym.OID
 		re.Suffix = suffix
-		if err := decodeIndex(ctx, s, sym, suffix, &re); err != nil {
+		if err := r.decodeIndex(ctx, sym, suffix, &re); err != nil {
 			return re, err
 		}
 		return re, nil
@@ -128,7 +186,7 @@ func resolveEntry(ctx context.Context, s *store.Store, mods []model.Module, e En
 // identifiers pass through; a name-prefixed identifier
 // (MODULE::symbol.suffix) is resolved against the store and the
 // instance/index suffix re-appended.
-func numericOID(ctx context.Context, s *store.Store, e Entry) (string, bool) {
+func (r *resolver) numericOID(ctx context.Context, e Entry) (string, bool) {
 	if e.Numeric() {
 		return e.Ident, true
 	}
@@ -143,7 +201,7 @@ func numericOID(ctx context.Context, s *store.Store, e Entry) (string, bool) {
 	if module == "" || name == "" {
 		return "", false
 	}
-	sym, err := s.GetSymbol(ctx, module, name)
+	sym, err := r.symbolByName(ctx, module, name)
 	if err != nil || sym == nil || sym.OID == "" {
 		return "", false
 	}
@@ -165,16 +223,16 @@ func splitNameSuffix(rest string) (string, string) {
 
 // findSymbol walks the OID up segment by segment, returning the first
 // loaded symbol whose OID matches a prefix and the remaining suffix.
-func findSymbol(ctx context.Context, s *store.Store, oid string) (*model.Symbol, string, bool, error) {
+func (r *resolver) findSymbol(ctx context.Context, oid string) (*model.Symbol, string, bool, error) {
 	segs := strings.Split(oid, ".")
 	for n := len(segs); n >= 2; n-- {
 		prefix := strings.Join(segs[:n], ".")
-		sym, err := s.GetSymbolByOID(ctx, prefix)
-		switch {
-		case err == nil && sym != nil:
-			return sym, strings.Join(segs[n:], "."), true, nil
-		case err != nil && !errors.Is(err, store.ErrNotFound):
+		sym, err := r.symbolByOID(ctx, prefix)
+		if err != nil {
 			return nil, "", false, err
+		}
+		if sym != nil {
+			return sym, strings.Join(segs[n:], "."), true, nil
 		}
 	}
 	return nil, "", false, nil
@@ -184,7 +242,7 @@ func findSymbol(ctx context.Context, s *store.Store, oid string) (*model.Symbol,
 // exactly one INTEGER/Integer32 index decodes its single-integer
 // suffix to `name=value`. Everything else with a suffix is marked
 // raw-suffix; a scalar instance (the lone `.0`) carries no index.
-func decodeIndex(ctx context.Context, s *store.Store, sym *model.Symbol, suffix string, re *ResolvedEntry) error {
+func (r *resolver) decodeIndex(ctx context.Context, sym *model.Symbol, suffix string, re *ResolvedEntry) error {
 	if suffix == "" {
 		return nil
 	}
@@ -194,23 +252,23 @@ func decodeIndex(ctx context.Context, s *store.Store, sym *model.Symbol, suffix 
 		return nil
 	}
 
-	entry, err := s.GetSymbolByOID(ctx, sym.ParentOID)
-	switch {
-	case errors.Is(err, store.ErrNotFound) || (err == nil && entry == nil):
+	entry, err := r.symbolByOID(ctx, sym.ParentOID)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
 		// No parent entry to read INDEX from — can't decode, but this
 		// is an absence, not a failure.
 		re.IndexDecode = "raw-suffix"
 		return nil
-	case err != nil:
-		return err
 	}
 
 	if len(entry.IndexColumns) == 1 {
-		idxSym, err := s.GetSymbol(ctx, entry.ModuleName, entry.IndexColumns[0])
-		switch {
-		case err != nil && !errors.Is(err, store.ErrNotFound):
+		idxSym, err := r.symbolByName(ctx, entry.ModuleName, entry.IndexColumns[0])
+		if err != nil {
 			return err
-		case err == nil && idxSym != nil && isIntegerSyntax(idxSym.Syntax) && isSingleInteger(suffix):
+		}
+		if idxSym != nil && isIntegerSyntax(idxSym.Syntax) && isSingleInteger(suffix) {
 			re.IndexName = entry.IndexColumns[0]
 			re.IndexValue = suffix
 			re.IndexDecode = "integer"
@@ -257,22 +315,42 @@ func oidHasPrefix(oid, prefix string) bool {
 
 // enterprisesArcs is the arc count of the enterprises node
 // (1.3.6.1.4.1). The loaded SMI modules (RFC1155-SMI, SNMPv2-SMI)
-// define enterprises/private/internet/… as real symbols, so a naive
-// shrinking-prefix search "resolves" any vendor OID whose own MIB is
-// not loaded to the bare enterprises node — defeating the PEN
-// fallback. isShallowEnterpriseMatch rejects such matches so they fall
-// through to the vendor hint.
+// define enterprises/private/internet/mgmt/mib-2/… as real symbols, so
+// a naive shrinking-prefix search "resolves" any OID whose own MIB is
+// not loaded to one of these scaffolding nodes — defeating the
+// unresolved-OID guidance (PEN hint / canonical arc / module-root
+// match).
 const enterprisesArcs = 6 // 1 . 3 . 6 . 1 . 4 . 1
 
-// isShallowEnterpriseMatch reports whether a symbol match for an
-// enterprise OID landed at or above the enterprises node rather than
-// inside the vendor's own subtree. Such a match is SMI scaffolding,
-// not a useful resolution.
-func isShallowEnterpriseMatch(symOID, oid string) bool {
-	if _, ok := enterprisePEN(oid); !ok {
+// structuralArcMax is the deepest arc count treated as SMI scaffolding
+// outside enterprises. Standard walkable objects live at ≥8 arcs
+// (1.3.6.1.2.1.<group>.<object> and deeper); the structural arcs —
+// internet (4), mgmt/private (5), mib-2/enterprises (6), and group
+// anchors like system/interfaces (7) — all sit at ≤7.
+const structuralArcMax = 7
+
+// isStructuralMatch reports whether a shrinking-prefix symbol match
+// landed on SMI scaffolding rather than the OID's owning subtree. Two
+// rules:
+//
+//   - Under enterprises, any match at or above the enterprises node is
+//     scaffolding (the vendor's own MIB isn't loaded) — the PEN hint is
+//     the useful answer.
+//   - Anywhere, a match at ≤7 arcs that the walked OID extends by two
+//     or more arcs is scaffolding (e.g. an OID under an unloaded
+//     standard MIB matching `mib-2`). The ≥2 guard keeps legitimate
+//     shallow scalars resolvable: a 7-arc object's `.0` instance
+//     extends it by exactly one arc.
+func isStructuralMatch(symOID, oid string) bool {
+	symArcs := strings.Count(symOID, ".") + 1
+	if _, ok := enterprisePEN(oid); ok && symArcs <= enterprisesArcs {
+		return true
+	}
+	if symArcs > structuralArcMax {
 		return false
 	}
-	return strings.Count(symOID, ".")+1 <= enterprisesArcs
+	oidArcs := strings.Count(oid, ".") + 1
+	return oidArcs-symArcs >= 2
 }
 
 // enterprisePEN extracts the PEN segment from an OID under

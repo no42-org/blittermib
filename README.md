@@ -34,7 +34,7 @@ anything to a third party.
   a `MISSING.txt` manifest) to decode the walk offline. The walk is
   parsed in memory and **never stored, logged, or written to disk**;
   workspace pages decorate rows with walk values via a client-side
-  `localStorage` overlay
+  `sessionStorage` overlay
 - **Hot reload** — drop a MIB anywhere under the watched directory and
   it appears in seconds (recursive `fsnotify` + 250 ms debounce +
   transactional ingest)

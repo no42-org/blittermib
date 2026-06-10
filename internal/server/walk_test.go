@@ -65,6 +65,39 @@ func TestWalkDecodeGroupsAndFallsBack(t *testing.T) {
 	}
 }
 
+// Name-prefixed captures (default snmpwalk output without -On) must
+// summarise and decorate like numeric ones: a summary row with the
+// #in-walk launcher link, and the walk-data payload carrying the
+// reconstructed numeric instance OID.
+func TestWalkDecodeNamePrefixed(t *testing.T) {
+	ts := newTestServer(t)
+	walk := "IF-MIB::ifInOctets.1 = Counter32: 84572301\n"
+	resp, err := http.PostForm(ts.URL+"/walk/decode", url.Values{"walk": {walk}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	html := body(t, resp)
+	for _, want := range []string{
+		"MIBs in this walk",
+		"/m/IF-MIB#in-walk",
+		"1 object · 1 value",
+		// walk-data payload: numeric instance OID reconstructed from the
+		// resolved symbol OID + suffix (JSON-escaped inside the attr).
+		"1.3.6.1.2.1.2.2.1.10.1",
+		"84572301",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("name-prefixed results missing %q", want)
+		}
+	}
+	if strings.Contains(html, "No OIDs in this capture resolved") {
+		t.Error("fully-resolved name-prefixed walk shows the nothing-resolved empty state")
+	}
+}
+
 // The results page collapses many instances of the same object into one
 // per-module summary row — the object count is distinct symbols, the
 // value count is instances.

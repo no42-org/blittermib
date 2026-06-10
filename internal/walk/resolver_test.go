@@ -194,6 +194,82 @@ func TestWalkResolveSkipsStructuralEnterprises(t *testing.T) {
 	}
 }
 
+// TestWalkResolveSkipsStructuralStandardArcs is the non-enterprise
+// counterpart of the structural-enterprises regression: the live corpus
+// loads SNMPv2-SMI, which defines mgmt/mib-2 as real symbols. An OID
+// under an UNLOADED standard MIB must not "resolve" to the mib-2
+// scaffolding node — it falls through to the canonical-arc guidance.
+// A real (7-arc) scalar's `.0` instance, by contrast, still resolves:
+// the structural rule requires the walked OID to extend the match by
+// two or more arcs.
+func TestWalkResolveSkipsStructuralStandardArcs(t *testing.T) {
+	ctx := context.Background()
+	s, err := store.OpenInMemory(ctx)
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	smi := &model.Module{Name: "SNMPv2-SMI", OIDRoot: "1.3.6.1", ParseStatus: model.ParseStatusClean}
+	smiSyms := []model.Symbol{
+		{ModuleName: "SNMPv2-SMI", Name: "mgmt", OID: "1.3.6.1.2",
+			ParentOID: "1.3.6.1", Kind: model.KindObjectIdentity},
+		{ModuleName: "SNMPv2-SMI", Name: "mib-2", OID: "1.3.6.1.2.1",
+			ParentOID: "1.3.6.1.2", Kind: model.KindObjectIdentity},
+		// A walkable object at exactly 7 arcs — the structural cutoff.
+		{ModuleName: "SNMPv2-SMI", Name: "shallowScalar", OID: "1.3.6.1.2.99",
+			ParentOID: "1.3.6.1.2", Kind: model.KindScalar, Syntax: "Integer32"},
+	}
+	if err := s.ReplaceModule(ctx, smi, smiSyms, nil, nil); err != nil {
+		t.Fatalf("seed SNMPv2-SMI: %v", err)
+	}
+
+	capture := `.1.3.6.1.2.1.131.1.1.0 = INTEGER: 1
+.1.3.6.1.2.99.0 = INTEGER: 5`
+	rw, err := Resolve(ctx, Parse(capture), s)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	// OID under an unloaded standard MIB: matching mib-2 is scaffolding,
+	// not a resolution.
+	deep := rw.Entries[0]
+	if deep.Resolved {
+		t.Fatalf("OID under unloaded MIB resolved to %s::%s — want canonical fallback",
+			deep.Module, deep.Symbol)
+	}
+	if deep.Unresolved == nil || deep.Unresolved.CanonicalName != "mib-2" {
+		t.Fatalf("expected canonical mib-2 hint, got %+v", deep.Unresolved)
+	}
+
+	// A shallow (≤7-arc) object's own .0 instance extends it by one arc
+	// and must still resolve.
+	shallow := rw.Entries[1]
+	if !shallow.Resolved || shallow.Symbol != "shallowScalar" {
+		t.Fatalf("shallow scalar instance = %+v, want resolved shallowScalar", shallow)
+	}
+}
+
+// Name-prefixed records (default snmpwalk output without -On) resolve
+// through the store and carry the numeric symbol OID + suffix, so
+// downstream consumers (results summary, workspace overlay payload) can
+// reconstruct the numeric instance OID.
+func TestWalkResolveNamePrefixed(t *testing.T) {
+	s := ifMIBStore(t)
+	rw, err := Resolve(context.Background(),
+		Parse("IF-MIB::ifInOctets.1 = Counter32: 84572301"), s)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	e := rw.Entries[0]
+	if !e.Resolved || e.Module != "IF-MIB" || e.Symbol != "ifInOctets" {
+		t.Fatalf("name-prefixed resolution = %+v", e)
+	}
+	if e.SymbolOID != "1.3.6.1.2.1.2.2.1.10" || e.Suffix != "1" {
+		t.Errorf("SymbolOID/Suffix = %q/%q, want 1.3.6.1.2.1.2.2.1.10/1", e.SymbolOID, e.Suffix)
+	}
+}
+
 func TestWalkResolveFallbackToPEN(t *testing.T) {
 	// IF-MIB store has no Cisco MIB; a Cisco enterprise OID must fall
 	// back to the PEN registry rather than resolving.

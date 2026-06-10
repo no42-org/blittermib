@@ -76,7 +76,10 @@ templ WalkResults(view WalkResultsView) {
 				<div class="walk-results-actions">
 					<a href="/walk" class="walk-back">Decode another walk</a>
 					if view.HasResults {
-						<form method="post" action="/walk/bundle">
+						// multipart, not urlencoded: percent-encoding inflates a
+						// walk ~1.5-2× (every newline/=/: escapes), so a capture
+						// that decoded fine under the 10 MB cap would 413 here.
+						<form method="post" action="/walk/bundle" enctype="multipart/form-data">
 							<input type="hidden" name="walk" value={ view.WalkText }/>
 							<button type="submit" class="module-info-download-btn">↓ Download bundle</button>
 						</form>

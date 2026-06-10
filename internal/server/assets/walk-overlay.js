@@ -40,16 +40,53 @@
 	// across in-workspace navigation.
 	var walkFilterActive = false;
 
+	// indexCache memoizes the parsed walk + its prefix index per raw
+	// payload, so the O(keys × OID-depth) index build runs once per
+	// stored walk instead of on every htmx settle.
+	var indexCache = { raw: null, walk: null };
+
 	function loadWalk() {
+		var raw;
 		try {
-			var raw = sessionStorage.getItem(KEY);
-			if (!raw) return null;
-			var obj = JSON.parse(raw);
-			if (!obj || typeof obj.oids !== 'object' || obj.oids === null) return null;
-			return obj;
+			raw = sessionStorage.getItem(KEY);
 		} catch (e) {
 			return null;
 		}
+		if (!raw) return null;
+		if (indexCache.raw === raw) return indexCache.walk;
+		var obj;
+		try {
+			obj = JSON.parse(raw);
+		} catch (e) {
+			return null;
+		}
+		if (!obj || typeof obj.oids !== 'object' || obj.oids === null) return null;
+		obj.index = buildWalkIndex(obj.oids);
+		indexCache.raw = raw;
+		indexCache.walk = obj;
+		return obj;
+	}
+
+	// buildWalkIndex maps every dotted prefix of every instance OID to
+	// {count, keys}: count is the number of instances at or under that
+	// prefix (the badge figure — never truncated), keys a ≤8-instance
+	// sample for the tooltip. Rows then match in O(1) instead of
+	// scanning the full key set per row — with a 40k-OID walk over a
+	// 2k-row module the old scan was ~10^8 prefix compares per settle.
+	function buildWalkIndex(oids) {
+		var index = Object.create(null);
+		for (var k in oids) {
+			var dot = -1;
+			for (;;) {
+				dot = k.indexOf('.', dot + 1);
+				var prefix = dot === -1 ? k : k.slice(0, dot);
+				var b = index[prefix] || (index[prefix] = { count: 0, keys: [] });
+				b.count++;
+				if (b.keys.length < 8) b.keys.push(k);
+				if (dot === -1) break;
+			}
+		}
+		return index;
 	}
 
 	// persistFromResultsPage runs on the /walk results page only. The
@@ -82,14 +119,18 @@
 		}
 	}
 
-	// warnPersistFailed shows, on the results page, why a (too-large)
-	// walk won't decorate the workspace, with the actionable next step.
+	// warnPersistFailed shows, on the results page, why the walk won't
+	// decorate the workspace, with the actionable next step. setItem can
+	// fail for two reasons we can't tell apart: the quota (large walks)
+	// or storage being disabled entirely (e.g. some private-browsing
+	// modes) — the message covers both rather than misdiagnosing one as
+	// the other.
 	function warnPersistFailed() {
 		try {
 			console.warn(
-				'blittermib: the decoded walk is too large for browser storage, ' +
-				'so its values cannot be shown in the module workspace. Filter ' +
-				'the walk to a smaller subtree and decode again.'
+				'blittermib: the decoded walk could not be kept in browser ' +
+				'storage (quota exceeded, or storage unavailable), so its values ' +
+				'cannot be shown in the module workspace.'
 			);
 		} catch (e) {
 			/* ignore */
@@ -99,58 +140,53 @@
 		var note = document.createElement('p');
 		note.className = 'walk-note walk-store-warning';
 		note.textContent =
-			'This walk is too large for your browser to carry into the module ' +
-			'workspace, so decoded values will not appear there. Filter the walk ' +
-			'to a smaller subtree (e.g. one OID branch) and decode again.';
+			'Your browser could not keep this walk in storage (it may exceed ' +
+			'the storage quota, or storage may be unavailable), so decoded ' +
+			'values will not appear in the module workspace. For large walks, ' +
+			'filter to a smaller subtree (e.g. one OID branch) and decode again.';
 		head.appendChild(note);
 	}
 
-	// valuesUnder collects the walk values whose OID is the row's OID
-	// or an instance/column beneath it (rowOID + "."). Caps the list so
-	// a column with thousands of instances doesn't build a huge title.
-	function valuesUnder(oids, keys, rowOID) {
-		var out = [];
-		var prefix = rowOID + '.';
-		for (var i = 0; i < keys.length; i++) {
-			var k = keys[i];
-			if (k === rowOID || k.lastIndexOf(prefix, 0) === 0) {
-				out.push(oids[k]);
-				if (out.length >= 8) break;
-			}
-		}
-		return out;
-	}
-
-	function addValueBadge(row, vals) {
+	// addValueBadge renders the single value (one instance) or the full
+	// instance count — the visible figure is never truncated. The
+	// tooltip samples up to 8 instances, each labelled by its suffix
+	// relative to the row (".1: 4444"), with an ellipsis when capped.
+	function addValueBadge(row, bucket, rowOID, oids) {
 		if (row.querySelector('.walk-val')) return; // already decorated
 		var cell = row.querySelector('.list-cell-oid');
 		if (!cell) return;
 		var span = document.createElement('span');
 		span.className = 'walk-val';
-		span.textContent = vals.length === 1 ? vals[0] : vals.length + ' values';
-		span.title = vals.join('  ·  ');
+		span.textContent = bucket.count === 1
+			? oids[bucket.keys[0]]
+			: bucket.count + ' values';
+		var parts = bucket.keys.map(function (k) {
+			var sfx = k === rowOID ? '' : k.slice(rowOID.length);
+			return (sfx ? sfx + ': ' : '') + oids[k];
+		});
+		span.title = parts.join('  ·  ') +
+			(bucket.count > bucket.keys.length ? '  ·  …' : '');
 		cell.appendChild(span);
 	}
 
 	// decorate marks matching rows, badges them, and returns the match
-	// count. Idempotent — safe to re-run after an htmx list swap.
+	// count. A row matches when its OID is an instance OID or any
+	// ancestor prefix of one — an O(1) index lookup. Idempotent — safe
+	// to re-run after an htmx list swap.
 	function decorate(walk, list) {
-		var oids = walk.oids;
-		var keys = Object.keys(oids);
-		if (!keys.length) return 0;
+		var index = walk.index;
 		var rows = list.querySelectorAll('.list-row');
 		var matched = 0;
 		rows.forEach(function (row) {
 			var rowOID = row.getAttribute('data-oid') || '';
-			if (!rowOID) return;
-			var vals = valuesUnder(oids, keys, rowOID);
-			if (!vals.length) {
+			var bucket = rowOID ? index[rowOID] : null;
+			if (!bucket) {
 				row.removeAttribute('data-in-walk');
 				return;
 			}
 			matched++;
 			row.setAttribute('data-in-walk', 'true');
-			addValueBadge(row, vals);
+			addValueBadge(row, bucket, rowOID, walk.oids);
 		});
 		return matched;
 	}
@@ -183,36 +219,48 @@
 		chips.appendChild(chip);
 	}
 
-	function injectIndicator(matched, total) {
+	// updateIndicator creates the status-bar indicator on first need and
+	// refreshes its text on every pass. The status bar is page chrome
+	// that survives htmx scope swaps, so a write-once count would go
+	// stale as the list narrows — including down to "0 of N" when a
+	// scoped subtree has no walk data. Only the very first paint with
+	// zero matches leaves the page untouched (no-walk pages render
+	// identically, per the design).
+	function updateIndicator(matched, total) {
 		var bar = document.querySelector('.status-bar');
-		if (!bar || bar.querySelector('.walk-indicator')) return;
-		var wrap = document.createElement('span');
-		wrap.className = 'walk-indicator';
+		if (!bar) return;
+		var wrap = bar.querySelector('.walk-indicator');
+		if (!wrap) {
+			if (matched === 0) return; // walk touches nothing here — stay invisible
+			wrap = document.createElement('span');
+			wrap.className = 'walk-indicator';
 
-		// Plain informational text — not a link. Navigating back to the
-		// upload page from a status-bar count made no sense.
-		var label = document.createElement('span');
-		label.className = 'walk-indicator-label';
-		label.textContent = matched + ' of ' + total + ' in walk';
-		wrap.appendChild(label);
+			// Plain informational text — not a link. Navigating back to
+			// the upload page from a status-bar count made no sense.
+			var label = document.createElement('span');
+			label.className = 'walk-indicator-label';
+			wrap.appendChild(label);
 
-		var clear = document.createElement('button');
-		clear.type = 'button';
-		clear.className = 'walk-clear';
-		clear.textContent = 'clear';
-		clear.title = 'Forget the loaded walk';
-		clear.addEventListener('click', function () {
-			try {
-				sessionStorage.removeItem(KEY);
-				sessionStorage.removeItem(FILTER_KEY);
-			} catch (e) {
-				/* ignore */
-			}
-			location.reload();
-		});
-		wrap.appendChild(clear);
+			var clear = document.createElement('button');
+			clear.type = 'button';
+			clear.className = 'walk-clear';
+			clear.textContent = 'clear';
+			clear.title = 'Forget the loaded walk';
+			clear.addEventListener('click', function () {
+				try {
+					sessionStorage.removeItem(KEY);
+					sessionStorage.removeItem(FILTER_KEY);
+				} catch (e) {
+					/* ignore */
+				}
+				location.reload();
+			});
+			wrap.appendChild(clear);
 
-		bar.appendChild(wrap);
+			bar.appendChild(wrap);
+		}
+		wrap.querySelector('.walk-indicator-label').textContent =
+			matched + ' of ' + total + ' in walk';
 	}
 
 	function persistFilter(on) {
@@ -236,8 +284,20 @@
 		} catch (e) {
 			/* ignore */
 		}
-		walkFilterActive = location.hash === '#in-walk' || stored;
-		if (location.hash === '#in-walk') persistFilter(true);
+		var fromHash = location.hash === '#in-walk';
+		walkFilterActive = fromHash || stored;
+		if (fromHash) {
+			persistFilter(true);
+			// Consume the hash one-shot. Left in the URL it would
+			// re-assert the filter on every reload, overriding a user who
+			// explicitly toggled the chip off; the persisted flag is the
+			// durable state from here on.
+			try {
+				history.replaceState(null, '', location.pathname + location.search);
+			} catch (e) {
+				/* ignore */
+			}
+		}
 	}
 
 	// applyFilterState reflects walkFilterActive onto the list pane and the
@@ -255,9 +315,9 @@
 		var walk = loadWalk();
 		if (!walk) return; // no walk loaded — page stays identical
 		var matched = decorate(walk, list);
-		if (matched === 0) return; // walk touches nothing in this module
+		updateIndicator(matched, rowCount(list));
+		if (matched === 0) return; // nothing to filter in this view — no chip
 		injectChip(list, matched);
-		injectIndicator(matched, rowCount(list));
 		applyFilterState(list);
 	}
 

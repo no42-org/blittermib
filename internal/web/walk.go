@@ -26,7 +26,7 @@ type WalkResultsView struct {
 	Unresolved    []WalkUnresolvedRow // OIDs no loaded module covers
 	Notifications []WalkNotifModule   // §5 derived notification/trap modules
 	WalkText      string              // echoed back into the bundle form
-	WalkDataJSON  string              // {"oids":{oid:value}} for the localStorage overlay
+	WalkDataJSON  string              // {"oids":{oid:value}} for the sessionStorage overlay
 	HasResults    bool                // any resolved module or unresolved row
 }
 

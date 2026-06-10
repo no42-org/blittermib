@@ -737,6 +737,16 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 			}
 		}
 	}
+	// Baseline for the Scoped flag: no-OID symbols (TCs, some groups)
+	// can never pass OIDUnderPrefix, so comparing against len(syms)
+	// would mark a module-root scope as "narrowed" on any module that
+	// defines a TC. Count only OID-bearing symbols.
+	oidBearing := 0
+	for i := range syms {
+		if syms[i].OID != "" {
+			oidBearing++
+		}
+	}
 
 	// Pre-compute disk-availability so the module-info bar can hide
 	// download affordances when the source has disappeared. A single
@@ -795,7 +805,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		ListRows:           listRows,
 		Modules:            allModules,
 		ScopeOID:           oid,
-		Scoped:             oid != "" && len(listRows) < len(syms),
+		Scoped:             oid != "" && len(listRows) < oidBearing,
 		ModuleDownloadable: downloadable,
 		TypeDefs:           web.CollectTypeDefs(syms),
 		BundleFileCount:    bundleFileCount,
