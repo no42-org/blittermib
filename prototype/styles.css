@@ -2137,15 +2137,15 @@ main.page:has(.workspace-grid) .content-inner,
 .list-controls .kind-chip.kind-scalar { --c: var(--c-gauge); }
 .list-controls .kind-chip.kind-table  { --c: var(--c-struct); }
 .list-controls .kind-chip.kind-notif  { --c: var(--c-notif); }
-.list-controls .list-scope-clear {
-  margin-left: 4px;
+/* "View all in module" lives on the scope-bar (not the filter-chip
+ * row); margin-left:auto from the base rule pushes it + the count to
+ * the right, with the breadcrumb on the left. */
+.list-scope-bar .list-scope-clear {
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
   font-size: 11px;
-  color: var(--fg-3);
   flex-shrink: 0;
 }
-.list-controls .list-scope-clear:hover { color: var(--accent); }
 
 /* Scope-bar — clickable breadcrumb path through the OID tree
  * (`axMgmt / axSystem / axSysCpu / axSysCpuTable`) with an
@@ -2156,7 +2156,6 @@ main.page:has(.workspace-grid) .content-inner,
 .list-scope-bar {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 16px;
   padding: 6px 14px;
   background: var(--bg-elev);

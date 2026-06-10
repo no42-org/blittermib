@@ -824,32 +824,36 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 				<span class="dot" aria-hidden="true"></span>notifs
 			</button>
 		</div>
-		if view.Scoped {
+	</div>
+	// Scope chrome lives on its own bar — the breadcrumb path, the
+	// "View all in module" drill-out, and the object count — kept apart
+	// from the kind/walk filter chips above so the two axes (scope vs
+	// filter) don't read as one control.
+	if view.Scoped {
+		<div class="list-scope-bar">
+			if len(crumbs) > 0 {
+				<nav class="scope-breadcrumb" aria-label="OID scope path">
+					for _, c := range crumbs {
+						if c.IsLast {
+							<span class="scope-crumb scope-crumb-current" aria-current="page">{ c.Name }</span>
+						} else {
+							<a
+								class="scope-crumb"
+								href={ workspaceURL(c.Module, c.OID) }
+								hx-get={ string(workspaceURL(c.Module, c.OID)) }
+								hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+							>{ c.Name }</a>
+							<span class="scope-sep" aria-hidden="true">/</span>
+						}
+					}
+				</nav>
+			}
 			<a
 				class="list-scope-clear"
 				href={ moduleURL(module) }
 				hx-get={ string(moduleURL(module)) }
 				hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
-			>View all in module</a>
-		}
-	</div>
-	if view.Scoped && len(crumbs) > 0 {
-		<div class="list-scope-bar">
-			<nav class="scope-breadcrumb" aria-label="OID scope path">
-				for _, c := range crumbs {
-					if c.IsLast {
-						<span class="scope-crumb scope-crumb-current" aria-current="page">{ c.Name }</span>
-					} else {
-						<a
-							class="scope-crumb"
-							href={ workspaceURL(c.Module, c.OID) }
-							hx-get={ string(workspaceURL(c.Module, c.OID)) }
-							hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
-						>{ c.Name }</a>
-						<span class="scope-sep" aria-hidden="true">/</span>
-					}
-				}
-			</nav>
+			>↑ View all in module</a>
 			<span class="list-scope-count">{ fmt.Sprintf("%d objects", len(rows)) }</span>
 		</div>
 	}
