@@ -55,9 +55,7 @@ templ Base(title string) {
 				<div class="topbar-end">
 					<span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
 					if walkEnabled && !isWalkPage(ctx) {
-						<a href="/walk" class="walk-decode-toggle" data-walk-modal-open aria-haspopup="dialog" aria-expanded="false" aria-label="Decode SNMP Walk (⌘⇧K)" title="Decode SNMP Walk (⌘⇧K)">
-							<span class="walk-decode-icon" aria-hidden="true">⎘</span>
-						</a>
+						<a href="/walk" class="walk-decode-toggle" data-walk-modal-open aria-haspopup="dialog" aria-expanded="false" aria-label="Decode SNMP Walk (⌘⇧K)" title="Decode SNMP Walk">⌘⇧K</a>
 					}
 					<button class="search-toggle" type="button" data-palette-toggle title="Search" aria-label="Search (⌘K)">⌘K</button>
 					<button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle theme">
