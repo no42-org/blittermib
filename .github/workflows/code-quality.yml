@@ -109,19 +109,24 @@ jobs:
   # canonical reviewdog action rather than a Makefile target. The
   # tool isn't a Go package and there's no equivalent local-dev
   # `make actionlint`, so the project-convention exception is
-  # explicit. `checks: write` permits reviewdog to post inline
-  # annotations on the PR check.
+  # explicit.
+  #
+  # Uses the `local` reporter: findings print to the job log and the
+  # job fails on errors via `fail_level`. The `github-check` reporter
+  # posts inline annotations through the Checks API, but that path was
+  # 401-ing ("Requires authentication"), so it needs neither the API
+  # nor `checks: write`.
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      checks: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d  # v1.72.0
         with:
-          reporter: github-check
-          fail_on_error: true
+          reporter: local
+          fail_level: error
+          filter_mode: nofilter
