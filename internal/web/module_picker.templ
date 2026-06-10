@@ -59,8 +59,12 @@ templ modulePicker(modules []model.Module) {
 					x-text="'+ ' + hiddenCount + ' more — keep typing to narrow'"></span>
 			</div>
 		</div>
-		<script id="module-picker-data" type="application/json">
-			@templ.Raw(PickerModulesJSON(modules))
-		</script>
+		<!-- picker.js reads the module list from this data attribute on
+		init (mirroring how walk.templ ships WalkDataJSON). A
+		<script type="application/json"> block cannot carry a templ
+		expression: templ treats script content as raw text, so the
+		component call was emitted as literal source and the picker
+		parsed garbage — rendering "No modules match" forever. -->
+		<div id="module-picker-data" data-modules={ PickerModulesJSON(modules) } hidden></div>
 	</div>
 }

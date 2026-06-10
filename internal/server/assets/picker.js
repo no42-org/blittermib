@@ -9,8 +9,11 @@
 //   - Enter key navigates to the active row
 //   - Up/Down arrows move the active selection
 //
-// The full module list is shipped as a hidden JSON payload
-// (`<script id="module-picker-data" type="application/json">`).
+// The full module list is shipped as templ-escaped JSON in the
+// `data-modules` attribute of `#module-picker-data` (mirroring how
+// walk.templ ships WalkDataJSON) — NOT a <script type="application/json">
+// block: templ emits script content as raw text, so a component call
+// there ships as literal source instead of JSON.
 // Filtering is pure client-side; the visible window is capped at
 // MAX_VISIBLE so a 1k-bundle doesn't push the overlay off-screen,
 // and a "+N more" indicator nudges the user to keep typing.
@@ -21,7 +24,7 @@ window.picker = (function () {
 		var el = document.getElementById('module-picker-data');
 		if (!el) return [];
 		try {
-			var data = JSON.parse(el.textContent || '[]');
+			var data = JSON.parse(el.getAttribute('data-modules') || '[]');
 			return Array.isArray(data) ? data : [];
 		} catch (_) {
 			return [];

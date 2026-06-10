@@ -1040,6 +1040,34 @@ func TestWorkspaceScopedIgnoresNoOIDSymbols(t *testing.T) {
 	}
 }
 
+// TestModulePickerPayload pins the picker's data bridge: the module
+// list must arrive as real templ-escaped JSON in the data-modules
+// attribute. The previous <script type="application/json"> embedding
+// shipped the literal source text `@templ.Raw(PickerModulesJSON(...))`
+// (templ treats script content as raw text), so the picker silently
+// parsed garbage and always rendered "No modules match".
+func TestModulePickerPayload(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/IF-MIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+
+	if strings.Contains(html, "@templ.Raw") {
+		t.Fatal("picker payload contains literal templ source — the script-block embedding regressed")
+	}
+	if !strings.Contains(html, `id="module-picker-data"`) {
+		t.Fatal("module-picker-data element missing")
+	}
+	// templ HTML-escapes the JSON inside the attribute: quotes become
+	// &#34;. The seeded module must appear as a real JSON name field.
+	if !strings.Contains(html, `data-modules="[{`) ||
+		!strings.Contains(html, `&#34;name&#34;:&#34;IF-MIB&#34;`) {
+		t.Errorf("data-modules does not carry the module list as JSON")
+	}
+}
+
 func TestWorkspaceKindChips(t *testing.T) {
 	ts := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/m/IF-MIB")
