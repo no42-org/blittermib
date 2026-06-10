@@ -4033,3 +4033,157 @@ main.page:has(.workspace-grid) .content-inner,
   border-color: var(--line-strong);
   color: var(--fg-1);
 }
+
+/* --- walk decoder ---------------------------------------------------- */
+
+.walk-upload textarea {
+  width: 100%;
+  min-height: 280px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 13px;
+  resize: vertical;
+}
+.walk-upload textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.walk-upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.walk-file { color: var(--fg-2); font-size: 13px; }
+.walk-hint { color: var(--fg-3); font-size: 13px; margin-top: 16px; }
+.walk-error {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--severity-red);
+  color: var(--severity-red);
+  background: color-mix(in oklch, var(--severity-red) 12%, transparent);
+}
+
+.walk-results-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.walk-summary { color: var(--fg-2); font-family: var(--font-mono); font-size: 13px; }
+.walk-results-actions { display: flex; align-items: center; gap: 16px; }
+.walk-back { color: var(--fg-3); font-size: 13px; }
+.walk-note { color: var(--fg-3); font-size: 13px; margin-top: 8px; }
+.walk-empty { color: var(--fg-2); margin-top: 24px; }
+
+.walk-group { margin-top: 28px; }
+.walk-group h2 { font-size: 15px; }
+.walk-group h2 a { color: var(--accent); text-decoration: none; }
+
+.walk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 10px;
+}
+.walk-table thead th {
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  padding: 8px 16px 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.walk-table tbody td {
+  padding: 8px 16px 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.walk-oid, .walk-index, .walk-type {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+}
+.walk-oid { color: var(--fg-3); }
+.walk-index { color: var(--c-index); }
+.walk-type { color: var(--fg-3); }
+.walk-value { color: var(--fg); }
+.walk-absent { color: var(--fg-4); font-style: italic; }
+
+.walk-notifications, .walk-unresolved { margin-top: 36px; }
+.walk-notifications h2 { color: var(--c-notif); font-size: 15px; }
+.walk-notif-intro, .walk-unresolved-intro {
+  color: var(--fg-3);
+  font-size: 13px;
+  max-width: 70ch;
+}
+.walk-notif-list { list-style: none; padding: 0; margin-top: 12px; }
+.walk-notif-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.walk-notif-list a { color: var(--accent); text-decoration: none; }
+.walk-notif-count { color: var(--fg-3); font-size: 12px; }
+
+/* Workspace overlay (walk-overlay.js): value badge on matched rows, the
+   "in walk" filter chip, and the status-bar indicator. All injected
+   client-side; absent when no walk is loaded. */
+.walk-val {
+  margin-left: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* The "in walk" chip hides non-matching rows. This ANDs with Alpine's
+   x-show: a row Alpine has hidden keeps its inline display:none; a row
+   Alpine shows has empty inline display, so this rule can hide it when
+   it is not in the walk. */
+#workspace-list.walk-only .list-row:not([data-in-walk="true"]) { display: none; }
+.kind-chip.kind-walk .dot { background: var(--c-index); }
+.kind-chip.kind-walk[data-walk-active="true"] {
+  border-color: var(--c-index);
+  color: var(--fg);
+}
+.walk-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--c-index);
+}
+.walk-indicator-label { color: var(--c-index); text-decoration: none; }
+.walk-clear {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.walk-clear:hover { border-color: var(--line-strong); color: var(--fg-1); }

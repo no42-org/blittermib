@@ -18,5 +18,8 @@ import (
 // golden HTML stays deterministic.
 func TestMain(m *testing.M) {
 	web.SetVersion("test")
+	// Production main sets this from srv.WalkEnabled(); the golden HTML
+	// fixtures were captured with the walk decoder on, so pin it here.
+	web.SetWalkEnabled(true)
 	os.Exit(m.Run())
 }

@@ -89,36 +89,64 @@ type ClosureEntry struct {
 }
 
 // ListImportClosure walks the IMPORTS graph rooted at `root` and
-// returns one entry per distinct module reachable. Order is BFS:
-// root first, then its direct imports in source order, then their
-// imports, and so on. Cycles are bounded by an in-walk visited
-// set (SMI forbids cycles by spec; defensive against malformed
-// input).
+// returns one entry per distinct module reachable. A thin wrapper
+// over ListImportClosureUnion with a single root.
+func (s *Store) ListImportClosure(ctx context.Context, root string) ([]ClosureEntry, error) {
+	return s.ListImportClosureUnion(ctx, []string{root})
+}
+
+// ListImportClosureUnion walks the IMPORTS graph rooted at every
+// module in `roots` and returns one entry per distinct module
+// reachable from any of them. Order is BFS: the roots first (in the
+// given order), then their direct imports in source order, then
+// their imports, and so on. A single visited-set is shared across
+// all roots, so a hub module such as SNMPv2-SMI reached from two
+// different roots appears exactly once, with `ImportedBy` carrying
+// the first parent that named it. Cycles are bounded by that
+// visited set (SMI forbids cycles by spec; defensive against
+// malformed input).
 //
 // One DB round-trip per loaded module visited (1 GetModule + 1
-// listImportsByModule each). For typical enterprise MIBs that's
-// 5–15 trips; sub-millisecond on local SQLite. A recursive CTE
-// would collapse to one query if profiling shows it as hot.
-func (s *Store) ListImportClosure(ctx context.Context, root string) ([]ClosureEntry, error) {
+// listImportsByModule each). For the union of a handful of roots
+// that's still well under a millisecond on local SQLite. A recursive
+// CTE would collapse it to one query if profiling shows it as hot.
+func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]ClosureEntry, error) {
 	visited := make(map[string]struct{})
 	var out []ClosureEntry
-
-	rootMod, err := s.GetModule(ctx, root)
-	if err != nil {
-		return nil, fmt.Errorf("closure root %s: %w", root, err)
-	}
-	visited[rootMod.Name] = struct{}{}
-	out = append(out, ClosureEntry{
-		Module:     rootMod.Name,
-		SourcePath: rootMod.SourcePath,
-		Loaded:     true,
-	})
 
 	// Frontier holds names whose imports we still need to walk.
 	type frontierEntry struct {
 		name string
 	}
-	frontier := []frontierEntry{{name: rootMod.Name}}
+	var frontier []frontierEntry
+
+	// Seed every root. Empty names are skipped (a caller passing a
+	// sparse list shouldn't fail the whole walk), and roots already
+	// reachable from an earlier root are deduplicated — both by the
+	// requested name and, after resolution, by the canonical module
+	// name, so two aliases of one module don't yield duplicate rows.
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		if _, dup := visited[root]; dup {
+			continue
+		}
+		rootMod, err := s.GetModule(ctx, root)
+		if err != nil {
+			return nil, fmt.Errorf("closure root %s: %w", root, err)
+		}
+		if _, dup := visited[rootMod.Name]; dup {
+			continue
+		}
+		visited[rootMod.Name] = struct{}{}
+		out = append(out, ClosureEntry{
+			Module:     rootMod.Name,
+			SourcePath: rootMod.SourcePath,
+			Loaded:     true,
+		})
+		frontier = append(frontier, frontierEntry{name: rootMod.Name})
+	}
 
 	// Per-importer aggregation of imported symbols, so MISSING.txt
 	// can list `(symbols: A, B, C)` rather than one row per symbol.

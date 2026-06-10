@@ -31,6 +31,13 @@ import (
 //	/upload                        301 → /import (legacy)
 //	/api/v1/upload                 multipart upload (POST)
 //	/api/v1/upload/{name}          delete (DELETE; pending or quarantined)
+//
+// When BLITTERMIB_WALK_DECODER_ENABLED is truthy, EnableWalk also
+// registers (via routesWalk):
+//
+//	/walk                          capture intake page
+//	/walk/decode                   resolve a pasted/uploaded walk (POST)
+//	/walk/bundle                   offline decode ZIP bundle (POST)
 func (s *Server) routes() {
 	s.mux.Handle("/static/", chain(http.StripPrefix("/static/", staticHandler(s.version)), withLogging, withRecover))
 
@@ -68,4 +75,14 @@ func (s *Server) routesUpload() {
 	}), withLogging, withRecover))
 	s.mux.Handle("/api/v1/upload", chain(http.HandlerFunc(s.handleUpload), withLogging, withRecover))
 	s.mux.Handle("/api/v1/upload/", chain(http.HandlerFunc(s.handleUploadDelete), withLogging, withRecover))
+}
+
+// routesWalk registers the walk-decoder routes. Called only from
+// EnableWalk when the decoder is enabled; left unregistered otherwise
+// so /walk and friends 404 via the catch-all — no disabled-state
+// response, symmetric with routesUpload.
+func (s *Server) routesWalk() {
+	s.mux.Handle("/walk", chain(http.HandlerFunc(s.handleWalkUpload), withLogging, withRecover))
+	s.mux.Handle("/walk/decode", chain(http.HandlerFunc(s.handleWalkDecode), withLogging, withRecover))
+	s.mux.Handle("/walk/bundle", chain(http.HandlerFunc(s.handleWalkBundle), withLogging, withRecover))
 }

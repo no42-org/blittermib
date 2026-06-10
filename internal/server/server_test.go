@@ -77,6 +77,10 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}
 
 	s := New(st, "", "test", "/var/lib/blittermib/mibs")
+	// The walk decoder is opt-in (BLITTERMIB_WALK_DECODER_ENABLED); enable it so
+	// the shared test server exercises the /walk routes.
+	t.Setenv("BLITTERMIB_WALK_DECODER_ENABLED", "true")
+	s.EnableWalk()
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts

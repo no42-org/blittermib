@@ -21,6 +21,18 @@ anything to a third party.
   Scalar varbinds are referenced by OID (`%parm[{oid}.0]%`, robust to
   reordering); columnar varbinds stay position-based. UEI base
   overridable via `?uei=`
+- **Walk decoder** — paste or upload an `snmpwalk`/`snmpbulkwalk -On`
+  capture at `/walk`: it resolves each OID against the loaded MIBs,
+  groups the results by module, decodes simple table indexes, and tells
+  you which MIBs make sense of the walk — plus a derived list of which
+  of them define notifications/traps. OIDs no module covers fall back to
+  the IANA Private Enterprise Number registry for a vendor hint
+  (`PEN 2636 (Juniper Networks, Inc.) — load a vendor MIB`). Download a
+  ZIP bundle (`walk.txt` + `README.txt` + the union import-closure MIBs +
+  a `MISSING.txt` manifest) to decode the walk offline. The walk is
+  parsed in memory and **never stored, logged, or written to disk**;
+  workspace pages decorate rows with walk values via a client-side
+  `localStorage` overlay
 - **Hot reload** — drop a MIB anywhere under the watched directory and
   it appears in seconds (recursive `fsnotify` + 250 ms debounce +
   transactional ingest)
@@ -181,6 +193,13 @@ Environment variables:
        you control end-to-end (private LAN, reverse proxy with auth,
        single-user dev box). Files land in mibs/import/ and load
        through the same watcher pipeline as files copied with `cp`.
+
+  BLITTERMIB_WALK_DECODER_ENABLED=true
+       Expose the SNMP walk decoder at /walk: paste or upload an
+       snmpwalk/snmpbulkwalk -On capture and resolve each OID against
+       the loaded MIBs. Off by default. Walks are parsed in memory and
+       never written to disk, logged, or stored; when disabled the
+       routes 404 and the walk-overlay client asset is omitted.
 ```
 
 URL surfaces:
@@ -201,6 +220,11 @@ URL surfaces:
    /upload                 management page: drop zone + file list
    /api/v1/upload          multi-file POST → mibs/import/, sync compile
    /api/v1/upload/{name}   DELETE single file from mibs/import/
+
+   When BLITTERMIB_WALK_DECODER_ENABLED=true (off by default):
+   /walk                   capture intake: paste or upload an snmpwalk
+   /walk/decode            resolve a walk against the loaded MIBs (POST)
+   /walk/bundle            offline decode ZIP bundle (POST)
 ```
 
 ## Architecture

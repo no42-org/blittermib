@@ -265,6 +265,8 @@ func run(cfg config) error {
 	} else {
 		srv.EnableUploads(nil) // env on + nil engine fails closed with a WARN
 	}
+	srv.EnableWalk()
+	web.SetWalkEnabled(srv.WalkEnabled())
 	err = srv.Start(ctx)
 	wg.Wait()
 

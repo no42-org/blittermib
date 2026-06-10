@@ -303,9 +303,14 @@ func (s *Server) processUploadPart(part interface {
 	if !ok {
 		// The synchronous front rejects non-MIBs at the door without
 		// touching import/ (folder drops of non-MIBs quarantine
-		// instead — they have no requester to answer).
-		_ = os.Remove(tmpPath)
+		// instead — they have no requester to answer). If the rejected
+		// upload looks like an snmpwalk capture, point at /walk rather
+		// than the generic "no MIB marker".
 		oc.Error = "no MIB marker"
+		if contentLooksLikeWalk(sniffHead(tmpPath, 256<<10)) {
+			oc.Error = "this looks like an snmpwalk capture, not a MIB — decode it at /walk instead"
+		}
+		_ = os.Remove(tmpPath)
 		oc.ErrorCode = errCodeNoMarker
 		oc.httpStatus = http.StatusUnprocessableEntity
 		return oc
@@ -346,6 +351,19 @@ func (s *Server) processUploadPart(part interface {
 	oc.OK = true
 	oc.Replaced = existed
 	return oc
+}
+
+// sniffHead reads up to n bytes from the start of a file for content
+// detection (e.g. distinguishing a MIB from an snmpwalk capture).
+// Returns "" on any error.
+func sniffHead(path string, n int) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	b, _ := io.ReadAll(io.LimitReader(f, int64(n)))
+	return string(b)
 }
 
 // randHex returns 2*n hex characters. Used for tmp-file suffixes so

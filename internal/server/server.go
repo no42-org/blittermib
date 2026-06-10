@@ -27,6 +27,14 @@ type Server struct {
 	uploadsEnabled bool
 	importer       *mibimport.Engine
 
+	// Walk-decoder surface — wired by EnableWalk when
+	// BLITTERMIB_WALK_DECODER_ENABLED is true. Off by default. When
+	// false the /walk routes stay unregistered and the walk-overlay
+	// client asset is omitted from rendered pages. The decoder holds no
+	// engine or disk state (walks are parsed in memory), so there is
+	// nothing to fail closed on.
+	walkEnabled bool
+
 	mux  *http.ServeMux
 	http *http.Server
 }
@@ -97,6 +105,43 @@ func (s *Server) UploadsEnabled() bool { return s.uploadsEnabled }
 // env var, leaves uploads disabled.
 func uploadEnvEnabled() bool {
 	v := os.Getenv("BLITTERMIB_UPLOAD_ENABLED")
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false
+	}
+	return b
+}
+
+// EnableWalk wires the SNMP walk-decoder routes (/walk, /walk/decode,
+// /walk/bundle) when BLITTERMIB_WALK_DECODER_ENABLED parses as truthy
+// via strconv.ParseBool. Otherwise this is a no-op — the routes stay
+// unregistered so they 404 via the catch-all, and the walk-overlay
+// client asset (gated off WalkEnabled in the base layout) stays out
+// of rendered HTML.
+//
+// Unlike EnableUploads there is no engine to wire: walks are parsed in
+// memory and never touch disk, so the env var is the only gate.
+func (s *Server) EnableWalk() {
+	if !walkEnvEnabled() {
+		return
+	}
+	s.walkEnabled = true
+	s.routesWalk()
+}
+
+// WalkEnabled reports whether the walk-decoder surface is live, for
+// main to mirror into the web layer so the base layout includes or
+// omits walk-overlay.js.
+func (s *Server) WalkEnabled() bool { return s.walkEnabled }
+
+// walkEnvEnabled parses BLITTERMIB_WALK_DECODER_ENABLED with the same
+// permissive semantics as uploadEnvEnabled. Empty or unparseable
+// leaves the decoder disabled.
+func walkEnvEnabled() bool {
+	v := os.Getenv("BLITTERMIB_WALK_DECODER_ENABLED")
 	if v == "" {
 		return false
 	}
