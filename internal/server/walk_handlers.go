@@ -51,6 +51,9 @@ func (s *Server) handleWalkUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Mark the context so the shared layout drops the redundant topbar
+	// decode control + modal on this page (the intake form is here).
+	r = r.WithContext(web.WithWalkPage(r.Context()))
 	render(w, r, http.StatusOK, web.WalkUpload(web.WalkUploadView{}))
 }
 

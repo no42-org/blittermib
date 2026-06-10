@@ -1,8 +1,43 @@
 package web
 
-// WalkUpload renders the /walk capture intake: a paste textarea plus a
-// file picker, posting to /walk/decode. The accompanying copy states
-// the privacy posture — the walk is parsed in memory and never stored.
+// walkIntakeForm is the shared capture-intake form: a paste textarea
+// wrapped in a drag-and-drop zone, a file picker, the decode submit,
+// and the privacy / size-cap copy. It posts multipart/form-data to
+// /walk/decode and is rendered by both the /walk page (WalkUpload) and
+// the global topbar modal (Base) so the two never drift. The
+// data-walk-* hooks are wired by walk-modal.js; without JS it degrades
+// to a plain textarea + file input.
+templ walkIntakeForm() {
+	<form method="post" action="/walk/decode" enctype="multipart/form-data" class="walk-intake">
+		<div class="walk-dropzone" data-walk-dropzone>
+			<textarea
+				name="walk"
+				rows="16"
+				spellcheck="false"
+				placeholder=".1.3.6.1.2.1.1.1.0 = STRING: &#34;Juniper Networks, Inc. srx340&#34;"
+			></textarea>
+			<p class="walk-dropzone-hint" aria-hidden="true">
+				Drop a <code>.txt</code> capture here, or paste above.
+			</p>
+		</div>
+		<div class="walk-upload-actions">
+			<label class="walk-file">
+				<span data-walk-file-label>Or upload a file:</span>
+				<input type="file" name="walkfile" accept=".txt,text/plain" data-walk-file-input/>
+			</label>
+			<button type="submit">Decode</button>
+		</div>
+		<p class="walk-hint">
+			The walk is parsed in memory and never written to disk, logged, or
+			stored. Captures are capped at 10&nbsp;MB (roughly 70–100k OIDs); for
+			larger walks, filter or split before upload.
+		</p>
+	</form>
+}
+
+// WalkUpload renders the /walk capture intake page around the shared
+// walkIntakeForm. The accompanying copy states the privacy posture —
+// the walk is parsed in memory and never stored.
 templ WalkUpload(view WalkUploadView) {
 	@Base("Walk decoder — blittermib") {
 		<article class="walk-upload">
@@ -17,26 +52,7 @@ templ WalkUpload(view WalkUploadView) {
 			if view.Error != "" {
 				<p class="walk-error" role="alert">{ view.Error }</p>
 			}
-			<form method="post" action="/walk/decode" enctype="multipart/form-data">
-				<textarea
-					name="walk"
-					rows="16"
-					spellcheck="false"
-					placeholder=".1.3.6.1.2.1.1.1.0 = STRING: &#34;Juniper Networks, Inc. srx340&#34;"
-				></textarea>
-				<div class="walk-upload-actions">
-					<label class="walk-file">
-						Or upload a file:
-						<input type="file" name="walkfile" accept=".txt,text/plain"/>
-					</label>
-					<button type="submit">Decode</button>
-				</div>
-			</form>
-			<p class="walk-hint">
-				The walk is parsed in memory and never written to disk, logged, or
-				stored. Captures are capped at 10&nbsp;MB (roughly 70–100k OIDs); for
-				larger walks, filter or split before upload.
-			</p>
+			@walkIntakeForm()
 		</article>
 	}
 }

@@ -33,6 +33,7 @@ templ Base(title string) {
 			<script src={ string(assetURL("workspace.js")) } defer></script>
 			if walkEnabled {
 				<script src={ string(assetURL("walk-overlay.js")) } defer></script>
+				<script src={ string(assetURL("walk-modal.js")) } defer></script>
 			}
 			<script src={ string(assetURL("picker.js")) } defer></script>
 			<script src={ string(assetURL("trap-simulator.js")) } defer></script>
@@ -53,6 +54,12 @@ templ Base(title string) {
 				<div class="topbar-spacer"></div>
 				<div class="topbar-end">
 					<span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
+					if walkEnabled && !isWalkPage(ctx) {
+						<a href="/walk" class="walk-decode-toggle" data-walk-modal-open aria-haspopup="dialog" aria-expanded="false" title="Decode SNMP Walk">
+							<span class="walk-decode-icon" aria-hidden="true">⎘</span>
+							<span class="walk-decode-label">Decode SNMP Walk</span>
+						</a>
+					}
 					<button class="search-toggle" type="button" data-palette-toggle title="Search" aria-label="Search (⌘K)">⌘K</button>
 					<button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle theme">
 						<span class="moon" aria-hidden="true">☾</span>
@@ -76,6 +83,17 @@ templ Base(title string) {
 					<a href="/privacy">Privacy</a>
 				</span>
 			</footer>
+			if walkEnabled && !isWalkPage(ctx) {
+				<div class="walk-modal" data-walk-modal data-state="hidden" role="dialog" aria-label="Decode SNMP walk">
+					<div class="walk-modal-card">
+						<header class="walk-modal-head">
+							<h2>Decode an SNMP walk</h2>
+							<button type="button" class="walk-modal-close" data-walk-modal-close aria-label="Close">✕</button>
+						</header>
+						@walkIntakeForm()
+					</div>
+				</div>
+			}
 		</body>
 	</html>
 }

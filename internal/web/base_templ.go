@@ -159,32 +159,32 @@ func Base(title string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" defer></script>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" defer></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var11 string
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("walk-modal.js")))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 36, Col: 51}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" defer></script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<script src=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var11 string
-		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("picker.js")))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 37, Col: 46}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\" defer></script><script src=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<script src=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var12 string
-		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("trap-simulator.js")))
+		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("picker.js")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 38, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 38, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -195,9 +195,9 @@ func Base(title string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var13 string
-		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("upload.js")))
+		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("trap-simulator.js")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 39, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 39, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -208,15 +208,38 @@ func Base(title string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var14 string
-		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("alpine.min.js")))
+		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("upload.js")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 40, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 40, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" defer></script></head><body><header class=\"topbar\"><a href=\"/\" class=\"brand\"><span class=\"brand-mark\" aria-hidden=\"true\"><span class=\"bar bar-1\"></span> <span class=\"bar bar-2\"></span> <span class=\"bar bar-3\"></span></span> <span class=\"brand-text\">blittermib<span class=\"brand-dot\">.</span></span></a> <span class=\"brand-tagline\">Pixelperfect MIB browser</span><div class=\"topbar-spacer\"></div><div class=\"topbar-end\"><span class=\"privacy-notice\">Self-hosted — your MIBs never leave your server.</span> <button class=\"search-toggle\" type=\"button\" data-palette-toggle title=\"Search\" aria-label=\"Search (⌘K)\">⌘K</button> <button class=\"theme-toggle\" type=\"button\" data-theme-toggle aria-label=\"Toggle theme\"><span class=\"moon\" aria-hidden=\"true\">☾</span> <span class=\"sun\" aria-hidden=\"true\">☀</span></button></div></header><main class=\"page\"><div class=\"content-inner\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" defer></script><script src=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var15 string
+		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(string(assetURL("alpine.min.js")))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 41, Col: 50}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" defer></script></head><body><header class=\"topbar\"><a href=\"/\" class=\"brand\"><span class=\"brand-mark\" aria-hidden=\"true\"><span class=\"bar bar-1\"></span> <span class=\"bar bar-2\"></span> <span class=\"bar bar-3\"></span></span> <span class=\"brand-text\">blittermib<span class=\"brand-dot\">.</span></span></a> <span class=\"brand-tagline\">Pixelperfect MIB browser</span><div class=\"topbar-spacer\"></div><div class=\"topbar-end\"><span class=\"privacy-notice\">Self-hosted — your MIBs never leave your server.</span> ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if walkEnabled && !isWalkPage(ctx) {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<a href=\"/walk\" class=\"walk-decode-toggle\" data-walk-modal-open aria-haspopup=\"dialog\" aria-expanded=\"false\" title=\"Decode SNMP Walk\"><span class=\"walk-decode-icon\" aria-hidden=\"true\">⎘</span> <span class=\"walk-decode-label\">Decode SNMP Walk</span></a> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<button class=\"search-toggle\" type=\"button\" data-palette-toggle title=\"Search\" aria-label=\"Search (⌘K)\">⌘K</button> <button class=\"theme-toggle\" type=\"button\" data-theme-toggle aria-label=\"Toggle theme\"><span class=\"moon\" aria-hidden=\"true\">☾</span> <span class=\"sun\" aria-hidden=\"true\">☀</span></button></div></header><main class=\"page\"><div class=\"content-inner\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -224,20 +247,38 @@ func Base(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div></main><footer class=\"footer\"><span><a href=\"https://github.com/no42-org/blittermib\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</div></main><footer class=\"footer\"><span><a href=\"https://github.com/no42-org/blittermib\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var15 string
-		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs("blittermib " + version)
+		var templ_7745c5c3_Var16 string
+		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs("blittermib " + version)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 70, Col: 127}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 77, Col: 127}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\">blittermib</a> · runs entirely on your server</span> <span>Made with AI and ❤️ for Open Source in Europe · <a href=\"https://blog.no42.org/page/about/\" target=\"_blank\" rel=\"noopener noreferrer\">About Me</a> · <a href=\"/imprint\">Imprint</a> · <a href=\"/privacy\">Privacy</a></span></footer></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\">blittermib</a> · runs entirely on your server</span> <span>Made with AI and ❤️ for Open Source in Europe · <a href=\"https://blog.no42.org/page/about/\" target=\"_blank\" rel=\"noopener noreferrer\">About Me</a> · <a href=\"/imprint\">Imprint</a> · <a href=\"/privacy\">Privacy</a></span></footer>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if walkEnabled && !isWalkPage(ctx) {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<div class=\"walk-modal\" data-walk-modal data-state=\"hidden\" role=\"dialog\" aria-label=\"Decode SNMP walk\"><div class=\"walk-modal-card\"><header class=\"walk-modal-head\"><h2>Decode an SNMP walk</h2><button type=\"button\" class=\"walk-modal-close\" data-walk-modal-close aria-label=\"Close\">✕</button></header>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = walkIntakeForm().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</div></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
