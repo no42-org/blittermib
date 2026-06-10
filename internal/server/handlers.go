@@ -167,10 +167,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// handleReady is READINESS: "is the corpus loaded and the store
-// usable?" 503 {"status":"loading"} while the boot-time corpus load is
-// still running; once the gate opens, a per-request store check guards
-// against a broken store without re-latching the gate.
+// handleReady is READINESS: "has the initial corpus load completed and
+// does the store answer?" 503 {"status":"loading"} while the boot-time
+// load is still running; once the gate opens, a per-request store check
+// guards against a broken store without re-latching the gate. Note the
+// gate opens when the load ATTEMPT completes — per-file compile errors
+// surface in logs/diagnostics, matching the old /healthz store-only
+// contract, rather than holding the whole pod not-ready over one
+// broken MIB.
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	if !s.Ready() {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{

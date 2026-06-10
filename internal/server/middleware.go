@@ -39,7 +39,10 @@ func withLogging(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		level := slog.LevelInfo
-		if r.URL.Path == "/healthz" {
+		// Probe endpoints (liveness AND readiness) are hit every few
+		// seconds by the kubelet / Docker healthcheck — keep both out
+		// of the INFO stream.
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			level = slog.LevelDebug
 		}
 		slog.Log(r.Context(), level, "http",

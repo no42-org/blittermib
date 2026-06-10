@@ -279,6 +279,15 @@ func run(parent context.Context, cfg config) error {
 		if _, _, err := engine.SyncCorpus(ctx); err != nil {
 			slog.Warn("corpus cache validation encountered errors", "err", err)
 		}
+		// Bail BEFORE the boot rescan when shutdown was requested
+		// mid-load: engine.Import with an already-cancelled context
+		// quarantines every pending file into import/failed/ with a
+		// "context canceled" sidecar (the engine treats cancellation
+		// like any compile failure), permanently eating intake that a
+		// clean next boot would have processed.
+		if ctx.Err() != nil {
+			return
+		}
 		if importOK {
 			rescan(ctx)
 
@@ -311,13 +320,24 @@ func run(parent context.Context, cfg config) error {
 			}()
 		}
 		if ctx.Err() != nil {
-			return // shutting down mid-load — never report ready
+			// Best-effort: skip reporting ready when shutdown is
+			// already requested. (A cancel can still land between this
+			// check and SetReady — benign: the listener is draining and
+			// the process is exiting either way.)
+			return
 		}
 		srv.SetReady()
 		slog.Info("corpus loaded — readiness gate open")
 	}()
 
 	err = srv.Start(ctx)
+	// Release the background goroutines before joining them: when Start
+	// returns on a bind/serve ERROR (not a signal), ctx was never
+	// cancelled — without this, the loader and watcher/ticker run
+	// forever and wg.Wait would swallow the error in a silent hang.
+	// stop is the NotifyContext cancel, so this also covers the normal
+	// signal path (where it is a no-op second cancel).
+	stop()
 	wg.Wait()
 
 	if err != nil {

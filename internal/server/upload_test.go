@@ -97,9 +97,49 @@ func newUploadServer(t *testing.T) (*httptest.Server, *mibimport.Engine, string)
 
 	s := New(st, "", "test", root)
 	s.EnableUploads(eng)
+	// Uploads are gated on readiness (during the boot-time corpus load
+	// they would block on the engine mutex); these tests exercise the
+	// post-load steady state.
+	s.SetReady()
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts, eng, root
+}
+
+// TestUploadGatedWhileLoading: while the readiness gate is closed (the
+// boot-time corpus load is running), POST /api/v1/upload refuses with
+// 503 in the API's outcome shape instead of blocking on the engine
+// mutex and quarantining the staged file with a dead request context.
+func TestUploadGatedWhileLoading(t *testing.T) {
+	t.Setenv("BLITTERMIB_UPLOAD_ENABLED", "true")
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	root := t.TempDir()
+	eng := mibimport.New(root, st, mibcorpus.GroupMap{})
+	s := New(st, "", "test", root)
+	s.EnableUploads(eng) // gate deliberately NOT opened
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+
+	body, ctype := buildMultipart(t, map[string]string{"FOO-MIB": "FOO-MIB DEFINITIONS ::= BEGIN END"})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/upload", body)
+	req.Header.Set("Content-Type", ctype)
+	req.Header.Set(uploadCSRFHeader, "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 while loading", resp.StatusCode)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(raw), `"errorCode":"loading"`) {
+		t.Errorf("body = %s, want errorCode loading", raw)
+	}
 }
 
 // buildMultipart builds a multipart/form-data body with N files. The

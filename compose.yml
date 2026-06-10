@@ -44,14 +44,18 @@ services:
     healthcheck:
       # /readyz, not /healthz: the readiness-gate change split the
       # health surface — /healthz is pure liveness (200 the moment the
-      # process serves), /readyz means "corpus loaded + store usable",
-      # which is what this healthcheck originally asserted. start_period
-      # covers the boot-time corpus load on a cold volume.
+      # process serves), /readyz means "initial corpus load completed
+      # and the store answers", which is what this healthcheck
+      # originally asserted. start_period covers typical cold-volume
+      # loads; a very large corpus can take longer, in which case the
+      # container shows `unhealthy` until the first load completes —
+      # cosmetic only (Docker does not restart unhealthy containers,
+      # and the load keeps making progress).
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 300s
 
 volumes:
   blittermib-data:

@@ -88,6 +88,25 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing CSRF header", http.StatusForbidden)
 		return
 	}
+	// While the boot-time corpus load runs, SyncCorpus holds the engine
+	// mutex: an inline Import here would block past the 30s write
+	// timeout and the staged file would then be quarantined by its own
+	// dead request context. Refuse early — in the API's outcome shape,
+	// since the drop-zone client parses JSON without checking resp.ok —
+	// instead of hanging.
+	if !s.Ready() {
+		w.Header().Set("Retry-After", "30")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"uploaded": []uploadOutcome{{
+				Name:      "(batch)",
+				OK:        false,
+				Status:    "failed",
+				Error:     "the corpus is still loading — try again in a moment",
+				ErrorCode: "loading",
+			}},
+		})
+		return
+	}
 
 	replaceQ := r.URL.Query().Get("replace")
 	replace, _ := strconv.ParseBool(replaceQ)

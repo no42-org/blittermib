@@ -212,6 +212,12 @@ func TestReadyzStoreUnhealthy(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503 when the store check fails", resp.StatusCode)
 	}
+	// The spec's "not latched" clause: a store-unhealthy 503 must not
+	// re-close the gate — a later request with a healthy store would
+	// return 200 (the gate is a one-way atomic.Bool).
+	if !s.Ready() {
+		t.Error("store-unhealthy 503 re-latched the readiness gate")
+	}
 }
 
 func TestVersion(t *testing.T) {
