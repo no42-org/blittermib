@@ -234,7 +234,7 @@ func Base(title string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if walkEnabled && !isWalkPage(ctx) {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<a href=\"/walk\" class=\"walk-decode-toggle\" data-walk-modal-open aria-haspopup=\"dialog\" aria-expanded=\"false\" title=\"Decode SNMP Walk\"><span class=\"walk-decode-icon\" aria-hidden=\"true\">⎘</span> <span class=\"walk-decode-label\">Decode SNMP Walk</span></a> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<a href=\"/walk\" class=\"walk-decode-toggle\" data-walk-modal-open aria-haspopup=\"dialog\" aria-expanded=\"false\" aria-label=\"Decode SNMP Walk\" title=\"Decode SNMP Walk\"><span class=\"walk-decode-icon\" aria-hidden=\"true\">⎘</span></a> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -254,7 +254,7 @@ func Base(title string) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs("blittermib " + version)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 77, Col: 127}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/base.templ`, Line: 76, Col: 127}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {

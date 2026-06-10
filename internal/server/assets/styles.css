@@ -4075,8 +4075,8 @@ main.page:has(.workspace-grid) .content-inner,
 
 /* topbar "Decode SNMP Walk" control */
 .walk-decode-toggle {
+  width: 36px;
   height: 36px;
-  padding: 0 12px;
   border: 1px solid var(--line);
   background: transparent;
   color: var(--fg-3);
@@ -4084,14 +4084,13 @@ main.page:has(.workspace-grid) .content-inner,
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
+  justify-content: center;
+  font-size: 15px;
   text-decoration: none;
-  white-space: nowrap;
   transition: all 100ms ease;
 }
 .walk-decode-toggle:hover { color: var(--fg); border-color: var(--line-strong); }
-.walk-decode-icon { font-size: 14px; }
+.walk-decode-icon { line-height: 1; }
 
 /* decode modal — centered overlay carrying the shared intake form */
 .walk-modal {
@@ -4157,10 +4156,6 @@ main.page:has(.workspace-grid) .content-inner,
   border-style: dashed;
 }
 .walk-dropzone-hint { margin: 6px 0 0; font-size: 12px; color: var(--fg-3); }
-
-@media (max-width: 720px) {
-  .walk-decode-label { display: none; }
-}
 
 /* results page — per-module summary launcher */
 .walk-modules { margin-top: 28px; }
