@@ -4087,6 +4087,15 @@ main.page:has(.workspace-grid) .content-inner,
   100% { transform: translateX(420%); }
 }
 .walk-decoding button[type="submit"] { pointer-events: none; opacity: 0.75; }
+/* Stable width + centered label so the "Decode" → "Decoding…" swap does
+ * not reflow the button (its `transition: all` would otherwise animate
+ * the width and ghost a second copy). user-select:none avoids the label
+ * being text-selected on click. */
+.walk-intake button[type="submit"] {
+  min-width: 6.5rem;
+  justify-content: center;
+  user-select: none;
+}
 .walk-error {
   margin-top: 16px;
   padding: 10px 14px;
