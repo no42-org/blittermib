@@ -795,6 +795,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		ListRows:           listRows,
 		Modules:            allModules,
 		ScopeOID:           oid,
+		Scoped:             oid != "" && len(listRows) < len(syms),
 		ModuleDownloadable: downloadable,
 		TypeDefs:           web.CollectTypeDefs(syms),
 		BundleFileCount:    bundleFileCount,

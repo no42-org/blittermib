@@ -780,7 +780,6 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 // breaking the column-aligned layout.
 templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string) {
 	{{ module := view.Module.Name }}
-	{{ scopeOID := view.ScopeOID }}
 	{{ crumbs := ScopeBreadcrumb(view) }}
 	<div class="list-controls">
 		<label class="list-search">
@@ -825,7 +824,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 				<span class="dot" aria-hidden="true"></span>notifs
 			</button>
 		</div>
-		if scopeOID != "" {
+		if view.Scoped {
 			<a
 				class="list-scope-clear"
 				href={ moduleURL(module) }
@@ -834,7 +833,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 			>View all in module</a>
 		}
 	</div>
-	if len(crumbs) > 0 {
+	if view.Scoped && len(crumbs) > 0 {
 		<div class="list-scope-bar">
 			<nav class="scope-breadcrumb" aria-label="OID scope path">
 				for _, c := range crumbs {

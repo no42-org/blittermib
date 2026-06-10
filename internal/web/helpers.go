@@ -1221,9 +1221,16 @@ type WorkspaceView struct {
 	// soft hint in the right pane.
 	MissingOID string
 	// ScopeOID is the URL-driven scope: when non-empty the list
-	// pane shows only symbols at or under this OID, and the
-	// list-pane chrome renders a "View all in module" link.
+	// pane shows only symbols at or under this OID.
 	ScopeOID string
+	// Scoped is true only when ScopeOID actually narrows the list
+	// (some module symbols fall outside it). Clicking a top-level
+	// scalar scopes to its parent — often the module root — which
+	// excludes nothing; in that case the list still shows the whole
+	// module, so the "View all in module" link and the scope
+	// breadcrumb are suppressed to avoid implying a narrowing that
+	// isn't there.
+	Scoped bool
 	// ModuleDownloadable is true when the module's source file is
 	// readable on disk at render time. Drives whether the
 	// module-info bar surfaces the `↓ MIB` / `↓ bundle` download

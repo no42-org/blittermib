@@ -882,6 +882,20 @@ func TestWorkspaceScopeFilter(t *testing.T) {
 	if strings.Contains(scoped, `class="list-row t-struct" data-name="ifTable"`) {
 		t.Errorf("scoped list still includes the ifTable row above the scope")
 	}
+
+	// A scope that still encloses every module symbol (e.g. clicking a
+	// top-level scalar scopes to the module root) does NOT narrow the
+	// list, so the "View all in module" link is suppressed — otherwise
+	// it implies a narrowing that isn't there. ifTable encloses all
+	// seeded IF-MIB symbols.
+	resp, err = http.Get(ts.URL + "/m/IF-MIB/1.3.6.1.2.1.2.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enclosing := body(t, resp)
+	if strings.Contains(enclosing, "View all in module") {
+		t.Errorf("non-narrowing scope should not render the View-all-in-module link")
+	}
 }
 
 func TestWorkspaceKindChips(t *testing.T) {
