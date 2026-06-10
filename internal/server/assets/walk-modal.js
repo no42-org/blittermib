@@ -152,6 +152,24 @@
 			}
 		);
 
+		// Decoding a large walk is a multi-second full-page POST that
+		// leaves the form looking frozen. On submit, flip the button to a
+		// "Decoding…" state and reveal an indeterminate progress bar (via
+		// the form's `walk-decoding` class). The form still submits and
+		// navigates natively — we don't preventDefault.
+		Array.prototype.forEach.call(
+			document.querySelectorAll('form.walk-intake'),
+			function (form) {
+				if (!bindOnce(form, 'walkSubmitBound')) return;
+				form.addEventListener('submit', function () {
+					form.classList.add('walk-decoding');
+					form.setAttribute('aria-busy', 'true');
+					var btn = form.querySelector('button[type="submit"]');
+					if (btn) btn.textContent = 'Decoding…';
+				});
+			}
+		);
+
 		if (bindOnce(document.documentElement, 'walkModalGlobal')) {
 			document.addEventListener('keydown', function (e) {
 				if (e.key === 'Escape') {

@@ -4063,6 +4063,30 @@ main.page:has(.workspace-grid) .content-inner,
 }
 .walk-file { color: var(--fg-2); font-size: 13px; }
 .walk-hint { color: var(--fg-3); font-size: 13px; margin-top: 16px; }
+
+/* decode progress — indeterminate bar shown while the POST is in flight */
+.walk-progress {
+  display: none;
+  height: 3px;
+  margin-top: 12px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+.walk-decoding .walk-progress { display: block; }
+.walk-progress-bar {
+  display: block;
+  height: 100%;
+  width: 35%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: walk-progress-slide 1.05s ease-in-out infinite;
+}
+@keyframes walk-progress-slide {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(420%); }
+}
+.walk-decoding button[type="submit"] { pointer-events: none; opacity: 0.75; }
 .walk-error {
   margin-top: 16px;
   padding: 10px 14px;

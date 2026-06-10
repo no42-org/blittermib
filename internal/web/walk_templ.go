@@ -38,7 +38,7 @@ func walkIntakeForm() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<form method=\"post\" action=\"/walk/decode\" enctype=\"multipart/form-data\" class=\"walk-intake\"><div class=\"walk-dropzone\" data-walk-dropzone><textarea name=\"walk\" rows=\"16\" spellcheck=\"false\" placeholder=\".1.3.6.1.2.1.1.1.0 = STRING: &#34;Juniper Networks, Inc. srx340&#34;\"></textarea><p class=\"walk-dropzone-hint\" aria-hidden=\"true\">Drop a <code>.txt</code> capture here, or paste above.</p></div><div class=\"walk-upload-actions\"><label class=\"walk-file\"><span data-walk-file-label>Or upload a file:</span> <input type=\"file\" name=\"walkfile\" accept=\".txt,text/plain\" data-walk-file-input></label> <button type=\"submit\" class=\"module-info-download-btn primary\">Decode</button></div><p class=\"walk-hint\">The walk is parsed in memory and never written to disk, logged, or stored. Captures are capped at 10&nbsp;MB (roughly 70–100k OIDs); for larger walks, filter or split before upload.</p></form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<form method=\"post\" action=\"/walk/decode\" enctype=\"multipart/form-data\" class=\"walk-intake\"><div class=\"walk-dropzone\" data-walk-dropzone><textarea name=\"walk\" rows=\"16\" spellcheck=\"false\" placeholder=\".1.3.6.1.2.1.1.1.0 = STRING: &#34;Juniper Networks, Inc. srx340&#34;\"></textarea><p class=\"walk-dropzone-hint\" aria-hidden=\"true\">Drop a <code>.txt</code> capture here, or paste above.</p></div><div class=\"walk-upload-actions\"><label class=\"walk-file\"><span data-walk-file-label>Or upload a file:</span> <input type=\"file\" name=\"walkfile\" accept=\".txt,text/plain\" data-walk-file-input></label> <button type=\"submit\" class=\"module-info-download-btn primary\">Decode</button></div><div class=\"walk-progress\" aria-hidden=\"true\"><span class=\"walk-progress-bar\"></span></div><p class=\"walk-hint\">The walk is parsed in memory and never written to disk, logged, or stored. Captures are capped at 10&nbsp;MB (roughly 70–100k OIDs); for larger walks, filter or split before upload.</p></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -94,7 +94,7 @@ func WalkUpload(view WalkUploadView) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(view.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 55, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 56, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -166,7 +166,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(view.WalkDataJSON)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 70, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 71, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -179,7 +179,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(view.Summary)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 74, Col: 42}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 75, Col: 42}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -197,7 +197,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(view.WalkText)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 79, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 80, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -220,7 +220,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(skippedNote(view.SkippedLines))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 86, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 87, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -239,7 +239,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(note)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 89, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 90, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -279,7 +279,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(m.Module)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 113, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 114, Col: 30}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -292,7 +292,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", m.ObjectCount))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 114, Col: 55}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 115, Col: 55}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 					if templ_7745c5c3_Err != nil {
@@ -305,7 +305,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var14 string
 					templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", m.ValueCount))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 115, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 116, Col: 53}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 					if templ_7745c5c3_Err != nil {
@@ -318,7 +318,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var15 templ.SafeURL
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(moduleWalkHref(m.Module))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 116, Col: 67}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 117, Col: 67}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -331,7 +331,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var16 string
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(m.Module)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 116, Col: 80}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 117, Col: 80}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
@@ -344,7 +344,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var17 string
 					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(m.Counts)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 117, Col: 51}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 118, Col: 51}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 					if templ_7745c5c3_Err != nil {
@@ -373,7 +373,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var18 templ.SafeURL
 					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinURLErrs(moduleHref(n.Module))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 136, Col: 63}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 137, Col: 63}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 					if templ_7745c5c3_Err != nil {
@@ -386,7 +386,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var19 string
 					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(n.Module)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 136, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 137, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
@@ -399,7 +399,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(n.Count)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 137, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 138, Col: 50}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 					if templ_7745c5c3_Err != nil {
@@ -428,7 +428,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var21 string
 					templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(u.OID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 158, Col: 37}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 159, Col: 37}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 					if templ_7745c5c3_Err != nil {
@@ -441,7 +441,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(countLabel(u.Count))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 159, Col: 34}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 160, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
@@ -454,7 +454,7 @@ func WalkResults(view WalkResultsView) templ.Component {
 					var templ_7745c5c3_Var23 string
 					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(u.Hint)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 160, Col: 21}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/walk.templ`, Line: 161, Col: 21}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 					if templ_7745c5c3_Err != nil {
