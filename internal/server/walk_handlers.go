@@ -106,6 +106,7 @@ func (s *Server) readWalk(w http.ResponseWriter, r *http.Request) (string, int, 
 
 	var text string
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		// #nosec G120 -- r.Body is wrapped in http.MaxBytesReader(walkMaxBytes) above, so the multipart parse is bounded.
 		if err := r.ParseMultipartForm(walkMaxBytes); err != nil {
 			return walkReadError(err)
 		}
@@ -254,14 +255,6 @@ func notifCountLabel(n int) string {
 		return "1 notification/trap definition"
 	}
 	return fmt.Sprintf("%d notification/trap definitions", n)
-}
-
-// unresolvedAgg groups unresolved OIDs by vendor enterprise prefix (or
-// the full prefix when not under enterprises) and counts occurrences.
-type unresolvedAgg struct {
-	OID   string
-	Count int
-	Hint  string
 }
 
 // aggregateUnresolved collapses per-entry Unresolved guidance into one

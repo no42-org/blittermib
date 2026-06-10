@@ -357,6 +357,7 @@ func (s *Server) processUploadPart(part interface {
 // detection (e.g. distinguishing a MIB from an snmpwalk capture).
 // Returns "" on any error.
 func sniffHead(path string, n int) string {
+	// #nosec G304 -- path is the import-pipeline temp file (filepath.Join(TmpDir, validatedName + crypto-random suffix), rooted under import/.tmp), not raw user input.
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
