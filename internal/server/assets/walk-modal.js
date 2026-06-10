@@ -154,7 +154,22 @@
 
 		if (bindOnce(document.documentElement, 'walkModalGlobal')) {
 			document.addEventListener('keydown', function (e) {
-				if (e.key === 'Escape') close();
+				if (e.key === 'Escape') {
+					close();
+					return;
+				}
+				// ⌘⇧K / Ctrl+Shift+K — open the decode modal (parallel to
+				// ⌘K search). On the /walk page the modal is suppressed, so
+				// focus its inline capture textarea instead.
+				if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+					e.preventDefault();
+					if (modal) {
+						open(document.querySelector('[data-walk-modal-open]'));
+					} else {
+						var ta = document.querySelector('form.walk-intake textarea[name="walk"]');
+						if (ta) ta.focus();
+					}
+				}
 			});
 		}
 	}

@@ -200,7 +200,7 @@
 	}
 
 	function onGlobal(e) {
-		if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+		if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
 			e.preventDefault();
 			const ls = landingSearch();
 			if (ls) { focusLanding(ls); return; }

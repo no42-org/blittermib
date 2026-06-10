@@ -234,7 +234,7 @@ func Base(title string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if walkEnabled && !isWalkPage(ctx) {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<a href=\"/walk\" class=\"walk-decode-toggle\" data-walk-modal-open aria-haspopup=\"dialog\" aria-expanded=\"false\" aria-label=\"Decode SNMP Walk\" title=\"Decode SNMP Walk\"><span class=\"walk-decode-icon\" aria-hidden=\"true\">⎘</span></a> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<a href=\"/walk\" class=\"walk-decode-toggle\" data-walk-modal-open aria-haspopup=\"dialog\" aria-expanded=\"false\" aria-label=\"Decode SNMP Walk (⌘⇧K)\" title=\"Decode SNMP Walk (⌘⇧K)\"><span class=\"walk-decode-icon\" aria-hidden=\"true\">⎘</span></a> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -55,7 +55,7 @@ templ Base(title string) {
 				<div class="topbar-end">
 					<span class="privacy-notice">Self-hosted — your MIBs never leave your server.</span>
 					if walkEnabled && !isWalkPage(ctx) {
-						<a href="/walk" class="walk-decode-toggle" data-walk-modal-open aria-haspopup="dialog" aria-expanded="false" aria-label="Decode SNMP Walk" title="Decode SNMP Walk">
+						<a href="/walk" class="walk-decode-toggle" data-walk-modal-open aria-haspopup="dialog" aria-expanded="false" aria-label="Decode SNMP Walk (⌘⇧K)" title="Decode SNMP Walk (⌘⇧K)">
 							<span class="walk-decode-icon" aria-hidden="true">⎘</span>
 						</a>
 					}
