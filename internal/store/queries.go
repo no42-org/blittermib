@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/no42-org/blittermib/internal/eventconf"
+	"github.com/no42-org/blittermib/internal/iana"
 	"github.com/no42-org/blittermib/internal/model"
 )
 
@@ -17,27 +18,22 @@ var ErrNotFound = errors.New("not found")
 // loaded into `m.Imports` so the workspace overview can render it
 // without a second round-trip.
 func (s *Store) GetModule(ctx context.Context, name string) (*model.Module, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT name, oid_root, organization, contact_info, description,
-		       last_updated, source_path, parse_status
+	row := s.db.QueryRowContext(ctx, moduleSelectColumns+`
 		FROM module WHERE name = ?`, name)
-	var m model.Module
-	var status string
-	if err := row.Scan(&m.Name, &m.OIDRoot, &m.Organization, &m.ContactInfo,
-		&m.Description, &m.LastUpdated, &m.SourcePath, &status); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
+	m, err := scanModule(row.Scan)
+	if errors.Is(err, ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
 		return nil, fmt.Errorf("get module %s: %w", name, err)
 	}
-	m.ParseStatus = model.ParseStatus(status)
 
 	imports, err := s.listImportsByModule(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("get module %s imports: %w", name, err)
 	}
 	m.Imports = imports
-	return &m, nil
+	return m, nil
 }
 
 // listImportsByModule returns the IMPORTS clause for a module,
@@ -115,10 +111,7 @@ func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]C
 	var out []ClosureEntry
 
 	// Frontier holds names whose imports we still need to walk.
-	type frontierEntry struct {
-		name string
-	}
-	var frontier []frontierEntry
+	var frontier []string
 
 	// Seed every root. Empty names are skipped (a caller passing a
 	// sparse list shouldn't fail the whole walk), and roots already
@@ -145,7 +138,7 @@ func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]C
 			SourcePath: rootMod.SourcePath,
 			Loaded:     true,
 		})
-		frontier = append(frontier, frontierEntry{name: rootMod.Name})
+		frontier = append(frontier, rootMod.Name)
 	}
 
 	// Per-importer aggregation of imported symbols, so MISSING.txt
@@ -172,17 +165,17 @@ func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]C
 		cur := frontier[0]
 		frontier = frontier[1:]
 
-		imports, err := s.listImportsByModule(ctx, cur.name)
+		imports, err := s.listImportsByModule(ctx, cur)
 		if err != nil {
-			return nil, fmt.Errorf("closure imports of %s: %w", cur.name, err)
+			return nil, fmt.Errorf("closure imports of %s: %w", cur, err)
 		}
 		for _, imp := range imports {
-			k := pkey(imp.FromModule, cur.name)
+			k := pkey(imp.FromModule, cur)
 			p, ok := pendings[k]
 			if !ok {
 				p = &pendingImport{
 					fromModule: imp.FromModule,
-					importedBy: cur.name,
+					importedBy: cur,
 				}
 				pendings[k] = p
 			}
@@ -217,7 +210,7 @@ func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]C
 			}
 			visited[imp.FromModule] = struct{}{}
 
-			p := pendings[pkey(imp.FromModule, cur.name)]
+			p := pendings[pkey(imp.FromModule, cur)]
 
 			depMod, err := s.GetModule(ctx, imp.FromModule)
 			switch {
@@ -225,7 +218,7 @@ func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]C
 				out = append(out, ClosureEntry{
 					Module:     imp.FromModule,
 					Loaded:     false,
-					ImportedBy: cur.name,
+					ImportedBy: cur,
 					Symbols:    p.symbols,
 				})
 			case err != nil:
@@ -235,10 +228,10 @@ func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]C
 					Module:     depMod.Name,
 					SourcePath: depMod.SourcePath,
 					Loaded:     true,
-					ImportedBy: cur.name,
+					ImportedBy: cur,
 					Symbols:    p.symbols,
 				})
-				frontier = append(frontier, frontierEntry{name: depMod.Name})
+				frontier = append(frontier, depMod.Name)
 			}
 		}
 	}
@@ -248,9 +241,7 @@ func (s *Store) ListImportClosureUnion(ctx context.Context, roots []string) ([]C
 
 // ListModules returns all modules ordered by name.
 func (s *Store) ListModules(ctx context.Context) ([]model.Module, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT name, oid_root, organization, contact_info, description,
-		       last_updated, source_path, parse_status
+	rows, err := s.db.QueryContext(ctx, moduleSelectColumns+`
 		FROM module ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list modules: %w", err)
@@ -259,14 +250,11 @@ func (s *Store) ListModules(ctx context.Context) ([]model.Module, error) {
 
 	var out []model.Module
 	for rows.Next() {
-		var m model.Module
-		var status string
-		if err := rows.Scan(&m.Name, &m.OIDRoot, &m.Organization, &m.ContactInfo,
-			&m.Description, &m.LastUpdated, &m.SourcePath, &status); err != nil {
+		m, err := scanModule(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
-		m.ParseStatus = model.ParseStatus(status)
-		out = append(out, m)
+		out = append(out, *m)
 	}
 	return out, rows.Err()
 }
@@ -467,18 +455,8 @@ func (s *Store) HasChildrenBatch(ctx context.Context, parents []string) (map[str
 	for _, p := range parents {
 		out[p] = false
 	}
-	args := make([]any, 0, len(parents))
-	placeholders := make([]byte, 0, 2*len(parents))
-	for i, p := range parents {
-		if i > 0 {
-			placeholders = append(placeholders, ',')
-		}
-		placeholders = append(placeholders, '?')
-		args = append(args, p)
-	}
-	// #nosec G202 -- placeholders is a locally-built run of `?` separators; values flow through QueryContext args, not the SQL string.
-	q := `SELECT parent_oid FROM symbol WHERE parent_oid IN (` +
-		string(placeholders) + `) GROUP BY parent_oid`
+	q, args := sqlIn(`SELECT parent_oid FROM symbol WHERE parent_oid IN (`,
+		parents, `) GROUP BY parent_oid`)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("has-children batch: %w", err)
@@ -560,7 +538,8 @@ func (s *Store) CountByFamily(ctx context.Context, moduleName string) (*model.Fa
 
 // OIDPath decodes an OID into one model.OIDStep per ancestor
 // prefix, naming each step from a loaded MIB symbol when one
-// matches and from the canonical-OID fallback table otherwise.
+// matches and from the IANA canonical registry
+// (iana.LookupCanonical) otherwise.
 //
 // One database hit total: every prefix is included in a single
 // `WHERE oid IN (?, …)` query. Multi-match on the same prefix is
@@ -579,19 +558,8 @@ func (s *Store) OIDPath(ctx context.Context, oid string) ([]model.OIDStep, error
 			oid, len(prefixes), maxOIDDepth)
 	}
 
-	args := make([]any, 0, len(prefixes))
-	placeholders := make([]byte, 0, 2*len(prefixes))
-	for i, p := range prefixes {
-		if i > 0 {
-			placeholders = append(placeholders, ',')
-		}
-		placeholders = append(placeholders, '?')
-		args = append(args, p)
-	}
-
-	// #nosec G202 -- placeholders is a locally-built run of `?` separators; values flow through QueryContext args, not the SQL string.
-	q := `SELECT oid, module_name, name, kind FROM symbol WHERE oid IN (` +
-		string(placeholders) + `) ORDER BY oid, module_name, name`
+	q, args := sqlIn(`SELECT oid, module_name, name, kind FROM symbol WHERE oid IN (`,
+		prefixes, `) ORDER BY oid, module_name, name`)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("oid path %s: %w", oid, err)
@@ -626,7 +594,7 @@ func (s *Store) OIDPath(ctx context.Context, oid string) ([]model.OIDStep, error
 			})
 			continue
 		}
-		if name, ok := canonicalName(p); ok {
+		if name, ok := iana.LookupCanonical(p); ok {
 			out = append(out, model.OIDStep{
 				Prefix: p, Name: name, Canonical: true,
 			})
@@ -644,6 +612,40 @@ const symbolSelectColumns = `
 	SELECT id, module_name, name, oid, parent_oid, kind, syntax, access, status,
 	       units, reference_text, description, default_value, augments,
 	       index_columns, index_implied, enum_values, source_line `
+
+const moduleSelectColumns = `
+	SELECT name, oid_root, organization, contact_info, description,
+	       last_updated, source_path, parse_status `
+
+func scanModule(scan func(...any) error) (*model.Module, error) {
+	var m model.Module
+	var status string
+	if err := scan(&m.Name, &m.OIDRoot, &m.Organization, &m.ContactInfo,
+		&m.Description, &m.LastUpdated, &m.SourcePath, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	m.ParseStatus = model.ParseStatus(status)
+	return &m, nil
+}
+
+// sqlIn assembles `before + "?,?,…" + after` with one placeholder per
+// value and returns the query plus the matching args slice.
+func sqlIn(before string, vals []string, after string) (string, []any) {
+	args := make([]any, 0, len(vals))
+	placeholders := make([]byte, 0, 2*len(vals))
+	for i, v := range vals {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, v)
+	}
+	// #nosec G202 -- placeholders is a locally-built run of `?` separators; values flow through the returned args, not the SQL string.
+	return before + string(placeholders) + after, args
+}
 
 func scanSymbol(scan func(...any) error) (*model.Symbol, error) {
 	var s model.Symbol

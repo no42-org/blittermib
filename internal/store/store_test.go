@@ -555,6 +555,28 @@ func TestOIDPath(t *testing.T) {
 	}
 }
 
+// TestOIDPathIANAOnlyArc covers an arc that only the IANA canonical
+// registry names: no module is loaded, and `bgp(1.3.6.1.2.1.15)` was
+// absent from the old in-store fallback table. Breadcrumbs gain these
+// names by delegating to iana.LookupCanonical.
+func TestOIDPathIANAOnlyArc(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	steps, err := s.OIDPath(ctx, "1.3.6.1.2.1.15")
+	if err != nil {
+		t.Fatalf("OIDPath: %v", err)
+	}
+	if len(steps) != 7 {
+		t.Fatalf("step count = %d, want 7", len(steps))
+	}
+	last := steps[len(steps)-1]
+	if last.Name != "bgp" || !last.Canonical {
+		t.Errorf("step %q = (%q, canonical=%v), want (\"bgp\", true)",
+			last.Prefix, last.Name, last.Canonical)
+	}
+}
+
 func TestOIDPathDeterministicOrdering(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

@@ -79,12 +79,22 @@ func Open(ctx context.Context, path string) (*Store, error) {
 // startup scan repopulates the table on the same boot — no symbol
 // data is preserved across the migration (it's recompiled from the
 // on-disk MIB bundle, which is the source-of-truth).
-func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
-	rows, err := db.QueryContext(ctx, `PRAGMA table_info(symbol)`)
+
+// tableHasColumn reports whether `table` currently has a column named
+// `col`, via PRAGMA table_info. Shared by the boot migrations, which
+// detect schema generations by column presence. The result rows are
+// closed explicitly before returning: the pool is pinned to one
+// connection (MaxOpenConns=1), so a lingering Rows iterator could
+// stall a caller's subsequent DDL Exec. mattn/go-sqlite3 releases on
+// Next() returning false, but the explicit close removes the
+// dependency on driver internals.
+func tableHasColumn(ctx context.Context, db *sql.DB, table, col string) (bool, error) {
+	// #nosec G202 -- table is a compile-time constant supplied by the migrations below, never user input.
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
 	if err != nil {
-		return fmt.Errorf("inspect symbol columns: %w", err)
+		return false, fmt.Errorf("inspect %s columns: %w", table, err)
 	}
-	hasOldFlags := false
+	found := false
 	for rows.Next() {
 		var (
 			cid, notnull, pk  int
@@ -92,25 +102,32 @@ func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
 		)
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
 			_ = rows.Close()
-			return fmt.Errorf("scan column row: %w", err)
+			return false, fmt.Errorf("scan column row: %w", err)
 		}
-		if name.Valid && (name.String == "is_table" || name.String == "is_table_entry") {
-			hasOldFlags = true
+		if name.Valid && name.String == col {
+			found = true
 		}
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
+		return false, err
+	}
+	if err := rows.Close(); err != nil {
+		return false, fmt.Errorf("close table_info rows: %w", err)
+	}
+	return found, nil
+}
+
+func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
+	hasIsTable, err := tableHasColumn(ctx, db, "symbol", "is_table")
+	if err != nil {
 		return err
 	}
-	// Close explicitly before issuing DDL: the pool is pinned to one
-	// connection (MaxOpenConns=1), so an open Rows iterator could
-	// stall the subsequent Exec. mattn/go-sqlite3 releases on Next()
-	// returning false, but the explicit close removes the dependency
-	// on driver internals.
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close table_info rows: %w", err)
+	hasIsEntry, err := tableHasColumn(ctx, db, "symbol", "is_table_entry")
+	if err != nil {
+		return err
 	}
-	if !hasOldFlags {
+	if !hasIsTable && !hasIsEntry {
 		return nil
 	}
 
@@ -152,30 +169,9 @@ func migrateSymbolKindSplit(ctx context.Context, db *sql.DB) error {
 // MIB corpus); no rewrite is triggered for a NOT NULL DEFAULT 0
 // addition.
 func migrateAddIndexImplied(ctx context.Context, db *sql.DB) error {
-	rows, err := db.QueryContext(ctx, `PRAGMA table_info(symbol)`)
+	hasColumn, err := tableHasColumn(ctx, db, "symbol", "index_implied")
 	if err != nil {
-		return fmt.Errorf("inspect symbol columns: %w", err)
-	}
-	hasColumn := false
-	for rows.Next() {
-		var (
-			cid, notnull, pk  int
-			name, ctype, dflt sql.NullString
-		)
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("scan column row: %w", err)
-		}
-		if name.Valid && name.String == "index_implied" {
-			hasColumn = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return err
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close table_info rows: %w", err)
 	}
 	if hasColumn {
 		return nil
@@ -197,30 +193,9 @@ func migrateAddIndexImplied(ctx context.Context, db *sql.DB) error {
 // and are corrected on the same boot when the loader re-imports the
 // MIB corpus from disk.
 func migrateAddReferencePosition(ctx context.Context, db *sql.DB) error {
-	rows, err := db.QueryContext(ctx, `PRAGMA table_info(reference)`)
+	hasColumn, err := tableHasColumn(ctx, db, "reference", "position")
 	if err != nil {
-		return fmt.Errorf("inspect reference columns: %w", err)
-	}
-	hasColumn := false
-	for rows.Next() {
-		var (
-			cid, notnull, pk  int
-			name, ctype, dflt sql.NullString
-		)
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("scan column row: %w", err)
-		}
-		if name.Valid && name.String == "position" {
-			hasColumn = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return err
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close table_info rows: %w", err)
 	}
 	if hasColumn {
 		return nil
