@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -392,20 +391,7 @@ func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type shipEntry struct{ Module, SourcePath string }
-	type missing struct{ Module, Reason, ImportedBy string }
-	var shippable []shipEntry
-	var missings []missing
-	for _, e := range closure {
-		switch {
-		case !e.Loaded:
-			missings = append(missings, missing{Module: e.Module, Reason: "not loaded", ImportedBy: e.ImportedBy})
-		case e.SourcePath == "" || !pathUnderAny(e.SourcePath, roots):
-			missings = append(missings, missing{Module: e.Module, Reason: "source file unreadable", ImportedBy: e.ImportedBy})
-		default:
-			shippable = append(shippable, shipEntry{Module: e.Module, SourcePath: e.SourcePath})
-		}
-	}
+	shippable, missings := partitionClosure(closure, roots)
 
 	date := time.Now().UTC().Format("2006-01-02")
 	w.Header().Set("Content-Type", "application/zip")
@@ -428,33 +414,10 @@ func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, ship := range shippable {
-		if err := ctx.Err(); err != nil {
-			slog.Warn("walk bundle: ctx cancelled", "err", err)
-			return
-		}
-		f, err := os.Open(ship.SourcePath)
-		if err != nil {
-			slog.Warn("walk bundle: open source", "module", ship.Module, "err", err)
-			missings = append(missings, missing{Module: ship.Module, Reason: "source file unreadable"})
-			continue
-		}
-		var modTime time.Time
-		if info, err := f.Stat(); err == nil {
-			modTime = info.ModTime()
-		}
-		fw, err := zw.CreateHeader(&zip.FileHeader{Name: ship.Module + ".mib", Method: zip.Deflate, Modified: modTime})
-		if err != nil {
-			slog.Warn("walk bundle: zip header", "module", ship.Module, "err", err)
-			_ = f.Close()
-			return
-		}
-		if _, err := io.Copy(fw, f); err != nil {
-			slog.Warn("walk bundle: copy source", "module", ship.Module, "err", err)
-			_ = f.Close()
-			return
-		}
-		_ = f.Close()
+	extra, ok := copyMIBsToZip(ctx, zw, shippable, "walk bundle")
+	missings = append(missings, extra...)
+	if !ok {
+		return
 	}
 
 	// MISSING.txt: unshippable modules + unresolved OIDs.
@@ -486,15 +449,6 @@ func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("walk bundle: MISSING.txt", "err", err)
 		return
 	}
-}
-
-func writeZipString(zw *zip.Writer, name, content string) error {
-	fw, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate})
-	if err != nil {
-		return err
-	}
-	_, err = io.WriteString(fw, content)
-	return err
 }
 
 func walkBundleReadme(modules, shipped int) string {

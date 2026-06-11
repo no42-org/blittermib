@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -506,49 +505,7 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 		return
 	}
 
-	// Partition into "ship in the ZIP" vs "list in MISSING.txt".
-	type shipEntry struct {
-		Module     string
-		SourcePath string
-	}
-	type missing struct {
-		Module     string
-		Reason     string
-		ImportedBy string
-		Symbols    []string
-	}
-	var shippable []shipEntry
-	var missings []missing
-	for _, e := range closure {
-		if !e.Loaded {
-			missings = append(missings, missing{
-				Module:     e.Module,
-				Reason:     "not loaded",
-				ImportedBy: e.ImportedBy,
-				Symbols:    e.Symbols,
-			})
-			continue
-		}
-		if e.SourcePath == "" || !pathUnderAny(e.SourcePath, roots) {
-			// Spec defines exactly two reason markers (`not loaded`
-			// and `source file unreadable`). An empty source path or
-			// an out-of-roots path lands here: from the user's
-			// perspective the file isn't readable, so it shares the
-			// `source file unreadable` marker rather than inventing
-			// a third.
-			missings = append(missings, missing{
-				Module:     e.Module,
-				Reason:     "source file unreadable",
-				ImportedBy: e.ImportedBy,
-				Symbols:    e.Symbols,
-			})
-			continue
-		}
-		shippable = append(shippable, shipEntry{
-			Module:     e.Module,
-			SourcePath: e.SourcePath,
-		})
-	}
+	shippable, missings := partitionClosure(closure, roots)
 
 	w.Header().Set("Content-Type", "application/zip")
 	setAttachmentDisposition(w, name+"-bundle.zip")
@@ -560,64 +517,16 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 		}
 	}()
 
-	for _, ship := range shippable {
-		// Honor request-context cancellation between entries — a
-		// disconnected client shouldn't keep us reading and zipping
-		// MIBs into a TCP void.
-		if err := ctx.Err(); err != nil {
-			slog.Warn("bundle: ctx cancelled", "module", name, "err", err)
-			return
-		}
-		f, err := os.Open(ship.SourcePath)
-		if err != nil {
-			slog.Warn("bundle: open source", "module", ship.Module, "path", ship.SourcePath, "err", err)
-			missings = append(missings, missing{
-				Module: ship.Module,
-				Reason: "source file unreadable",
-			})
-			continue
-		}
-		// Stamp each ZIP entry with the source file's mtime so two
-		// clients downloading the same bundle one second apart get
-		// byte-identical archives. `time.Now()` would forfeit
-		// reproducibility and any If-Modified-Since semantics.
-		var modTime time.Time
-		if info, err := f.Stat(); err == nil {
-			modTime = info.ModTime()
-		}
-		hdr := &zip.FileHeader{
-			Name:     ship.Module + ".mib",
-			Method:   zip.Deflate,
-			Modified: modTime,
-		}
-		fw, err := zw.CreateHeader(hdr)
-		if err != nil {
-			slog.Warn("bundle: zip header", "module", ship.Module, "err", err)
-			_ = f.Close()
-			return
-		}
-		if _, err := io.Copy(fw, f); err != nil {
-			slog.Warn("bundle: copy source", "module", ship.Module, "err", err)
-			_ = f.Close()
-			return
-		}
-		_ = f.Close()
+	extra, ok := copyMIBsToZip(ctx, zw, shippable, "bundle")
+	missings = append(missings, extra...)
+	if !ok {
+		return
 	}
 
 	// MISSING.txt is always emitted, even when len(missings) == 0,
 	// so machine consumers can rely on `unzip -l | grep MISSING.txt`
 	// rather than inferring from absence whether the bundle was
 	// complete.
-	hdr := &zip.FileHeader{
-		Name:     "MISSING.txt",
-		Method:   zip.Deflate,
-		Modified: time.Now(),
-	}
-	fw, err := zw.CreateHeader(hdr)
-	if err != nil {
-		slog.Warn("bundle: zip header MISSING.txt", "module", name, "err", err)
-		return
-	}
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "# Missing imports — modules referenced by %s and its dependencies\n", name)
 	fmt.Fprintln(&buf, "# but not currently loaded into blittermib (or whose source")
@@ -637,7 +546,7 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 		}
 		fmt.Fprintf(&buf, "  reason:      %s\n\n", m.Reason)
 	}
-	if _, err := io.WriteString(fw, buf.String()); err != nil {
+	if err := writeZipString(zw, "MISSING.txt", buf.String()); err != nil {
 		slog.Warn("bundle: write MISSING.txt", "module", name, "err", err)
 		return
 	}
@@ -720,24 +629,10 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		topLevel = append(topLevel, syms[i])
 	}
 
-	// Single batched HasChildren query — replaces an N+1 round-trip
-	// (with MaxOpenConns=1, those serialize and added up on wide
-	// modules).
-	parentOIDs := make([]string, 0, len(topLevel))
-	for i := range topLevel {
-		parentOIDs = append(parentOIDs, topLevel[i].OID)
-	}
-	hasChildren, err := s.store.HasChildrenBatch(ctx, parentOIDs)
+	treeRows, err := s.treeRowsFor(ctx, topLevel)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
-	}
-	treeRows := make([]web.TreeRow, 0, len(topLevel))
-	for i := range topLevel {
-		treeRows = append(treeRows, web.TreeRow{
-			Symbol:      topLevel[i],
-			HasChildren: hasChildren[topLevel[i].OID],
-		})
 	}
 
 	counts, err := s.store.CountByFamily(ctx, name)
@@ -861,22 +756,17 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 			s.internalError(w, r, lookupErr)
 			return
 		default:
-			selected := &web.SymbolView{Symbol: sym}
-			selected.Context = s.buildSymbolContext(ctx, sym)
-			if sym.Kind == model.KindTable {
-				selected.Columns = s.buildTableColumns(ctx, sym)
-			}
-			usedBy, err := s.store.ListReferencesTo(ctx, sym.ModuleName, sym.Name)
+			selected, err := s.buildSymbolView(ctx, sym)
 			if err != nil {
 				s.internalError(w, r, err)
 				return
 			}
-			selected.UsedBy = usedBy
 			// NOTIFICATION-TYPE / TRAP-TYPE OBJECTS clause —
 			// outbound references of kind RefNotificationObject.
 			// Surfaced in the workspace right pane as clickable
 			// links so a reader can jump from "what does linkDown
-			// carry?" straight to ifAdminStatus's detail.
+			// carry?" straight to ifAdminStatus's detail. (The /s/
+			// deep-link page deliberately stays without this block.)
 			if sym.Kind == model.KindNotificationType || sym.Kind == model.KindTrapType {
 				outRefs, err := s.store.ListReferencesFrom(ctx, sym.ModuleName, sym.Name)
 				if err != nil {
@@ -884,12 +774,6 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 					return
 				}
 				selected.NotifyObjects, selected.TrapIndex = s.buildNotifyVarbinds(ctx, outRefs)
-			}
-			if symMod, err := s.store.GetModule(ctx, sym.ModuleName); err == nil && symMod.SourcePath != "" && sym.SourceLine > 0 {
-				if slice, err := source.Slice(symMod.SourcePath, sym.SourceLine, source.DefaultWindow); err == nil && slice != "" {
-					selected.SourceText = slice
-					selected.SourcePath = symMod.SourcePath
-				}
 			}
 			view.Selected = selected
 			// view.OIDPath is still decoded (the scope breadcrumb
@@ -1008,26 +892,11 @@ func (s *Server) handleSymbol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view := &web.SymbolView{Symbol: sym}
-	view.Context = s.buildSymbolContext(ctx, sym)
-	if sym.Kind == model.KindTable {
-		view.Columns = s.buildTableColumns(ctx, sym)
-	}
-	usedBy, err := s.store.ListReferencesTo(ctx, module, name)
+	view, err := s.buildSymbolView(ctx, sym)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
-	view.UsedBy = usedBy
-
-	// Source slice for the "Show full SMI source" disclosure.
-	if mod, err := s.store.GetModule(ctx, module); err == nil && mod.SourcePath != "" && sym.SourceLine > 0 {
-		if slice, err := source.Slice(mod.SourcePath, sym.SourceLine, source.DefaultWindow); err == nil && slice != "" {
-			view.SourceText = slice
-			view.SourcePath = mod.SourcePath
-		}
-	}
-
 	render(w, r, http.StatusOK, web.SymbolDetail(view))
 }
 
@@ -1054,6 +923,32 @@ func (s *Server) handleSymbolDisambiguation(w http.ResponseWriter, r *http.Reque
 	default:
 		render(w, r, http.StatusOK, web.SymbolDisambiguation(name, matches))
 	}
+}
+
+// buildSymbolView assembles the right-pane symbol view shared by the
+// workspace selection branch and the /s/ deep-link page: the
+// in-context block, table columns (tables only), inbound references,
+// and the SMI source slice for the "Show full SMI source" disclosure.
+// The workspace path layers its notification-varbind extras on top so
+// the two surfaces can't drift on the shared pieces.
+func (s *Server) buildSymbolView(ctx context.Context, sym *model.Symbol) (*web.SymbolView, error) {
+	v := &web.SymbolView{Symbol: sym}
+	v.Context = s.buildSymbolContext(ctx, sym)
+	if sym.Kind == model.KindTable {
+		v.Columns = s.buildTableColumns(ctx, sym)
+	}
+	usedBy, err := s.store.ListReferencesTo(ctx, sym.ModuleName, sym.Name)
+	if err != nil {
+		return nil, err
+	}
+	v.UsedBy = usedBy
+	if mod, err := s.store.GetModule(ctx, sym.ModuleName); err == nil && mod.SourcePath != "" && sym.SourceLine > 0 {
+		if slice, err := source.Slice(mod.SourcePath, sym.SourceLine, source.DefaultWindow); err == nil && slice != "" {
+			v.SourceText = slice
+			v.SourcePath = mod.SourcePath
+		}
+	}
+	return v, nil
 }
 
 // buildSymbolContext computes the in-context block for a symbol —
@@ -1359,53 +1254,20 @@ func (s *Server) classifyIndexColumn(
 // catches any whitespace / constraint suffix that future
 // smidump versions might emit verbatim.
 func isIPAddressSyntax(s string) bool {
-	t := strings.TrimSpace(s)
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	return t == "IpAddress"
+	return baseSyntaxToken(s) == "IpAddress"
 }
 
 // isIntegerSyntax reports whether `s` resolves to an INTEGER /
 // Integer32 base type, ignoring inline enum bodies and range
-// constraints. Mirrors the integer-side of `web.TrapTypeLetter`
-// but stays in the server package to avoid an unnecessary export.
-//
-// Recognises common integer-subtype Textual Conventions
-// (`InterfaceIndex`, etc.) verbatim — the compile layer emits
-// the TC name as the symbol's syntax rather than chasing through
-// to the underlying base type, so the helper has to know the
-// well-known names. Unknown integer TCs fall through to false
-// and the trap-simulator modal degrades to its raw-suffix mode
-// for that table.
+// constraints. Delegates to `web.TrapTypeLetter`'s integer
+// classification — one list, no drift — plus `Unsigned32`, which the
+// trap letter maps to "u" but which is a single-integer INDEX type
+// for decode purposes (RFC 2578 §7.1.4; `alarmActiveIndex`,
+// `vacmContextIndex`, …). Gauge32 also letters as "u" but is NOT an
+// index-integer, which is why the extra check matches the base token
+// rather than the letter.
 func isIntegerSyntax(s string) bool {
-	t := strings.TrimSpace(s)
-	if i := strings.IndexByte(t, '{'); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	switch t {
-	case "INTEGER", "Integer32",
-		// `Unsigned32` is an SMI base type (RFC 2578 §7.1.4) and
-		// the second-most-common single-column INDEX syntax in
-		// real-world MIB corpora — `alarmActiveIndex`,
-		// `vacmContextIndex`, etc. all use it. Smidump emits the
-		// literal token verbatim.
-		"Unsigned32",
-		"Enumeration",
-		"InterfaceIndex",
-		"InterfaceIndexOrZero",
-		"InetPortNumber",
-		"InetVersion",
-		"IANAifType",
-		// TruthValue / RowStatus mirror `web.TrapTypeLetter`.
-		"TruthValue",
-		"RowStatus":
-		return true
-	}
-	return false
+	return web.TrapTypeLetter(s) == "i" || baseSyntaxToken(s) == "Unsigned32"
 }
 
 // buildTableColumns returns the column rows for a SMIv2 table's
@@ -1577,6 +1439,25 @@ func (s *Server) expandTreeRow(ctx context.Context, row *web.TreeRow, expandSet 
 	if len(children) == 0 {
 		return
 	}
+	kids, err := s.treeRowsFor(ctx, children)
+	if err != nil {
+		slog.Warn("auto-expand: has-children batch failed", "oid", row.Symbol.OID, "err", err)
+		row.Expanded = false
+		return
+	}
+	for i := range kids {
+		s.expandTreeRow(ctx, &kids[i], expandSet, selectionOID)
+	}
+	row.PreloadedKids = kids
+}
+
+// treeRowsFor dedupes children to one row per OID (`ListChildren`
+// returns one row per defining module, and the tree is a navigation
+// surface keyed by OID — `ORDER BY oid, name` makes the retained row
+// the alphabetically-first module's, stable across requests) and
+// decorates each with its HasChildren flag via ONE batched query —
+// the N+1 per-row variant serialized painfully under MaxOpenConns=1.
+func (s *Server) treeRowsFor(ctx context.Context, children []model.Symbol) ([]web.TreeRow, error) {
 	seen := make(map[string]struct{}, len(children))
 	deduped := children[:0]
 	for i := range children {
@@ -1594,20 +1475,16 @@ func (s *Server) expandTreeRow(ctx context.Context, row *web.TreeRow, expandSet 
 	}
 	hasChildren, err := s.store.HasChildrenBatch(ctx, parentOIDs)
 	if err != nil {
-		slog.Warn("auto-expand: has-children batch failed", "oid", row.Symbol.OID, "err", err)
-		row.Expanded = false
-		return
+		return nil, err
 	}
-
-	row.PreloadedKids = make([]web.TreeRow, 0, len(children))
+	rows := make([]web.TreeRow, 0, len(children))
 	for i := range children {
-		kid := web.TreeRow{
+		rows = append(rows, web.TreeRow{
 			Symbol:      children[i],
 			HasChildren: hasChildren[children[i].OID],
-		}
-		s.expandTreeRow(ctx, &kid, expandSet, selectionOID)
-		row.PreloadedKids = append(row.PreloadedKids, kid)
+		})
 	}
+	return rows, nil
 }
 
 // handleAPITreeFragment returns the immediate children of an OID
@@ -1658,31 +1535,10 @@ func (s *Server) handleAPITreeFragment(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	seen := make(map[string]struct{}, len(children))
-	deduped := children[:0]
-	for i := range children {
-		if _, ok := seen[children[i].OID]; ok {
-			continue
-		}
-		seen[children[i].OID] = struct{}{}
-		deduped = append(deduped, children[i])
-	}
-	children = deduped
-	parentOIDs := make([]string, 0, len(children))
-	for i := range children {
-		parentOIDs = append(parentOIDs, children[i].OID)
-	}
-	hasChildren, err := s.store.HasChildrenBatch(ctx, parentOIDs)
+	rows, err := s.treeRowsFor(ctx, children)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
-	}
-	rows := make([]web.TreeRow, 0, len(children))
-	for i := range children {
-		rows = append(rows, web.TreeRow{
-			Symbol:      children[i],
-			HasChildren: hasChildren[children[i].OID],
-		})
 	}
 	// Synthetic view threads the URL scope through the templ so
 	// `WorkspaceRowURL` builds the same leaf-vs-container URLs the

@@ -221,28 +221,34 @@ func (s *Server) processUploadPart(part interface {
 	io.Reader
 }, replace bool) uploadOutcome {
 	raw := part.FileName()
+	oc := uploadOutcome{Name: filepath.Base(raw)}
+	// drain consumes the part's remaining bytes before an early return.
+	// multipart.Reader.NextPart would skip them anyway; kept explicit so
+	// a rejected part's read behavior stays byte-for-byte what it was.
+	drain := func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
+	}
+	// fail finalizes a rejected outcome — every rejection shares this
+	// one shape instead of restating the three-field block.
+	fail := func(msg, code string, status int) uploadOutcome {
+		oc.Error = msg
+		oc.ErrorCode = code
+		oc.httpStatus = status
+		return oc
+	}
+
 	// Reject path separators and traversal segments BEFORE
 	// filepath.Base — otherwise `../../../etc/passwd` collapses to
 	// `passwd` and silently writes into the intake dir.
 	if raw == "" || raw == "." || raw == ".." ||
 		strings.ContainsAny(raw, "/\\\x00") {
-		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
-		return uploadOutcome{
-			Name:       filepath.Base(raw),
-			Error:      "invalid filename",
-			ErrorCode:  errCodeInvalidName,
-			httpStatus: http.StatusBadRequest,
-		}
+		drain()
+		return fail("invalid filename", errCodeInvalidName, http.StatusBadRequest)
 	}
-	name := filepath.Base(raw)
-	oc := uploadOutcome{Name: name}
-
+	name := oc.Name
 	if !mibcorpus.ValidModuleName.MatchString(name) {
-		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
-		oc.Error = "invalid filename"
-		oc.ErrorCode = errCodeInvalidName
-		oc.httpStatus = http.StatusBadRequest
-		return oc
+		drain()
+		return fail("invalid filename", errCodeInvalidName, http.StatusBadRequest)
 	}
 
 	target := filepath.Join(s.importer.Dir(), name)
@@ -250,39 +256,27 @@ func (s *Server) processUploadPart(part interface {
 	if _, err := os.Lstat(target); err == nil {
 		existed = true
 	} else if !errors.Is(err, os.ErrNotExist) {
-		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
-		oc.Error = "stat target: " + err.Error()
-		oc.ErrorCode = errCodeIO
-		oc.httpStatus = http.StatusInternalServerError
-		return oc
+		drain()
+		return fail("stat target: "+err.Error(), errCodeIO, http.StatusInternalServerError)
 	}
 	if existed && !replace {
-		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
-		oc.Error = "a file with this name is already pending import"
-		oc.ErrorCode = errCodeExists
-		oc.httpStatus = http.StatusConflict
-		return oc
+		drain()
+		return fail("a file with this name is already pending import", errCodeExists, http.StatusConflict)
 	}
 
 	// Random suffix in tmp filename so two concurrent uploads of the
 	// same name don't truncate each other mid-write.
 	suffix, err := randHex(8)
 	if err != nil {
-		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
-		oc.Error = "rand: " + err.Error()
-		oc.ErrorCode = errCodeIO
-		oc.httpStatus = http.StatusInternalServerError
-		return oc
+		drain()
+		return fail("rand: "+err.Error(), errCodeIO, http.StatusInternalServerError)
 	}
 	tmpPath := filepath.Join(s.importer.TmpDir(), name+"."+suffix+".upload")
 	// #nosec G304 -- tmpPath is filepath.Join(TmpDir, validatedName + crypto-random suffix); rooted under import/.tmp.
 	f, err := os.Create(tmpPath)
 	if err != nil {
-		_, _ = io.Copy(io.Discard, io.LimitReader(part, maxUploadFileSize+1))
-		oc.Error = "create tmp: " + err.Error()
-		oc.ErrorCode = errCodeIO
-		oc.httpStatus = http.StatusInternalServerError
-		return oc
+		drain()
+		return fail("create tmp: "+err.Error(), errCodeIO, http.StatusInternalServerError)
 	}
 	// LimitReader reads at most maxUploadFileSize+1 bytes; if we
 	// actually pulled that many, the source exceeded the cap.
@@ -291,33 +285,21 @@ func (s *Server) processUploadPart(part interface {
 	closeErr := f.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmpPath)
-		oc.Error = "io: " + copyErr.Error()
-		oc.ErrorCode = errCodeIO
-		oc.httpStatus = http.StatusInternalServerError
-		return oc
+		return fail("io: "+copyErr.Error(), errCodeIO, http.StatusInternalServerError)
 	}
 	if syncErr != nil || closeErr != nil {
 		_ = os.Remove(tmpPath)
-		oc.Error = "fsync/close failed"
-		oc.ErrorCode = errCodeIO
-		oc.httpStatus = http.StatusInternalServerError
-		return oc
+		return fail("fsync/close failed", errCodeIO, http.StatusInternalServerError)
 	}
 	if n > maxUploadFileSize {
 		_ = os.Remove(tmpPath)
-		oc.Error = "file exceeds 10 MB limit"
-		oc.ErrorCode = errCodeTooLarge
-		oc.httpStatus = http.StatusRequestEntityTooLarge
-		return oc
+		return fail("file exceeds 10 MB limit", errCodeTooLarge, http.StatusRequestEntityTooLarge)
 	}
 
 	ok, err := mibcorpus.HasMIBOpener(tmpPath)
 	if err != nil {
 		_ = os.Remove(tmpPath)
-		oc.Error = "sniff failed: " + err.Error()
-		oc.ErrorCode = errCodeIO
-		oc.httpStatus = http.StatusInternalServerError
-		return oc
+		return fail("sniff failed: "+err.Error(), errCodeIO, http.StatusInternalServerError)
 	}
 	if !ok {
 		// The synchronous front rejects non-MIBs at the door without
@@ -325,14 +307,12 @@ func (s *Server) processUploadPart(part interface {
 		// instead — they have no requester to answer). If the rejected
 		// upload looks like an snmpwalk capture, point at /walk rather
 		// than the generic "no MIB marker".
-		oc.Error = "no MIB marker"
+		msg := "no MIB marker"
 		if contentLooksLikeWalk(sniffHead(tmpPath, 256<<10)) {
-			oc.Error = "this looks like an snmpwalk capture, not a MIB — decode it at /walk instead"
+			msg = "this looks like an snmpwalk capture, not a MIB — decode it at /walk instead"
 		}
 		_ = os.Remove(tmpPath)
-		oc.ErrorCode = errCodeNoMarker
-		oc.httpStatus = http.StatusUnprocessableEntity
-		return oc
+		return fail(msg, errCodeNoMarker, http.StatusUnprocessableEntity)
 	}
 
 	// Two paths:
@@ -343,24 +323,15 @@ func (s *Server) processUploadPart(part interface {
 	if replace {
 		if err := os.Rename(tmpPath, target); err != nil {
 			_ = os.Remove(tmpPath)
-			oc.Error = "rename: " + err.Error()
-			oc.ErrorCode = errCodeIO
-			oc.httpStatus = http.StatusInternalServerError
-			return oc
+			return fail("rename: "+err.Error(), errCodeIO, http.StatusInternalServerError)
 		}
 	} else {
 		if err := os.Link(tmpPath, target); err != nil {
 			_ = os.Remove(tmpPath)
 			if errors.Is(err, os.ErrExist) {
-				oc.Error = "a file with this name is already pending import"
-				oc.ErrorCode = errCodeExists
-				oc.httpStatus = http.StatusConflict
-				return oc
+				return fail("a file with this name is already pending import", errCodeExists, http.StatusConflict)
 			}
-			oc.Error = "link: " + err.Error()
-			oc.ErrorCode = errCodeIO
-			oc.httpStatus = http.StatusInternalServerError
-			return oc
+			return fail("link: "+err.Error(), errCodeIO, http.StatusInternalServerError)
 		}
 		if err := os.Remove(tmpPath); err != nil {
 			slog.Warn("upload tmp cleanup failed", "path", tmpPath, "err", err)

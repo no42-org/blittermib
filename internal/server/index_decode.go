@@ -7,6 +7,24 @@ import (
 	"github.com/no42-org/blittermib/internal/model"
 )
 
+// baseSyntaxToken strips an SMI syntax string to its base token:
+// surrounding whitespace, any inline `{ named-values }` body, and any
+// `( constraint )` group are dropped — `Integer32 (1..65535)` →
+// `Integer32`, `BITS { a(0) }` → `BITS`. Some callers' base types can
+// never carry a `{…}` body; stripping it anyway is harmless and keeps
+// this the single strip rule for every syntax classifier in the
+// package.
+func baseSyntaxToken(s string) string {
+	t := strings.TrimSpace(s)
+	if i := strings.IndexByte(t, '{'); i >= 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	if i := strings.IndexByte(t, '('); i >= 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	return t
+}
+
 // extractSizeConstraint parses an SMI syntax string for a SIZE
 // constraint and reports the (lo, hi) bounds. `ok` is true only
 // when a parseable, well-formed constraint was found.
@@ -101,11 +119,7 @@ func findSizeBody(syntax string) (string, bool) {
 // variable-length path that lands with IMPLIED-aware composers
 // in a follow-on commit.
 func tcFixedSize(syntax string) (int, bool) {
-	t := strings.TrimSpace(syntax)
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	switch t {
+	switch baseSyntaxToken(syntax) {
 	case "MacAddress":
 		return 6, true
 	case "InetAddressIPv4":
@@ -131,11 +145,7 @@ func isOctetStringSyntax(s string) bool {
 	if _, ok := tcFixedSize(s); ok {
 		return true
 	}
-	t := strings.TrimSpace(s)
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	switch t {
+	switch baseSyntaxToken(s) {
 	case "OCTET STRING", "OctetString",
 		"PhysAddress", "DateAndTime",
 		"InetAddress", "InetAddressDNS":
@@ -154,11 +164,7 @@ func isOctetStringSyntax(s string) bool {
 // per-MIB lookup of the underlying `EnumValues` would be wasted
 // work.
 func isInetAddressTypeSyntax(s string) bool {
-	t := strings.TrimSpace(s)
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	return t == "InetAddressType"
+	return baseSyntaxToken(s) == "InetAddressType"
 }
 
 // isOIDSyntax reports whether `s` resolves to an SMI
@@ -167,11 +173,7 @@ func isInetAddressTypeSyntax(s string) bool {
 // (`ObjectIdentifier`). Constraints on OID columns are
 // vanishingly rare and not parsed here.
 func isOIDSyntax(s string) bool {
-	t := strings.TrimSpace(s)
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	switch t {
+	switch baseSyntaxToken(s) {
 	case "OBJECT IDENTIFIER", "ObjectIdentifier":
 		return true
 	}
@@ -183,14 +185,7 @@ func isOIDSyntax(s string) bool {
 // XML basetype spelling (`Bits`). Strips any trailing inline
 // `{ name(n), …  }` body or constraint group before matching.
 func isBitsSyntax(s string) bool {
-	t := strings.TrimSpace(s)
-	if i := strings.IndexByte(t, '{'); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	switch t {
+	switch baseSyntaxToken(s) {
 	case "BITS", "Bits":
 		return true
 	}
