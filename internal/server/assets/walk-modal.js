@@ -166,6 +166,11 @@
 					form.setAttribute('aria-busy', 'true');
 					var btn = form.querySelector('button[type="submit"]');
 					if (btn) btn.textContent = 'Decoding…';
+					// A selection painted over the old "Decode" label
+					// survives the textContent swap in Safari and renders
+					// as a dark box behind "Decoding…" — drop it.
+					var sel = window.getSelection ? window.getSelection() : null;
+					if (sel && sel.removeAllRanges) sel.removeAllRanges();
 				});
 				var btn = form.querySelector('button[type="submit"]');
 				if (btn) {
@@ -176,6 +181,15 @@
 					// painting a dark ::selection box behind the text.
 					btn.addEventListener('mousedown', function (e) {
 						if (e.detail > 1) e.preventDefault();
+					});
+					// Engine-level backstop: real Safari has been seen
+					// painting the selection box despite the mousedown
+					// swallow and user-select:none (Playwright's WebKit
+					// does not reproduce it). selectstart fires at
+					// selection initiation regardless of the gesture that
+					// started it; preventing it kills every path.
+					btn.addEventListener('selectstart', function (e) {
+						e.preventDefault();
 					});
 				}
 			}
