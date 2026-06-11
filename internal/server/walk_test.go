@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -14,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/no42-org/blittermib/internal/store"
+	"github.com/no42-org/blittermib/internal/walk"
+	"github.com/no42-org/blittermib/internal/web"
 )
 
 func TestWalkUploadPage(t *testing.T) {
@@ -131,10 +134,52 @@ func TestWalkDecodeEmitsWalkData(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := body(t, resp)
-	for _, want := range []string{`id="blittermib-walk-data"`, "1.3.6.1.2.1.2.2.1.10.1", "12345"} {
+	// `"` is templ attribute-escaped to &#34; inside data-walk.
+	for _, want := range []string{`id="blittermib-walk-data"`, "1.3.6.1.2.1.2.2.1.10.1", "12345",
+		"&#34;modules&#34;"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("results page missing walk-data %q", want)
 		}
+	}
+}
+
+// The walk payload carries the per-module summary for the workspace's
+// walk-module switcher: name + value count per resolved module, in the
+// view's order; the key is omitted entirely when no module resolved so
+// pre-change consumers (and the no-module case) see exactly the old
+// shape.
+func TestWalkDataJSONModules(t *testing.T) {
+	mods := []web.WalkModuleSummary{
+		{Module: "IF-MIB", ObjectCount: 1, ValueCount: 3},
+		{Module: "BGP4-MIB", ObjectCount: 2, ValueCount: 46},
+	}
+	var payload struct {
+		OIDs    map[string]string `json:"oids"`
+		Modules []struct {
+			Name   string `json:"name"`
+			Values int    `json:"values"`
+		} `json:"modules"`
+	}
+	if err := json.Unmarshal([]byte(walkDataJSON(walk.ResolvedWalk{}, mods)), &payload); err != nil {
+		t.Fatalf("payload not valid JSON: %v", err)
+	}
+	if len(payload.Modules) != 2 {
+		t.Fatalf("modules = %d entries, want 2", len(payload.Modules))
+	}
+	if payload.Modules[0].Name != "IF-MIB" || payload.Modules[0].Values != 3 {
+		t.Errorf("modules[0] = %+v, want IF-MIB/3", payload.Modules[0])
+	}
+	if payload.Modules[1].Name != "BGP4-MIB" || payload.Modules[1].Values != 46 {
+		t.Errorf("modules[1] = %+v, want BGP4-MIB/46", payload.Modules[1])
+	}
+
+	// No resolved modules → key absent, not an empty array.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(walkDataJSON(walk.ResolvedWalk{}, nil)), &raw); err != nil {
+		t.Fatalf("empty payload not valid JSON: %v", err)
+	}
+	if _, ok := raw["modules"]; ok {
+		t.Error("modules key present for a walk with no resolved modules")
 	}
 }
 

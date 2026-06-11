@@ -17,7 +17,7 @@ templ modulePicker(modules []model.Module) {
 	<div class="module-picker"
 		x-data="picker()"
 		x-show="open"
-		x-on:picker:open.window="open = true; $nextTick(() => $refs.input.focus())"
+		x-on:picker:open.window="show($event.detail)"
 		x-on:keydown.escape.window="open = false"
 		x-on:click.self="open = false"
 		x-cloak>
@@ -31,20 +31,42 @@ templ modulePicker(modules []model.Module) {
 					placeholder="Switch module — start typing to filter…"
 					autocomplete="off"
 					aria-label="Filter modules"/>
+				<button type="button"
+					class="module-picker-scope"
+					x-show="walkScope"
+					x-on:click="clearScope()"
+					title="Show all modules"
+					aria-label="Drop the walk scope and show all modules">
+					in walk <span aria-hidden="true">✕</span>
+				</button>
 				<span class="kbd" aria-hidden="true">esc</span>
 			</div>
 			<ul class="module-picker-list" role="listbox">
 				<template x-for="(m, idx) in visible" x-bind:key="m.name">
 					<li class="module-picker-item"
 						role="option"
-						x-bind:data-active="idx === active">
-						<a x-bind:href="'/m/' + encodeURIComponent(m.name)"
-							x-on:mouseenter="active = idx">
-							<code class="module-picker-name" x-text="m.name"></code>
-							<span class="module-picker-oid"
-								x-show="m.oid"
-								x-text="m.oid"></span>
-						</a>
+						x-bind:data-active="idx === active"
+						x-bind:data-current="m.name === currentModule">
+						<template x-if="!m.missing">
+							<a x-bind:href="'/m/' + encodeURIComponent(m.name)"
+								x-bind:class="m.walkValues !== undefined ? 'has-count' : ''"
+								x-on:mouseenter="active = idx">
+								<code class="module-picker-name" x-text="m.name"></code>
+								<span class="module-picker-oid"
+									x-show="m.oid"
+									x-text="m.oid"></span>
+								<span class="module-picker-count"
+									x-show="m.walkValues !== undefined"
+									x-text="m.walkValues"></span>
+							</a>
+						</template>
+						<template x-if="m.missing">
+							<span class="module-picker-row-disabled"
+								title="This walk module is no longer loaded in the corpus">
+								<code class="module-picker-name" x-text="m.name"></code>
+								<span class="module-picker-hint">not loaded</span>
+							</span>
+						</template>
 					</li>
 				</template>
 				<li class="module-picker-empty"

@@ -72,6 +72,10 @@
 			return null;
 		}
 		if (!obj || typeof obj.oids !== 'object' || obj.oids === null) return null;
+		// modules ([{name, values}, …]) powers the walk-module switcher.
+		// Pre-switcher payloads lack the key; normalise absent/empty to
+		// null so callers can gate on it directly.
+		if (!Array.isArray(obj.modules) || obj.modules.length === 0) obj.modules = null;
 		obj.index = buildWalkIndex(obj.oids);
 		indexCache.raw = raw;
 		indexCache.walk = obj;
@@ -228,23 +232,59 @@
 	// refreshes its text on every pass. The status bar is page chrome
 	// that survives htmx scope swaps, so a write-once count would go
 	// stale as the list narrows — including down to "0 of N" when a
-	// scoped subtree has no walk data. Only the very first paint with
-	// zero matches leaves the page untouched (no-walk pages render
-	// identically, per the design).
-	function updateIndicator(matched, total) {
+	// scoped subtree has no walk data.
+	//
+	// When the walk payload carries a module list, the label is a
+	// button that opens the module picker scoped to the walk's modules
+	// (the walk-module switcher) and the indicator renders on EVERY
+	// workspace page — a "0 of N in walk" page is exactly the user who
+	// needs to hop elsewhere. Module-list-less walks (persisted before
+	// the switcher) keep the old gate: invisible until a first paint
+	// with matches. No-walk pages render identically either way.
+	function updateIndicator(walk, matched, total) {
 		var bar = document.querySelector('.status-bar');
 		if (!bar) return;
 		var wrap = bar.querySelector('.walk-indicator');
 		if (!wrap) {
-			if (matched === 0) return; // walk touches nothing here — stay invisible
+			if (matched === 0 && !walk.modules) return; // pre-switcher payload — stay invisible
 			wrap = document.createElement('span');
 			wrap.className = 'walk-indicator';
 
-			// Plain informational text — not a link. Navigating back to
-			// the upload page from a status-bar count made no sense.
-			var label = document.createElement('span');
-			label.className = 'walk-indicator-label';
-			wrap.appendChild(label);
+			if (walk.modules) {
+				// The label is the switcher trigger. The picker owns the
+				// overlay; the event detail carries the module list so
+				// neither island reads the other's state. Re-read the
+				// walk at click time — the cached payload may have been
+				// replaced by a newer decode in another tab/page.
+				var btn = document.createElement('button');
+				btn.type = 'button';
+				btn.className = 'walk-switcher';
+				btn.setAttribute('aria-haspopup', 'dialog');
+				btn.title = 'Switch between the MIBs in this walk';
+				var btnLabel = document.createElement('span');
+				btnLabel.className = 'walk-indicator-label';
+				btn.appendChild(btnLabel);
+				var caret = document.createElement('span');
+				caret.className = 'walk-switcher-caret';
+				caret.setAttribute('aria-hidden', 'true');
+				caret.textContent = '▾';
+				btn.appendChild(caret);
+				btn.addEventListener('click', function () {
+					var w = loadWalk();
+					if (!w || !w.modules) return;
+					window.dispatchEvent(new CustomEvent('picker:open', {
+						detail: { walkModules: w.modules },
+					}));
+				});
+				wrap.appendChild(btn);
+			} else {
+				// Plain informational text — not a link. Navigating back
+				// to the upload page from a status-bar count made no
+				// sense.
+				var label = document.createElement('span');
+				label.className = 'walk-indicator-label';
+				wrap.appendChild(label);
+			}
 
 			var clear = document.createElement('button');
 			clear.type = 'button';
@@ -308,7 +348,7 @@
 		var walk = loadWalk();
 		if (!walk) return; // no walk loaded — page stays identical
 		var matched = decorate(walk, list);
-		updateIndicator(matched, rowCount(list));
+		updateIndicator(walk, matched, rowCount(list));
 		if (matched === 0) return; // nothing to filter in this view — no chip
 		injectChip(list, matched);
 		applyFilterState(list);

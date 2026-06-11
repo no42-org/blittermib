@@ -2988,6 +2988,49 @@ main.page:has(.workspace-grid) .content-inner,
   color: var(--fg-4);
   font-variant-numeric: tabular-nums;
 }
+/* Walk-module switcher additions: the scope chip in the search row,
+ * per-row value counts (third grid track only when present, so the
+ * unscoped layout is untouched), the current-module highlight, and
+ * the disabled row for walk modules no longer in the corpus. */
+.module-picker-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--c-index);
+  background: color-mix(in oklch, var(--c-index) 12%, transparent);
+  border: 1px solid color-mix(in oklch, var(--c-index) 35%, transparent);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.module-picker-scope:hover { border-color: var(--c-index); }
+.module-picker-item a.has-count { grid-template-columns: 1fr auto auto; }
+.module-picker-count {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-size: 11px;
+  color: var(--c-index);
+  font-variant-numeric: tabular-nums;
+}
+.module-picker-item[data-current="true"] .module-picker-name { color: var(--c-index); }
+.module-picker-row-disabled {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  opacity: 0.45;
+  cursor: default;
+}
+.module-picker-hint {
+  font-size: 11px;
+  color: var(--fg-4);
+}
 
 .module-picker-empty {
   padding: 36px 18px;
@@ -3836,6 +3879,23 @@ main.page:has(.workspace-grid) .content-inner,
   color: var(--c-index);
 }
 .walk-indicator-label { color: var(--c-index); text-decoration: none; }
+/* Switcher trigger — the indicator label as a button when the walk
+ * payload carries a module list. Inherits the indicator palette. */
+.walk-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--c-index);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.walk-switcher:hover .walk-indicator-label { text-decoration: underline; }
+.walk-switcher-caret { font-size: 10px; }
 .walk-clear {
   background: none;
   border: 1px solid var(--line);

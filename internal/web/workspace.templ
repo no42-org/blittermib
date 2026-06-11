@@ -575,7 +575,12 @@ templ typeDefsBar(view *WorkspaceView) {
 templ workspaceStatusBar(view *WorkspaceView) {
 	<div class="status-bar">
 		<span class="status-bar-label">MODULE</span>
+		// The empty x-data is load-bearing: Alpine 3 only initializes
+		// directives on elements inside an x-data scope, and this button
+		// has no x-data ancestor — without it the x-on:click is never
+		// bound and the picker can't be opened from the module name.
 		<button type="button" class="status-bar-module"
+			x-data
 			x-on:click="$dispatch('picker:open')"
 			aria-label="Switch module">
 			{ view.Module.Name }

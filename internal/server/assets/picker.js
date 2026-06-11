@@ -20,6 +20,18 @@
 window.picker = (function () {
 	var MAX_VISIBLE = 10;
 
+	// currentModuleName extracts the open module from a workspace URL
+	// so the scoped picker can highlight "where you are".
+	function currentModuleName() {
+		var m = window.location.pathname.match(/^\/m\/([^/]+)/);
+		if (!m) return '';
+		try {
+			return decodeURIComponent(m[1]);
+		} catch (_) {
+			return m[1];
+		}
+	}
+
 	function loadModules() {
 		var el = document.getElementById('module-picker-data');
 		if (!el) return [];
@@ -37,6 +49,13 @@ window.picker = (function () {
 			query: '',
 			active: 0,
 			modules: [],
+			// walkScope ([{name, values}, …] or null) arrives as the
+			// open event's detail — the walk overlay dispatches it; the
+			// picker never reads the walk's sessionStorage itself. Set
+			// fresh on EVERY open, so a scope can never leak from the
+			// walk trigger into a later module-button open.
+			walkScope: null,
+			currentModule: '',
 
 			init: function () {
 				this.modules = loadModules();
@@ -55,7 +74,7 @@ window.picker = (function () {
 						if (n2) this.active = (this.active - 1 + n2) % n2;
 					} else if (e.key === 'Enter') {
 						var v = this.visible[this.active];
-						if (v) {
+						if (v && !v.missing) {
 							e.preventDefault();
 							window.location.assign('/m/' + encodeURIComponent(v.name));
 						}
@@ -63,10 +82,59 @@ window.picker = (function () {
 				});
 			},
 
+			// show opens the overlay, scoped when the open event carried
+			// a walk module list as detail (the status-bar walk
+			// indicator) and unscoped otherwise (the module-name
+			// button). The query deliberately persists across opens —
+			// pre-existing behaviour for the unscoped path.
+			show: function (detail) {
+				var ws = detail && Array.isArray(detail.walkModules) && detail.walkModules.length > 0
+					? detail.walkModules
+					: null;
+				this.walkScope = ws;
+				this.currentModule = currentModuleName();
+				this.active = 0;
+				this.open = true;
+				this.$nextTick(() => this.$refs.input.focus());
+			},
+
+			// clearScope widens a walk-scoped picker to the full module
+			// list without closing it (the scope chip's ✕).
+			clearScope: function () {
+				this.walkScope = null;
+				this.active = 0;
+				this.$refs.input.focus();
+			},
+
+			// scopedRows projects the walk scope onto the loaded-module
+			// list: value counts merged in, ordered by value count
+			// descending then name, and walk modules that are no longer
+			// loaded marked missing (rendered disabled instead of
+			// linking to a 404).
+			get scopedRows() {
+				if (!this.walkScope) return null;
+				var byName = {};
+				this.modules.forEach(function (m) { byName[m.name] = m; });
+				var rows = this.walkScope.map(function (wm) {
+					var loaded = byName[wm.name];
+					return {
+						name: wm.name,
+						oid: loaded ? loaded.oid : '',
+						walkValues: wm.values,
+						missing: !loaded,
+					};
+				});
+				rows.sort(function (a, b) {
+					return (b.walkValues - a.walkValues) || a.name.localeCompare(b.name);
+				});
+				return rows;
+			},
+
 			get filtered() {
+				var base = this.scopedRows || this.modules;
 				var q = (this.query || '').toLowerCase();
-				if (!q) return this.modules;
-				return this.modules.filter((m) => {
+				if (!q) return base;
+				return base.filter((m) => {
 					var n = (m.name || '').toLowerCase();
 					var o = (m.oid || '').toLowerCase();
 					return n.indexOf(q) >= 0 || o.indexOf(q) >= 0;

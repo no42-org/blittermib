@@ -240,7 +240,7 @@ func buildWalkResults(walkText string, rw walk.ResolvedWalk, notifs []walk.Notif
 		Unresolved:    unresolved,
 		Notifications: notifView,
 		WalkText:      walkText,
-		WalkDataJSON:  walkDataJSON(rw),
+		WalkDataJSON:  walkDataJSON(rw, modules),
 		HasResults:    len(modules) > 0 || len(unresolved) > 0,
 	}
 	return view
@@ -254,7 +254,14 @@ func buildWalkResults(walkText string, rw walk.ResolvedWalk, notifs []walk.Notif
 // and unresolved entries can't match any loaded module's rows — both
 // are skipped, which also keeps the payload (and the browser-storage
 // quota it competes for) proportional to what can actually decorate.
-func walkDataJSON(rw walk.ResolvedWalk) string {
+//
+// The payload also carries the per-module summary as
+// {"modules":[{"name":…,"values":…},…]} — the walk-module switcher's
+// data, which the workspace cannot reconstruct client-side from the
+// oids map (OID→module attribution happened in the resolver). The key
+// is omitted when no module resolved; pre-change payloads without it
+// degrade to the plain-text walk indicator.
+func walkDataJSON(rw walk.ResolvedWalk, modules []web.WalkModuleSummary) string {
 	oids := make(map[string]string)
 	for _, re := range rw.Entries {
 		if !re.Resolved || re.Entry.NotPresent {
@@ -269,7 +276,19 @@ func walkDataJSON(rw walk.ResolvedWalk) string {
 		}
 		oids[ident] = re.Entry.Value
 	}
-	b, err := json.Marshal(map[string]any{"oids": oids})
+	payload := map[string]any{"oids": oids}
+	if len(modules) > 0 {
+		type walkModule struct {
+			Name   string `json:"name"`
+			Values int    `json:"values"`
+		}
+		mods := make([]walkModule, 0, len(modules))
+		for _, m := range modules {
+			mods = append(mods, walkModule{Name: m.Module, Values: m.ValueCount})
+		}
+		payload["modules"] = mods
+	}
+	b, err := json.Marshal(payload)
 	if err != nil {
 		return ""
 	}
