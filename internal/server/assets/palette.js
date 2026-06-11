@@ -4,12 +4,11 @@
 // search overlay backed by /api/v1/search?q=…, supports keyboard
 // navigation, and routes to the matching /s/{Module}::{Name} on Enter.
 //
-// HTMX integration: base.templ uses hx-boost on <body> with
-// hx-swap="outerHTML", which means body (and its children) is
-// replaced on every internal navigation. Without re-attaching, the
-// palette overlay would be torn down by the first nav. We split
-// init into attachOverlay (idempotent, runs on every swap) and
-// attachGlobals (runs once for document-level handlers).
+// The site uses htmx for partial swaps (workspace pane, tree
+// fragments); full pages are normal navigations that re-run this
+// script. Init is split into attachOverlay/attachLanding (idempotent,
+// re-run after swaps) and attachGlobals (document-level handlers,
+// installed once per page load).
 
 (function () {
 	'use strict';
@@ -35,11 +34,7 @@
 	</div>
 </div>`;
 
-	let overlay, input, list, empty;
-	let active = -1;
-	let hits = [];
-	let debounce;
-	let lastReqSeq = 0;
+	let overlay, input, list, empty, modalCtl;
 	// Focus trap: remember the element that had focus when the palette
 	// opened so we can restore it on close. Without this, dismissing
 	// the palette leaves keyboard focus orphaned in the DOM.
@@ -51,14 +46,135 @@
 		return d.innerHTML;
 	}
 
+	// searchController wires the typeahead model shared by both search
+	// surfaces (modal palette, landing hero): debounced /api/v1/search
+	// fetch with a stale-response guard, hit-list rendering, active-row
+	// tracking, and click navigation. Surface-specific chrome and
+	// Enter/Escape semantics stay in the callers, injected via opts:
+	//   input      — the text input to bind the debounced fetch to
+	//   list       — the container the hit <li>s render into
+	//   itemClass  — li class ('palette-item' / 'hero-result')
+	//   warnLabel  — console.warn prefix on fetch failure
+	//   onRender   — called after each re-render with the controller,
+	//                to show/hide the surface's empty/dropdown chrome
+	//   beforeNavigate — optional, runs before location.href changes
+	function searchController(opts) {
+		let debounce;
+		let lastSeq = 0;
+
+		const ctl = {
+			hits: [],
+			active: -1,
+		};
+
+		function updateActive() {
+			const items = opts.list.querySelectorAll('.' + opts.itemClass);
+			items.forEach((el, i) => {
+				const on = i === ctl.active;
+				el.classList.toggle('active', on);
+				el.setAttribute('aria-selected', on ? 'true' : 'false');
+				if (on) el.scrollIntoView({ block: 'nearest' });
+			});
+		}
+
+		function render() {
+			if (ctl.hits.length === 0) {
+				opts.list.innerHTML = '';
+				ctl.active = -1;
+				opts.onRender(ctl);
+				return;
+			}
+			opts.list.innerHTML = ctl.hits
+				.map(
+					(h, i) => `
+<li class="${opts.itemClass}" data-idx="${i}" role="option" aria-selected="${i === 0}">
+	<span class="palette-name">${escape(h.Name)}</span>
+	<span class="palette-oid">${escape(h.OID)}</span>
+	<span class="palette-meta">${escape(h.Module)} · ${escape(h.Kind)}</span>
+</li>`,
+				)
+				.join('');
+			ctl.active = 0;
+			opts.onRender(ctl);
+			updateActive();
+		}
+
+		async function search(q) {
+			const seq = ++lastSeq;
+			if (!q.trim()) {
+				ctl.hits = [];
+				render();
+				return;
+			}
+			try {
+				const res = await fetch(SEARCH_URL + '?q=' + encodeURIComponent(q));
+				if (!res.ok) throw new Error('search ' + res.status);
+				const data = await res.json();
+				if (seq !== lastSeq) return; // stale response, ignore
+				ctl.hits = (data.hits || []).slice(0, MAX_RESULTS);
+				render();
+			} catch (err) {
+				console.warn(opts.warnLabel, err);
+				ctl.hits = [];
+				render();
+			}
+		}
+
+		ctl.move = function (delta) {
+			if (ctl.hits.length === 0) return;
+			ctl.active = (ctl.active + delta + ctl.hits.length) % ctl.hits.length;
+			updateActive();
+		};
+
+		ctl.navigate = function (i) {
+			const h = ctl.hits[i];
+			if (!h) return;
+			if (opts.beforeNavigate) opts.beforeNavigate();
+			// Deliberate full navigation: search jumps can cross modules,
+			// which is outside the workspace partial-navigation contract
+			// (in-workspace pane swaps only). Hit rows go to the workspace
+			// selection so the user lands in the navigation context that
+			// owns the OID, matching what the /search results page does.
+			window.location.href = '/m/' + encodeURIComponent(h.Module) + '/' + h.OID;
+		};
+
+		ctl.navigateActive = function () {
+			if (ctl.active >= 0) ctl.navigate(ctl.active);
+		};
+
+		ctl.clear = function () {
+			ctl.hits = [];
+			render();
+		};
+
+		// reset empties the model without rendering empty-state chrome —
+		// used when (re)opening a surface with a blank query.
+		ctl.reset = function () {
+			ctl.hits = [];
+			ctl.active = -1;
+			opts.list.innerHTML = '';
+		};
+
+		opts.input.addEventListener('input', () => {
+			clearTimeout(debounce);
+			const q = opts.input.value;
+			debounce = setTimeout(() => search(q), DEBOUNCE_MS);
+		});
+		opts.list.addEventListener('click', (e) => {
+			const li = e.target.closest('.' + opts.itemClass);
+			if (!li) return;
+			ctl.navigate(parseInt(li.dataset.idx, 10));
+		});
+
+		return ctl;
+	}
+
 	function show() {
 		if (!overlay) attachOverlay();
 		overlay.dataset.state = 'visible';
 		input.value = '';
-		list.innerHTML = '';
+		modalCtl.reset();
 		empty.dataset.state = 'hidden';
-		hits = [];
-		active = -1;
 		// Save the previously-focused element so we can return focus
 		// to it when the palette closes — better keyboard ergonomics
 		// than dropping focus on document.body.
@@ -101,91 +217,16 @@
 		} catch (_) { /* node detached */ }
 	}
 
-	async function search(q) {
-		const seq = ++lastReqSeq;
-		if (!q.trim()) {
-			hits = [];
-			renderHits();
-			return;
-		}
-		try {
-			const res = await fetch(SEARCH_URL + '?q=' + encodeURIComponent(q));
-			if (!res.ok) throw new Error('search ' + res.status);
-			const data = await res.json();
-			if (seq !== lastReqSeq) return; // stale response, ignore
-			hits = (data.hits || []).slice(0, MAX_RESULTS);
-			renderHits();
-		} catch (err) {
-			console.warn('palette search failed', err);
-			hits = [];
-			renderHits();
-		}
-	}
-
-	function renderHits() {
-		if (hits.length === 0) {
-			list.innerHTML = '';
-			empty.dataset.state = input.value.trim() ? 'visible' : 'hidden';
-			active = -1;
-			return;
-		}
-		empty.dataset.state = 'hidden';
-		list.innerHTML = hits
-			.map(
-				(h, i) => `
-<li class="palette-item" data-idx="${i}" role="option" aria-selected="${i === 0}">
-	<span class="palette-name">${escape(h.Name)}</span>
-	<span class="palette-oid">${escape(h.OID)}</span>
-	<span class="palette-meta">${escape(h.Module)} · ${escape(h.Kind)}</span>
-</li>`,
-			)
-			.join('');
-		active = 0;
-		updateActive();
-	}
-
-	function updateActive() {
-		const items = list.querySelectorAll('.palette-item');
-		items.forEach((el, i) => {
-			const on = i === active;
-			el.classList.toggle('active', on);
-			el.setAttribute('aria-selected', on ? 'true' : 'false');
-			if (on) el.scrollIntoView({ block: 'nearest' });
-		});
-	}
-
-	function navigate(i) {
-		const h = hits[i];
-		if (!h) return;
-		hide();
-		// Deliberate full navigation: palette jumps can cross modules,
-		// which is outside the workspace partial-navigation contract
-		// (in-workspace pane swaps only). Hit rows go to the workspace
-		// selection so the user lands in the navigation context that
-		// owns the OID, matching what the /search results page does.
-		window.location.href = '/m/' + encodeURIComponent(h.Module) + '/' + h.OID;
-	}
-
-	function onInput() {
-		clearTimeout(debounce);
-		const q = input.value;
-		debounce = setTimeout(() => search(q), DEBOUNCE_MS);
-	}
-
 	function onKey(e) {
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			if (hits.length === 0) return;
-			active = (active + 1) % hits.length;
-			updateActive();
+			modalCtl.move(1);
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			if (hits.length === 0) return;
-			active = (active - 1 + hits.length) % hits.length;
-			updateActive();
+			modalCtl.move(-1);
 		} else if (e.key === 'Enter') {
 			e.preventDefault();
-			if (active >= 0) navigate(active);
+			modalCtl.navigateActive();
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			hide();
@@ -239,20 +280,25 @@
 		list = overlay.querySelector('.palette-results');
 		empty = overlay.querySelector('.palette-empty');
 
-		input.addEventListener('input', onInput);
 		input.addEventListener('keydown', onKey);
 		overlay.addEventListener('click', (e) => {
 			if (e.target === overlay) hide();
 		});
-		list.addEventListener('click', (e) => {
-			const li = e.target.closest('.palette-item');
-			if (!li) return;
-			navigate(parseInt(li.dataset.idx, 10));
+		modalCtl = searchController({
+			input,
+			list,
+			itemClass: 'palette-item',
+			warnLabel: 'palette search failed',
+			beforeNavigate: hide,
+			onRender(c) {
+				empty.dataset.state =
+					c.hits.length === 0 && input.value.trim() ? 'visible' : 'hidden';
+			},
 		});
 	}
 
-	// attachGlobals attaches handlers on document/window — these survive
-	// hx-boost swaps and must only be installed once.
+	// attachGlobals attaches handlers on document/window — installed
+	// once per page load.
 	function attachGlobals() {
 		document.addEventListener('click', (e) => {
 			if (e.target.closest('[data-palette-toggle]')) {
@@ -263,14 +309,10 @@
 			}
 		});
 		document.addEventListener('keydown', onGlobal);
-		// Re-attach the overlay after every htmx swap — body is the
-		// hx-target, so the overlay vanishes with each navigation.
-		// attachLanding also runs because the landing form is a body
-		// child and gets swapped out / back in by hx-boost.
+		// Re-attach after htmx partial swaps in case a swap brought in
+		// (or removed) the landing form or the overlay's anchor markup.
 		const reattach = () => { attachOverlay(); attachLanding(); };
 		document.body.addEventListener('htmx:afterSwap', reattach);
-		// Some swaps replace body itself; listen on documentElement too.
-		document.documentElement.addEventListener('htmx:afterSwap', reattach);
 	}
 
 	// attachLanding wires up typeahead on the landing-page hero search:
@@ -285,101 +327,38 @@
 		if (!dropdown) return;
 		ls.dataset.heroBound = '1';
 
-		let lhits = [];
-		let lactive = -1;
-		let ldebounce;
-		let llastSeq = 0;
-
-		function lrender() {
-			if (lhits.length === 0) {
-				dropdown.innerHTML = '';
-				dropdown.dataset.state = 'hidden';
-				lactive = -1;
-				return;
-			}
-			dropdown.innerHTML = lhits
-				.map(
-					(h, i) => `
-<li class="hero-result" data-idx="${i}" role="option" aria-selected="${i === 0}">
-	<span class="palette-name">${escape(h.Name)}</span>
-	<span class="palette-oid">${escape(h.OID)}</span>
-	<span class="palette-meta">${escape(h.Module)} · ${escape(h.Kind)}</span>
-</li>`,
-				)
-				.join('');
-			dropdown.dataset.state = 'visible';
-			lactive = 0;
-			lupdateActive();
-		}
-
-		function lupdateActive() {
-			const items = dropdown.querySelectorAll('.hero-result');
-			items.forEach((el, i) => {
-				const on = i === lactive;
-				el.classList.toggle('active', on);
-				el.setAttribute('aria-selected', on ? 'true' : 'false');
-				if (on) el.scrollIntoView({ block: 'nearest' });
-			});
-		}
-
-		function lnavigate(i) {
-			const h = lhits[i];
-			if (!h) return;
-			window.location.href = '/m/' + encodeURIComponent(h.Module) + '/' + h.OID;
-		}
-
-		async function lsearch(q) {
-			const seq = ++llastSeq;
-			if (!q.trim()) { lhits = []; lrender(); return; }
-			try {
-				const res = await fetch(SEARCH_URL + '?q=' + encodeURIComponent(q));
-				if (!res.ok) throw new Error('search ' + res.status);
-				const data = await res.json();
-				if (seq !== llastSeq) return;
-				lhits = (data.hits || []).slice(0, MAX_RESULTS);
-				lrender();
-			} catch (err) {
-				console.warn('hero search failed', err);
-				lhits = [];
-				lrender();
-			}
-		}
-
-		ls.addEventListener('input', () => {
-			clearTimeout(ldebounce);
-			const q = ls.value;
-			ldebounce = setTimeout(() => lsearch(q), DEBOUNCE_MS);
+		const ctl = searchController({
+			input: ls,
+			list: dropdown,
+			itemClass: 'hero-result',
+			warnLabel: 'hero search failed',
+			onRender(c) {
+				dropdown.dataset.state = c.hits.length === 0 ? 'hidden' : 'visible';
+			},
 		});
+
 		ls.addEventListener('keydown', (e) => {
 			if (e.key === 'ArrowDown') {
-				if (lhits.length === 0) return;
+				if (ctl.hits.length === 0) return;
 				e.preventDefault();
-				lactive = (lactive + 1) % lhits.length;
-				lupdateActive();
+				ctl.move(1);
 			} else if (e.key === 'ArrowUp') {
-				if (lhits.length === 0) return;
+				if (ctl.hits.length === 0) return;
 				e.preventDefault();
-				lactive = (lactive - 1 + lhits.length) % lhits.length;
-				lupdateActive();
+				ctl.move(-1);
 			} else if (e.key === 'Enter') {
 				// Highlighted hit short-circuits to OID navigation; with no
 				// hits we let the form submit to /search.
-				if (lactive >= 0 && lhits.length > 0) {
+				if (ctl.active >= 0 && ctl.hits.length > 0) {
 					e.preventDefault();
-					lnavigate(lactive);
+					ctl.navigate(ctl.active);
 				}
 			} else if (e.key === 'Escape') {
 				if (dropdown.dataset.state === 'visible') {
 					e.preventDefault();
-					lhits = [];
-					lrender();
+					ctl.clear();
 				}
 			}
-		});
-		dropdown.addEventListener('click', (e) => {
-			const li = e.target.closest('.hero-result');
-			if (!li) return;
-			lnavigate(parseInt(li.dataset.idx, 10));
 		});
 	}
 

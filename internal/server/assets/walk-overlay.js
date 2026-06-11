@@ -32,6 +32,22 @@
 	var KEY = 'blittermib-walk';
 	var FILTER_KEY = 'blittermib-walk-filter';
 
+	// store wraps sessionStorage in try/catch: every call site must
+	// tolerate storage being disabled (some private-browsing modes) or
+	// the quota being exceeded. get returns null on failure, set
+	// returns false instead of throwing, del swallows errors.
+	var store = {
+		get: function (k) {
+			try { return sessionStorage.getItem(k); } catch (e) { return null; }
+		},
+		set: function (k, v) {
+			try { sessionStorage.setItem(k, v); return true; } catch (e) { return false; }
+		},
+		del: function (k) {
+			try { sessionStorage.removeItem(k); } catch (e) { /* ignore */ }
+		},
+	};
+
 	// walkFilterActive is the persistent state of the "in walk" filter.
 	// The closure variable survives htmx partial swaps (the list pane is
 	// replaced on scope changes, which would otherwise reset the filter
@@ -46,12 +62,7 @@
 	var indexCache = { raw: null, walk: null };
 
 	function loadWalk() {
-		var raw;
-		try {
-			raw = sessionStorage.getItem(KEY);
-		} catch (e) {
-			return null;
-		}
+		var raw = store.get(KEY);
 		if (!raw) return null;
 		if (indexCache.raw === raw) return indexCache.walk;
 		var obj;
@@ -103,18 +114,12 @@
 		} catch (e) {
 			return; // malformed payload — leave any prior walk untouched
 		}
-		try {
-			sessionStorage.setItem(KEY, raw);
-		} catch (e) {
+		if (!store.set(KEY, raw)) {
 			// Storage full (large walks can exceed the per-origin quota)
 			// or disabled. Drop any stale walk so the workspace doesn't
 			// decorate the wrong data, and surface why — otherwise the
 			// values/chip silently never appear in the workspace.
-			try {
-				sessionStorage.removeItem(KEY);
-			} catch (e2) {
-				/* ignore */
-			}
+			store.del(KEY);
 			warnPersistFailed();
 		}
 	}
@@ -247,12 +252,8 @@
 			clear.textContent = 'clear';
 			clear.title = 'Forget the loaded walk';
 			clear.addEventListener('click', function () {
-				try {
-					sessionStorage.removeItem(KEY);
-					sessionStorage.removeItem(FILTER_KEY);
-				} catch (e) {
-					/* ignore */
-				}
+				store.del(KEY);
+				store.del(FILTER_KEY);
 				location.reload();
 			});
 			wrap.appendChild(clear);
@@ -264,12 +265,9 @@
 	}
 
 	function persistFilter(on) {
-		try {
-			if (on) sessionStorage.setItem(FILTER_KEY, '1');
-			else sessionStorage.removeItem(FILTER_KEY);
-		} catch (e) {
-			/* storage unavailable — the closure variable still works */
-		}
+		// Storage unavailable is fine — the closure variable still works.
+		if (on) store.set(FILTER_KEY, '1');
+		else store.del(FILTER_KEY);
 	}
 
 	// initFilterState seeds walkFilterActive once per page load: ON if the
@@ -278,12 +276,7 @@
 	// persists the flag, so it survives the first scope-changing
 	// navigation — which drops the hash from the pushed URL.
 	function initFilterState() {
-		var stored = false;
-		try {
-			stored = sessionStorage.getItem(FILTER_KEY) === '1';
-		} catch (e) {
-			/* ignore */
-		}
+		var stored = store.get(FILTER_KEY) === '1';
 		var fromHash = location.hash === '#in-walk';
 		walkFilterActive = fromHash || stored;
 		if (fromHash) {

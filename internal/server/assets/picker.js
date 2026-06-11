@@ -84,12 +84,10 @@ window.picker = (function () {
 	};
 })();
 
-// Belt-and-suspenders htmx:afterSwap close hook: if the user
-// navigates away while the picker is open (e.g. by clicking a
-// result row), the new body's fresh picker instance starts with
-// `open=false` automatically, but listening here ensures that any
-// transient open state on the OUTGOING body doesn't leak past the
-// swap. workspace.js handles Alpine.initTree re-init.
+// Belt-and-suspenders htmx:afterSwap close hook: ensure any
+// transient open state doesn't leak past a partial swap (e.g. a
+// swap fires while the picker is open). workspace.js handles
+// Alpine.initTree re-init.
 if (typeof document !== 'undefined') {
 	document.body.addEventListener('htmx:afterSwap', function () {
 		document.dispatchEvent(new CustomEvent('picker:close'));

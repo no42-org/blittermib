@@ -5,8 +5,8 @@
 // /s/{module}::{name} page. Children are fetched on first expand
 // and cached in the DOM.
 //
-// HTMX integration: re-runs init() on htmx:afterSwap so the tree
-// reattaches to the [data-tree] container after a body swap.
+// Re-attaches to the [data-tree] container after htmx partial
+// swaps bring one in.
 
 (function () {
 	'use strict';
@@ -177,7 +177,6 @@
 		document.addEventListener('click', onClick);
 		document.addEventListener('keydown', onKey);
 		document.body.addEventListener('htmx:afterSwap', attach);
-		document.documentElement.addEventListener('htmx:afterSwap', attach);
 		listenersBound = true;
 	}
 

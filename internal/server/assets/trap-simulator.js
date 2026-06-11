@@ -91,16 +91,6 @@ window.trapSimulator = (function () {
 				}
 			}
 			var typeLetter = li.dataset.trapTypeLetter || 's';
-			var defaultValue;
-			if (enumValues.length > 0) {
-				defaultValue = enumValues[0].number;
-			} else if (typeLetter === 'i' || typeLetter === 'u' ||
-				typeLetter === 'c' || typeLetter === 'C' ||
-				typeLetter === 't') {
-				defaultValue = 0;
-			} else {
-				defaultValue = '';
-			}
 			out.push({
 				oid: li.dataset.oid || '',
 				name: li.dataset.name || '',
@@ -109,7 +99,7 @@ window.trapSimulator = (function () {
 				typeLetter: typeLetter,
 				isColumn: li.dataset.isColumn === 'true',
 				enumValues: enumValues,
-				value: defaultValue,
+				value: defaultVarbindValue(enumValues, typeLetter),
 			});
 		}
 		return out;
@@ -120,6 +110,46 @@ window.trapSimulator = (function () {
 		// any single quotes inside as '\''. Safe for snmptrap
 		// invocation.
 		return "'" + String(s).replace(/'/g, "'\\''") + "'";
+	}
+
+	// NUMERIC_LETTERS are the snmptrap type letters whose inputs are
+	// numeric: integer, unsigned, counter32/64, timeticks.
+	var NUMERIC_LETTERS = { i: true, u: true, c: true, C: true, t: true };
+
+	// defaultVarbindValue picks the initial value for a varbind input:
+	// first enum option when the syntax enumerates, 0 for numeric type
+	// letters (so the generated command is valid before the user types
+	// anything), empty string otherwise (so the placeholder shows).
+	function defaultVarbindValue(enumValues, typeLetter) {
+		if (enumValues && enumValues.length > 0) return enumValues[0].number;
+		if (NUMERIC_LETTERS[typeLetter]) return 0;
+		return '';
+	}
+
+	// parseHexBytes canonicalises a hex-bytes input — colon / space /
+	// dash separated or bare, mixed forms allowed — and returns
+	// { hex, bytes } on success or { error } on malformed input, with
+	// error one of 'blank' (nothing typed), 'empty' (separators only),
+	// 'non-hex', 'odd'. The composers map any error to the '.<ERROR>'
+	// sentinel; validateColumn turns the code into its message.
+	function parseHexBytes(value) {
+		var raw = String(value == null ? '' : value).trim();
+		if (raw === '') return { error: 'blank' };
+		var hex = raw.replace(/[\s:\-]/g, '');
+		if (hex.length === 0) return { error: 'empty' };
+		if (!/^[0-9a-fA-F]+$/.test(hex)) return { error: 'non-hex' };
+		if (hex.length % 2 !== 0) return { error: 'odd' };
+		return { hex: hex, bytes: hex.length / 2 };
+	}
+
+	// dottedBytes emits ".N0.N1.…" — one decimal segment per byte of
+	// the (already validated) hex string.
+	function dottedBytes(hex) {
+		var out = '';
+		for (var i = 0; i < hex.length; i += 2) {
+			out += '.' + parseInt(hex.substring(i, i + 2), 16);
+		}
+		return out;
 	}
 
 	return function trapSimulator() {
@@ -216,15 +246,7 @@ window.trapSimulator = (function () {
 				// preserved (they're not secrets and re-typing
 				// them every time is friction).
 				this.varbinds.forEach(function (vb) {
-					if (vb.enumValues && vb.enumValues.length > 0) {
-						vb.value = vb.enumValues[0].number;
-					} else if (vb.typeLetter === 'i' || vb.typeLetter === 'u' ||
-						vb.typeLetter === 'c' || vb.typeLetter === 'C' ||
-						vb.typeLetter === 't') {
-						vb.value = 0;
-					} else {
-						vb.value = '';
-					}
+					vb.value = defaultVarbindValue(vb.enumValues, vb.typeLetter);
 				});
 				this.copied = false;
 				this.engineIDError = '';
@@ -266,11 +288,7 @@ window.trapSimulator = (function () {
 						// the warning banner above the generated
 						// command.
 						if (this.hasValidationErrors()) return '.<ERROR>';
-						var parts = '';
-						for (var i = 0; i < this.indexColumns.length; i++) {
-							parts += this.composeColumn(this.indexColumns[i]);
-						}
-						return parts;
+						return this.composeAllColumns();
 					}
 					if (this.indexMode === 'raw-suffix') {
 						// rawSuffix may or may not include a leading dot
@@ -298,6 +316,18 @@ window.trapSimulator = (function () {
 					if (this.validateColumn(this.indexColumns[i]) !== '') return true;
 				}
 				return false;
+			},
+
+			// composeAllColumns concatenates every index column's
+			// composed suffix, in column order. Shared by suffix()
+			// and composedSuffixPreview() — both gate on
+			// hasValidationErrors() first (Decision 6 sentinel).
+			composeAllColumns: function () {
+				var parts = '';
+				for (var i = 0; i < this.indexColumns.length; i++) {
+					parts += this.composeColumn(this.indexColumns[i]);
+				}
+				return parts;
 			},
 
 			// composeColumn dispatches per-column suffix composition
@@ -406,19 +436,11 @@ window.trapSimulator = (function () {
 			// the generated command surfaces the problem instead of
 			// silently composing garbage.
 			composeOctetStringFixed: function (col) {
-				var raw = String(col.value == null ? '' : col.value).trim();
-				if (raw === '') return '.<ERROR>';
-				var hex = raw.replace(/[\s:\-]/g, '');
-				if (hex.length === 0 || hex.length % 2 !== 0) return '.<ERROR>';
-				if (!/^[0-9a-fA-F]+$/.test(hex)) return '.<ERROR>';
-				var bytes = hex.length / 2;
+				var p = parseHexBytes(col.value);
+				if (p.error) return '.<ERROR>';
 				var want = Number(col.sizeMin) || 0;
-				if (want > 0 && bytes !== want) return '.<ERROR>';
-				var out = '';
-				for (var i = 0; i < hex.length; i += 2) {
-					out += '.' + parseInt(hex.substring(i, i + 2), 16);
-				}
-				return out;
+				if (want > 0 && p.bytes !== want) return '.<ERROR>';
+				return dottedBytes(p.hex);
 			},
 
 			// composeOctetStringVariable handles the variable-length
@@ -435,24 +457,17 @@ window.trapSimulator = (function () {
 			// command surfaces the problem rather than emitting a
 			// malformed OID.
 			composeOctetStringVariable: function (col) {
-				var raw = String(col.value == null ? '' : col.value).trim();
-				if (raw === '') return '.<ERROR>';
-				var hex = raw.replace(/[\s:\-]/g, '');
-				if (hex.length === 0 || hex.length % 2 !== 0) return '.<ERROR>';
-				if (!/^[0-9a-fA-F]+$/.test(hex)) return '.<ERROR>';
-				var bytes = hex.length / 2;
+				var p = parseHexBytes(col.value);
+				if (p.error) return '.<ERROR>';
 				var maxBytes = Number(col.sizeMax) || 0;
-				if (maxBytes > 0 && bytes > maxBytes) return '.<ERROR>';
+				if (maxBytes > 0 && p.bytes > maxBytes) return '.<ERROR>';
 				var minBytes = Number(col.sizeMin) || 0;
-				if (minBytes > 0 && bytes < minBytes) return '.<ERROR>';
+				if (minBytes > 0 && p.bytes < minBytes) return '.<ERROR>';
 				var out = '';
 				if (!col.isImplied) {
-					out = '.' + bytes;
+					out = '.' + p.bytes;
 				}
-				for (var i = 0; i < hex.length; i += 2) {
-					out += '.' + parseInt(hex.substring(i, i + 2), 16);
-				}
-				return out;
+				return out + dottedBytes(p.hex);
 			},
 
 			// composeOID handles an OBJECT IDENTIFIER index column.
@@ -559,17 +574,16 @@ window.trapSimulator = (function () {
 					return '';
 				}
 				if (col.syntax === 'OCTET STRING' || col.syntax === 'BITS') {
-					var raw = String(col.value == null ? '' : col.value).trim();
-					if (raw === '') return 'Enter hex bytes (e.g. 00:11:22:33).';
-					var hex = raw.replace(/[\s:\-]/g, '');
-					if (hex.length === 0) return 'Empty value.';
-					if (!/^[0-9a-fA-F]+$/.test(hex)) {
+					var p = parseHexBytes(col.value);
+					if (p.error === 'blank') return 'Enter hex bytes (e.g. 00:11:22:33).';
+					if (p.error === 'empty') return 'Empty value.';
+					if (p.error === 'non-hex') {
 						return 'Only hex digits 0-9, a-f permitted.';
 					}
-					if (hex.length % 2 !== 0) {
+					if (p.error === 'odd') {
 						return 'Hex byte count must be even (two chars per byte).';
 					}
-					var bytes = hex.length / 2;
+					var bytes = p.bytes;
 					var lo = Number(col.sizeMin) || 0;
 					var hi = Number(col.sizeMax) || 0;
 					if (lo > 0 && lo === hi) {
@@ -616,11 +630,7 @@ window.trapSimulator = (function () {
 			composedSuffixPreview: function () {
 				if (this.indexMode !== 'indexed') return '';
 				if (this.hasValidationErrors()) return '<ERROR>';
-				var parts = '';
-				for (var i = 0; i < this.indexColumns.length; i++) {
-					parts += this.composeColumn(this.indexColumns[i]);
-				}
-				return parts;
+				return this.composeAllColumns();
 			},
 
 			formatValue: function (vb) {
