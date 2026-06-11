@@ -366,7 +366,11 @@ button { font-family: inherit; }
 .theme-toggle .moon { display: inline; }
 [data-theme="light"] .theme-toggle .sun { display: inline; }
 [data-theme="light"] .theme-toggle .moon { display: none; }
-.search-toggle {
+/* .walk-decode-toggle is an <a> (plain link to /walk without JS) but
+ * shares the toggle-button look; text-decoration:none on :hover must
+ * be explicit or the global a:hover underline outranks the base rule. */
+.search-toggle,
+.walk-decode-toggle {
   height: 36px;
   padding: 0 12px;
   border: 1px solid var(--line);
@@ -379,9 +383,11 @@ button { font-family: inherit; }
   font-family: var(--font-mono);
   font-feature-settings: 'liga' 0, 'calt' 0;
   font-size: 13px;
+  text-decoration: none;
   transition: all 100ms ease;
 }
-.search-toggle:hover { color: var(--fg); border-color: var(--line-strong); }
+.search-toggle:hover,
+.walk-decode-toggle:hover { color: var(--fg); border-color: var(--line-strong); text-decoration: none; }
 
 /* --- page wrappers --------------------------------------------------- */
 
@@ -3635,24 +3641,8 @@ main.page:has(.workspace-grid) .content-inner,
   background: color-mix(in oklch, var(--severity-red) 12%, transparent);
 }
 
-/* topbar "Decode SNMP Walk" control */
-.walk-decode-toggle {
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--fg-3);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-feature-settings: 'liga' 0, 'calt' 0;
-  font-size: 13px;
-  text-decoration: none;
-  transition: all 100ms ease;
-}
-.walk-decode-toggle:hover { color: var(--fg); border-color: var(--line-strong); }
+/* topbar "Decode SNMP Walk" control: styled with .search-toggle in
+ * the topbar section so the toggle buttons cannot drift apart. */
 
 /* decode modal — centered overlay carrying the shared intake form */
 .walk-modal {
