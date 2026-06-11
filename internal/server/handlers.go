@@ -23,19 +23,19 @@ import (
 	"github.com/no42-org/blittermib/internal/web"
 )
 
-// pathUnderAny reports whether the absolute form of `p` lives at
-// or under the absolute form of any of `roots`. Empty `p` and
-// empty roots are rejected; resolving `.` ancestor segments is
-// handled by `filepath.Abs` + `filepath.Rel`.
+// underMIBRoot reports whether the absolute form of `p` lives at
+// or under the absolute form of the server's MIB corpus root.
+// Empty `p` and an empty root are rejected; resolving `.` ancestor
+// segments is handled by `filepath.Abs` + `filepath.Rel`.
 //
 // Symlink semantics:
 //   - When `p` exists on disk, its symlinks are resolved via
-//     `filepath.EvalSymlinks` before the prefix check; the roots
-//     are resolved symmetrically so a `/var` → `/private/var`
+//     `filepath.EvalSymlinks` before the prefix check; the root
+//     is resolved symmetrically so a `/var` → `/private/var`
 //     rewrite on macOS doesn't make a real file under
 //     `/var/folders/.../mibs` falsely escape.
 //   - When `p` doesn't exist, `EvalSymlinks` fails and the raw
-//     abs path is checked against raw abs roots. There's no
+//     abs path is checked against the raw abs root. There's no
 //     symlink to escape through (the path resolves to nothing),
 //     and the lexical-prefix check is sufficient. The caller's
 //     follow-up `os.Open` distinguishes "stale recorded path"
@@ -44,10 +44,10 @@ import (
 // Used by the module-download endpoints as a defense-in-depth
 // guard against any future writer that might let a module's
 // `source_path` be set to an arbitrary file. Today libsmi only
-// reports paths under the configured MIB roots, but this guard
+// reports paths under the configured MIB root, but this guard
 // shrinks the blast radius of a regression.
-func pathUnderAny(p string, roots []string) bool {
-	if p == "" {
+func (s *Server) underMIBRoot(p string) bool {
+	if p == "" || s.mibsDir == "" {
 		return false
 	}
 	abs, err := filepath.Abs(p)
@@ -59,29 +59,21 @@ func pathUnderAny(p string, roots []string) bool {
 		abs = real
 		resolved = true
 	}
-	for _, r := range roots {
-		if r == "" {
-			continue
-		}
-		rabs, err := filepath.Abs(r)
-		if err != nil {
-			continue
-		}
-		if resolved {
-			// File symlinks were followed; root must be canonicalised
-			// to match. Without this, a real file under a root whose
-			// abs path traverses a parent symlink (macOS `/var` →
-			// `/private/var`) lexically diverges from the unresolved
-			// root and the prefix check would reject it.
-			if real, err := filepath.EvalSymlinks(rabs); err == nil {
-				rabs = real
-			}
-		}
-		if isUnderRoot(rabs, abs) {
-			return true
+	rabs, err := filepath.Abs(s.mibsDir)
+	if err != nil {
+		return false
+	}
+	if resolved {
+		// File symlinks were followed; the root must be canonicalised
+		// to match. Without this, a real file under a root whose
+		// abs path traverses a parent symlink (macOS `/var` →
+		// `/private/var`) lexically diverges from the unresolved
+		// root and the prefix check would reject it.
+		if real, err := filepath.EvalSymlinks(rabs); err == nil {
+			rabs = real
 		}
 	}
-	return false
+	return isUnderRoot(rabs, abs)
 }
 
 // isUnderRoot reports whether `abs` is at or under `root`, both
@@ -282,7 +274,7 @@ func (s *Server) handleModuleSource(w http.ResponseWriter, r *http.Request, name
 		s.notFound(w, r)
 		return
 	}
-	if !pathUnderAny(mod.SourcePath, []string{s.mibsDir}) {
+	if !s.underMIBRoot(mod.SourcePath) {
 		s.notFound(w, r)
 		return
 	}
@@ -291,7 +283,7 @@ func (s *Server) handleModuleSource(w http.ResponseWriter, r *http.Request, name
 	// to application/octet-stream which would prompt downloads.
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeFile(w, r, mod.SourcePath) // #nosec G703 -- guarded by pathUnderAny above
+	http.ServeFile(w, r, mod.SourcePath) // #nosec G703 -- guarded by underMIBRoot above
 }
 
 // handleModuleDownload serves the single MIB source file as a
@@ -335,11 +327,11 @@ func (s *Server) handleModuleDownload(w http.ResponseWriter, r *http.Request, na
 		s.notFound(w, r)
 		return
 	}
-	if !pathUnderAny(mod.SourcePath, []string{s.mibsDir}) {
+	if !s.underMIBRoot(mod.SourcePath) {
 		s.notFound(w, r)
 		return
 	}
-	f, err := os.Open(mod.SourcePath) // #nosec G703 -- guarded by pathUnderAny above
+	f, err := os.Open(mod.SourcePath) // #nosec G703 -- guarded by underMIBRoot above
 	if err != nil {
 		// File recorded in DB but gone from disk — distinguish
 		// from "module never existed" so the user can see what
@@ -475,8 +467,6 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 	}
 	ctx := r.Context()
 
-	roots := []string{s.mibsDir}
-
 	// Pre-walk the root before committing any response state — the
 	// bundle endpoint must return 404 (not 200 with a MISSING.txt
 	// stub) when the root module's source path resolves outside the
@@ -490,7 +480,7 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 		s.internalError(w, r, err)
 		return
 	}
-	if rootMod.SourcePath != "" && !pathUnderAny(rootMod.SourcePath, roots) {
+	if rootMod.SourcePath != "" && !s.underMIBRoot(rootMod.SourcePath) {
 		s.notFound(w, r)
 		return
 	}
@@ -505,7 +495,7 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 		return
 	}
 
-	shippable, missings := partitionClosure(closure, roots)
+	shippable, missings := s.partitionClosure(closure)
 
 	w.Header().Set("Content-Type", "application/zip")
 	setAttachmentDisposition(w, name+"-bundle.zip")
@@ -608,214 +598,14 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 		return
 	}
 
-	// Top-level tree rows are the module's "entry points into the OID
-	// space" — symbols whose parent OID is NOT itself a symbol of
-	// this module. The simpler `ListChildren(mod.OIDRoot)` strategy
-	// fails the common case where MODULE-IDENTITY anchors as a
-	// sysObjectID-style sentinel (e.g. ifMIB at 1.3.6.1.2.1.31.1)
-	// while the actual symbols hang off mib-2 children (interfaces
-	// at 1.3.6.1.2.1.2). Computing the orphan set in Go over the
-	// already-loaded `syms` slice keeps this on the per-page hot
-	// path without a second SQL round trip.
-	moduleOIDs := make(map[string]struct{}, len(syms))
-	for i := range syms {
-		moduleOIDs[syms[i].OID] = struct{}{}
-	}
-	var topLevel []model.Symbol
-	for i := range syms {
-		if _, internal := moduleOIDs[syms[i].ParentOID]; internal {
-			continue
-		}
-		topLevel = append(topLevel, syms[i])
-	}
-
-	treeRows, err := s.treeRowsFor(ctx, topLevel)
+	view, err := s.buildWorkspaceView(ctx, mod, syms, oid)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
-
-	counts, err := s.store.CountByFamily(ctx, name)
-	if err != nil {
+	if err := s.resolveSelection(ctx, view, selectionOID); err != nil {
 		s.internalError(w, r, err)
 		return
-	}
-
-	allModules, err := s.store.ListModules(ctx)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-
-	// When the URL specifies an OID, narrow the center-pane list to
-	// symbols at or under that OID. The "View all in module" link
-	// in the list-pane chrome navigates back to the unscoped URL.
-	listRows := syms
-	if oid != "" {
-		listRows = listRows[:0:0]
-		for i := range syms {
-			if web.OIDUnderPrefix(syms[i].OID, oid) {
-				listRows = append(listRows, syms[i])
-			}
-		}
-	}
-	// Baseline for the Scoped flag: no-OID symbols (TCs, some groups)
-	// can never pass OIDUnderPrefix, so comparing against len(syms)
-	// would mark a module-root scope as "narrowed" on any module that
-	// defines a TC. Count only OID-bearing symbols.
-	oidBearing := 0
-	for i := range syms {
-		if syms[i].OID != "" {
-			oidBearing++
-		}
-	}
-
-	// Pre-compute disk-availability so the module-info bar can hide
-	// download affordances when the source has disappeared. A single
-	// stat per render is cheap; doing it from inside the templ would
-	// pull I/O into the rendering layer. Errors (including ENOENT)
-	// flatten to "not downloadable".
-	downloadable := false
-	if mod.SourcePath != "" &&
-		pathUnderAny(mod.SourcePath, []string{s.mibsDir}) {
-		if _, err := os.Stat(mod.SourcePath); err == nil { // #nosec G703 -- guarded by pathUnderAny above
-			downloadable = true
-		}
-	}
-
-	// Pre-compute the bundle's `.mib` file count from the IMPORTS
-	// closure so the module-info bar can advertise an accurate
-	// number — using `len(mod.Imports)` would count flat
-	// per-symbol imports (e.g. each `Counter32`, `Integer32`,
-	// `TimeTicks` from SNMPv2-SMI as a separate entry), which
-	// massively over-counts. The bundle endpoint ships one `.mib`
-	// per loaded closure entry; this counts the same set so the
-	// displayed number matches what the user actually downloads.
-	// Errors collapse to 0 so the templ can suppress the count
-	// gracefully — closure walks should not be load-bearing for
-	// rendering the workspace itself.
-	bundleFileCount := 0
-	if downloadable {
-		closure, err := s.store.ListImportClosure(ctx, name)
-		if err != nil {
-			slog.Warn("workspace: import-closure count failed", "module", name, "err", err)
-		} else {
-			roots := []string{s.mibsDir}
-			for _, e := range closure {
-				if e.Loaded && e.SourcePath != "" && pathUnderAny(e.SourcePath, roots) {
-					bundleFileCount++
-				}
-			}
-		}
-	}
-
-	// Whether to surface the eventconf export link — derived from the
-	// already-loaded module symbols, so no extra query. Covers both
-	// SMIv2 NOTIFICATION-TYPE and SMIv1 TRAP-TYPE.
-	hasNotifications := false
-	for i := range syms {
-		if syms[i].Kind == model.KindNotificationType || syms[i].Kind == model.KindTrapType {
-			hasNotifications = true
-			break
-		}
-	}
-
-	view := &web.WorkspaceView{
-		Module:             mod,
-		Counts:             counts,
-		TreeRows:           treeRows,
-		ListRows:           listRows,
-		Modules:            allModules,
-		ScopeOID:           oid,
-		Scoped:             oid != "" && len(listRows) < oidBearing,
-		ModuleDownloadable: downloadable,
-		TypeDefs:           web.CollectTypeDefs(syms),
-		BundleFileCount:    bundleFileCount,
-		HasNotifications:   hasNotifications,
-	}
-
-	if selectionOID != "" {
-		// `sel=` may be either an OID (digits + dots, the common
-		// case) or a symbol name (textual conventions and other
-		// no-OID symbols ride in by name). SMI names always start
-		// with a letter, so the first-char digit check is enough
-		// to disambiguate. Name-keyed lookups go through
-		// GetSymbol(module, name) so a TC click resolves to its
-		// row even when the path-OID slot is empty.
-		var sym *model.Symbol
-		var lookupErr error
-		if web.SelectorLooksLikeOID(selectionOID) {
-			sym, lookupErr = s.store.GetSymbolByOID(ctx, selectionOID)
-		} else {
-			sym, lookupErr = s.store.GetSymbol(ctx, name, selectionOID)
-		}
-		switch {
-		case errors.Is(lookupErr, store.ErrNotFound):
-			view.MissingOID = selectionOID
-		case lookupErr != nil:
-			s.internalError(w, r, lookupErr)
-			return
-		default:
-			selected, err := s.buildSymbolView(ctx, sym)
-			if err != nil {
-				s.internalError(w, r, err)
-				return
-			}
-			// NOTIFICATION-TYPE / TRAP-TYPE OBJECTS clause —
-			// outbound references of kind RefNotificationObject.
-			// Surfaced in the workspace right pane as clickable
-			// links so a reader can jump from "what does linkDown
-			// carry?" straight to ifAdminStatus's detail. (The /s/
-			// deep-link page deliberately stays without this block.)
-			if sym.Kind == model.KindNotificationType || sym.Kind == model.KindTrapType {
-				outRefs, err := s.store.ListReferencesFrom(ctx, sym.ModuleName, sym.Name)
-				if err != nil {
-					s.internalError(w, r, err)
-					return
-				}
-				selected.NotifyObjects, selected.TrapIndex = s.buildNotifyVarbinds(ctx, outRefs)
-			}
-			view.Selected = selected
-			// view.OIDPath is still decoded (the scope breadcrumb
-			// derives from it via `web.ScopeBreadcrumb`); the
-			// right-pane no longer renders an "OID decode"
-			// section, but the breadcrumb still needs the chain.
-			if sym.OID != "" {
-				path, err := s.store.OIDPath(ctx, sym.OID)
-				if err != nil {
-					s.internalError(w, r, err)
-					return
-				}
-				view.OIDPath = path
-			}
-		}
-	}
-
-	// Auto-expand the tree spine from the module's top-level rows
-	// down to the current selection / scope. The user expects the
-	// tree to keep its navigation context across full-page
-	// navigations — clicking a column shouldn't collapse the
-	// entire tree.
-	//
-	// `expandSet` is the set of OIDs we want pre-expanded (named
-	// ancestors of the selection that have children); `selectionOID`
-	// is the row that should pick up the `selected` highlight.
-	expandSet := make(map[string]struct{})
-	for _, st := range view.OIDPath {
-		if st.Canonical || st.Name == "" {
-			continue
-		}
-		// Don't expand the selection itself when it's a leaf —
-		// there's nothing to drop into.
-		if st.Prefix == selectionOID && !web.KindHasChildren(st.Kind) {
-			continue
-		}
-		expandSet[st.Prefix] = struct{}{}
-	}
-	if len(expandSet) > 0 {
-		for i := range view.TreeRows {
-			s.expandTreeRow(ctx, &view.TreeRows[i], expandSet, selectionOID)
-		}
 	}
 
 	// Partial navigation (the A/B contract — see the
@@ -849,6 +639,226 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 	}
 
 	render(w, r, http.StatusOK, web.Workspace(view))
+}
+
+// buildWorkspaceView assembles the workspace's render model for one
+// module: tree rows, the (optionally OID-scoped) list rows, family
+// counts, the module list for the picker, download affordances, and
+// the TC type-defs bar. Selection resolution is layered on top by
+// resolveSelection.
+func (s *Server) buildWorkspaceView(ctx context.Context, mod *model.Module, syms []model.Symbol, oid string) (*web.WorkspaceView, error) {
+	name := mod.Name
+
+	// Top-level tree rows are the module's "entry points into the OID
+	// space" — symbols whose parent OID is NOT itself a symbol of
+	// this module. The simpler `ListChildren(mod.OIDRoot)` strategy
+	// fails the common case where MODULE-IDENTITY anchors as a
+	// sysObjectID-style sentinel (e.g. ifMIB at 1.3.6.1.2.1.31.1)
+	// while the actual symbols hang off mib-2 children (interfaces
+	// at 1.3.6.1.2.1.2). Computing the orphan set in Go over the
+	// already-loaded `syms` slice keeps this on the per-page hot
+	// path without a second SQL round trip.
+	moduleOIDs := make(map[string]struct{}, len(syms))
+	for i := range syms {
+		moduleOIDs[syms[i].OID] = struct{}{}
+	}
+	var topLevel []model.Symbol
+	for i := range syms {
+		if _, internal := moduleOIDs[syms[i].ParentOID]; internal {
+			continue
+		}
+		topLevel = append(topLevel, syms[i])
+	}
+
+	treeRows, err := s.treeRowsFor(ctx, topLevel)
+	if err != nil {
+		return nil, err
+	}
+
+	counts, err := s.store.CountByFamily(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	allModules, err := s.store.ListModules(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// When the URL specifies an OID, narrow the center-pane list to
+	// symbols at or under that OID. The "View all in module" link
+	// in the list-pane chrome navigates back to the unscoped URL.
+	listRows := syms
+	if oid != "" {
+		listRows = listRows[:0:0]
+		for i := range syms {
+			if web.OIDUnderPrefix(syms[i].OID, oid) {
+				listRows = append(listRows, syms[i])
+			}
+		}
+	}
+	// Baseline for the Scoped flag: no-OID symbols (TCs, some groups)
+	// can never pass OIDUnderPrefix, so comparing against len(syms)
+	// would mark a module-root scope as "narrowed" on any module that
+	// defines a TC. Count only OID-bearing symbols.
+	oidBearing := 0
+	for i := range syms {
+		if syms[i].OID != "" {
+			oidBearing++
+		}
+	}
+
+	// Pre-compute disk-availability so the module-info bar can hide
+	// download affordances when the source has disappeared. A single
+	// stat per render is cheap; doing it from inside the templ would
+	// pull I/O into the rendering layer. Errors (including ENOENT)
+	// flatten to "not downloadable".
+	downloadable := false
+	if mod.SourcePath != "" && s.underMIBRoot(mod.SourcePath) {
+		if _, err := os.Stat(mod.SourcePath); err == nil { // #nosec G703 -- guarded by underMIBRoot above
+			downloadable = true
+		}
+	}
+
+	// Pre-compute the bundle's `.mib` file count from the IMPORTS
+	// closure so the module-info bar can advertise an accurate
+	// number — using `len(mod.Imports)` would count flat
+	// per-symbol imports (e.g. each `Counter32`, `Integer32`,
+	// `TimeTicks` from SNMPv2-SMI as a separate entry), which
+	// massively over-counts. The bundle endpoint ships one `.mib`
+	// per loaded closure entry; this counts the same set so the
+	// displayed number matches what the user actually downloads.
+	// Errors collapse to 0 so the templ can suppress the count
+	// gracefully — closure walks should not be load-bearing for
+	// rendering the workspace itself.
+	bundleFileCount := 0
+	if downloadable {
+		closure, err := s.store.ListImportClosure(ctx, name)
+		if err != nil {
+			slog.Warn("workspace: import-closure count failed", "module", name, "err", err)
+		} else {
+			for _, e := range closure {
+				if e.Loaded && e.SourcePath != "" && s.underMIBRoot(e.SourcePath) {
+					bundleFileCount++
+				}
+			}
+		}
+	}
+
+	// Whether to surface the eventconf export link — derived from the
+	// already-loaded module symbols, so no extra query. Covers both
+	// SMIv2 NOTIFICATION-TYPE and SMIv1 TRAP-TYPE.
+	hasNotifications := false
+	for i := range syms {
+		if syms[i].Kind == model.KindNotificationType || syms[i].Kind == model.KindTrapType {
+			hasNotifications = true
+			break
+		}
+	}
+
+	return &web.WorkspaceView{
+		Module:             mod,
+		Counts:             counts,
+		TreeRows:           treeRows,
+		ListRows:           listRows,
+		Modules:            allModules,
+		ScopeOID:           oid,
+		Scoped:             oid != "" && len(listRows) < oidBearing,
+		ModuleDownloadable: downloadable,
+		TypeDefs:           web.CollectTypeDefs(syms),
+		BundleFileCount:    bundleFileCount,
+		HasNotifications:   hasNotifications,
+	}, nil
+}
+
+// resolveSelection resolves the `sel=` / path-OID selection into
+// view.Selected (or view.MissingOID when nothing matches), decodes
+// the OID path the scope breadcrumb derives from, and pre-expands
+// the tree spine down to the selection. A no-op when selectionOID
+// is empty.
+func (s *Server) resolveSelection(ctx context.Context, view *web.WorkspaceView, selectionOID string) error {
+	name := view.Module.Name
+
+	if selectionOID != "" {
+		// `sel=` may be either an OID (digits + dots, the common
+		// case) or a symbol name (textual conventions and other
+		// no-OID symbols ride in by name). SMI names always start
+		// with a letter, so the first-char digit check is enough
+		// to disambiguate. Name-keyed lookups go through
+		// GetSymbol(module, name) so a TC click resolves to its
+		// row even when the path-OID slot is empty.
+		var sym *model.Symbol
+		var lookupErr error
+		if web.SelectorLooksLikeOID(selectionOID) {
+			sym, lookupErr = s.store.GetSymbolByOID(ctx, selectionOID)
+		} else {
+			sym, lookupErr = s.store.GetSymbol(ctx, name, selectionOID)
+		}
+		switch {
+		case errors.Is(lookupErr, store.ErrNotFound):
+			view.MissingOID = selectionOID
+		case lookupErr != nil:
+			return lookupErr
+		default:
+			selected, err := s.buildSymbolView(ctx, sym)
+			if err != nil {
+				return err
+			}
+			// NOTIFICATION-TYPE / TRAP-TYPE OBJECTS clause —
+			// outbound references of kind RefNotificationObject.
+			// Surfaced in the workspace right pane as clickable
+			// links so a reader can jump from "what does linkDown
+			// carry?" straight to ifAdminStatus's detail. (The /s/
+			// deep-link page deliberately stays without this block.)
+			if sym.Kind == model.KindNotificationType || sym.Kind == model.KindTrapType {
+				outRefs, err := s.store.ListReferencesFrom(ctx, sym.ModuleName, sym.Name)
+				if err != nil {
+					return err
+				}
+				selected.NotifyObjects, selected.TrapIndex = s.buildNotifyVarbinds(ctx, outRefs)
+			}
+			view.Selected = selected
+			// view.OIDPath is still decoded (the scope breadcrumb
+			// derives from it via `web.ScopeBreadcrumb`); the
+			// right-pane no longer renders an "OID decode"
+			// section, but the breadcrumb still needs the chain.
+			if sym.OID != "" {
+				path, err := s.store.OIDPath(ctx, sym.OID)
+				if err != nil {
+					return err
+				}
+				view.OIDPath = path
+			}
+		}
+	}
+
+	// Auto-expand the tree spine from the module's top-level rows
+	// down to the current selection / scope. The user expects the
+	// tree to keep its navigation context across full-page
+	// navigations — clicking a column shouldn't collapse the
+	// entire tree.
+	//
+	// `expandSet` is the set of OIDs we want pre-expanded (named
+	// ancestors of the selection that have children); `selectionOID`
+	// is the row that should pick up the `selected` highlight.
+	expandSet := make(map[string]struct{})
+	for _, st := range view.OIDPath {
+		if st.Canonical || st.Name == "" {
+			continue
+		}
+		// Don't expand the selection itself when it's a leaf —
+		// there's nothing to drop into.
+		if st.Prefix == selectionOID && !web.KindHasChildren(st.Kind) {
+			continue
+		}
+		expandSet[st.Prefix] = struct{}{}
+	}
+	if len(expandSet) > 0 {
+		for i := range view.TreeRows {
+			s.expandTreeRow(ctx, &view.TreeRows[i], expandSet, selectionOID)
+		}
+	}
+	return nil
 }
 
 // workspaceRef extracts the module name and scope OID from a

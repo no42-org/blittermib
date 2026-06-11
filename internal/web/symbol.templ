@@ -58,7 +58,7 @@ templ SymbolDetail(view *SymbolView) {
 // /s/... page and the workspace right pane.
 templ symbolDetailBody(view *SymbolView) {
 	<h1 class="symbol-name">{ view.Symbol.Name }</h1>
-	<p class="summary">{ SummarizeSymbol(view.Symbol) }</p>
+	<p class="summary">{ summarizeSymbol(view.Symbol) }</p>
 	<div class="oid-row">
 		<span class="oid">
 			@templ.Raw(FormatOIDHTML(view.Symbol.OID))

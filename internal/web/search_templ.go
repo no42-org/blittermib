@@ -86,7 +86,7 @@ func SearchResults(query string, hits []SearchHit) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var4 templ.SafeURL
-					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(workspaceSymbolURL(h.Module, h.Name, h.OID))
+					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(WorkspaceSymbolURL(h.Module, h.Name, h.OID))
 					if templ_7745c5c3_Err != nil {
 						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/search.templ`, Line: 28, Col: 64}
 					}
@@ -231,7 +231,7 @@ func SearchNoResults(query string, suggestions []SearchHit) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var11 templ.SafeURL
-					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinURLErrs(workspaceSymbolURL(s.Module, s.Name, s.OID))
+					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinURLErrs(WorkspaceSymbolURL(s.Module, s.Name, s.OID))
 					if templ_7745c5c3_Err != nil {
 						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/search.templ`, Line: 62, Col: 65}
 					}

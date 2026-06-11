@@ -298,14 +298,15 @@ func notifCountLabel(n int) string {
 
 // aggregateUnresolved collapses per-entry Unresolved guidance into one
 // row per enterprise/prefix, ordered by descending occurrence count
-// then OID for stable output.
+// then OID for stable output. The (count, OID) comparator is total —
+// each aggregation key maps to a distinct display OID — so no
+// insertion-order tiebreak is needed.
 func aggregateUnresolved(rw walk.ResolvedWalk) []web.WalkUnresolvedRow {
 	type acc struct {
 		count int
 		hint  string
 		oid   string
 	}
-	order := []string{}
 	byKey := map[string]*acc{}
 	for _, re := range rw.Entries {
 		u := re.Unresolved
@@ -317,17 +318,15 @@ func aggregateUnresolved(rw walk.ResolvedWalk) []web.WalkUnresolvedRow {
 		if !ok {
 			a = &acc{hint: unresolvedHint(u), oid: displayOID}
 			byKey[key] = a
-			order = append(order, key)
 		}
 		a.count++
 	}
 
-	out := make([]web.WalkUnresolvedRow, 0, len(order))
-	for _, k := range order {
-		a := byKey[k]
+	out := make([]web.WalkUnresolvedRow, 0, len(byKey))
+	for _, a := range byKey {
 		out = append(out, web.WalkUnresolvedRow{OID: a.oid, Count: a.count, Hint: a.hint})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
+	sort.Slice(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
 		}
@@ -363,7 +362,7 @@ func unresolvedHint(u *walk.Unresolved) string {
 // a README, every loaded module the walk touched plus the union of
 // their import closures, and a MISSING.txt manifest extended with the
 // unresolved-OID section. Mirrors handleModuleBundle's streaming and
-// path-traversal guard, generalised to multiple roots.
+// path-traversal guard.
 func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -384,14 +383,13 @@ func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roots := []string{s.mibsDir}
 	closure, err := s.store.ListImportClosureUnion(ctx, rw.Modules)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
 
-	shippable, missings := partitionClosure(closure, roots)
+	shippable, missings := s.partitionClosure(closure)
 
 	date := time.Now().UTC().Format("2006-01-02")
 	w.Header().Set("Content-Type", "application/zip")

@@ -56,16 +56,10 @@ type WalkNotifModule struct {
 	Count  string // "2 notification/trap definitions"
 }
 
-// moduleHref builds the workspace link for a module name. The name has
-// already passed SMI-grammar validation upstream, so this is a plain
-// join wrapped in templ's URL sanitiser.
-func moduleHref(module string) templ.SafeURL {
-	return templ.URL("/m/" + module)
-}
-
-// moduleWalkHref is moduleHref plus the `#in-walk` hash, which the walk
-// overlay reads on the workspace to pre-apply the "in walk" filter. The
-// hash never reaches the server (Decision 5/12).
+// moduleWalkHref is the workspace link (see moduleURL) plus the
+// `#in-walk` hash, which the walk overlay reads on the workspace to
+// pre-apply the "in walk" filter. The hash never reaches the server
+// (Decision 5/12).
 func moduleWalkHref(module string) templ.SafeURL {
 	return templ.URL("/m/" + module + "#in-walk")
 }

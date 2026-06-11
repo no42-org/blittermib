@@ -39,10 +39,10 @@ type bundleMissing struct {
 // partitionClosure splits an import closure into "ship in the ZIP" vs
 // "list in MISSING.txt". The spec defines exactly two reason markers
 // (`not loaded` and `source file unreadable`); an empty source path or
-// a path escaping the configured roots shares the `source file
+// a path escaping the corpus root shares the `source file
 // unreadable` marker rather than inventing a third — from the user's
 // perspective the file isn't readable either way.
-func partitionClosure(closure []store.ClosureEntry, roots []string) ([]bundleEntry, []bundleMissing) {
+func (s *Server) partitionClosure(closure []store.ClosureEntry) ([]bundleEntry, []bundleMissing) {
 	var shippable []bundleEntry
 	var missings []bundleMissing
 	for _, e := range closure {
@@ -52,7 +52,7 @@ func partitionClosure(closure []store.ClosureEntry, roots []string) ([]bundleEnt
 				Module: e.Module, Reason: "not loaded",
 				ImportedBy: e.ImportedBy, Symbols: e.Symbols,
 			})
-		case e.SourcePath == "" || !pathUnderAny(e.SourcePath, roots):
+		case e.SourcePath == "" || !s.underMIBRoot(e.SourcePath):
 			missings = append(missings, bundleMissing{
 				Module: e.Module, Reason: "source file unreadable",
 				ImportedBy: e.ImportedBy, Symbols: e.Symbols,

@@ -63,39 +63,36 @@ type resolver struct {
 	byName map[string]*model.Symbol // GetSymbol memo, keyed module + "\x00" + name; nil = not found
 }
 
-func (r *resolver) symbolByOID(ctx context.Context, oid string) (*model.Symbol, error) {
-	if sym, ok := r.byOID[oid]; ok {
+// memoLookup wraps a store getter with positive + negative
+// memoization: ErrNotFound is cached as a nil entry and returned as
+// (nil, nil) so callers treat "not found" as a plain miss.
+func memoLookup(memo map[string]*model.Symbol, key string, get func() (*model.Symbol, error)) (*model.Symbol, error) {
+	if sym, ok := memo[key]; ok {
 		return sym, nil
 	}
-	sym, err := r.s.GetSymbolByOID(ctx, oid)
+	sym, err := get()
 	switch {
 	case err == nil:
-		r.byOID[oid] = sym
+		memo[key] = sym
 		return sym, nil
 	case errors.Is(err, store.ErrNotFound):
-		r.byOID[oid] = nil
+		memo[key] = nil
 		return nil, nil
 	default:
 		return nil, err
 	}
 }
 
+func (r *resolver) symbolByOID(ctx context.Context, oid string) (*model.Symbol, error) {
+	return memoLookup(r.byOID, oid, func() (*model.Symbol, error) {
+		return r.s.GetSymbolByOID(ctx, oid)
+	})
+}
+
 func (r *resolver) symbolByName(ctx context.Context, module, name string) (*model.Symbol, error) {
-	key := module + "\x00" + name
-	if sym, ok := r.byName[key]; ok {
-		return sym, nil
-	}
-	sym, err := r.s.GetSymbol(ctx, module, name)
-	switch {
-	case err == nil:
-		r.byName[key] = sym
-		return sym, nil
-	case errors.Is(err, store.ErrNotFound):
-		r.byName[key] = nil
-		return nil, nil
-	default:
-		return nil, err
-	}
+	return memoLookup(r.byName, module+"\x00"+name, func() (*model.Symbol, error) {
+		return r.s.GetSymbol(ctx, module, name)
+	})
 }
 
 // Resolve decorates every entry in the walk against the store. It

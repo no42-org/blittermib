@@ -63,7 +63,7 @@ func assetURL(name string) templ.SafeURL {
 	return templ.SafeURL("/static/" + url.PathEscape(name) + "?v=" + url.QueryEscape(version))
 }
 
-// workspaceURL returns the URL for a workspace selection. SMI
+// WorkspaceSymbolURL returns the URL for a workspace selection. SMI
 // module names are alphanumeric + dash and OIDs are digits + dot,
 // so neither input needs URL escaping.
 //
@@ -71,28 +71,13 @@ func assetURL(name string) templ.SafeURL {
 // can't deep-link via /m/{name}/{oid}; for those we fall back to
 // the canonical /s/{module}::{name} so detail still renders. The
 // alternative — landing on the empty workspace — silently drops
-// the user's selection.
-func workspaceURL(module, oid string) templ.SafeURL {
-	if oid == "" {
-		return symbolURL(module, "")
-	}
-	return templ.SafeURL("/m/" + module + "/" + oid)
-}
-
-// workspaceSymbolURL is `workspaceURL` with the name available so the
-// fall-back to /s/{module}::{name} can be properly qualified when
-// the symbol has no OID.
-func workspaceSymbolURL(module, name, oid string) templ.SafeURL {
+// the user's selection. Exported because handlers (outside the
+// package's templ files) build the same redirect.
+func WorkspaceSymbolURL(module, name, oid string) templ.SafeURL {
 	if oid == "" {
 		return symbolURL(module, name)
 	}
 	return templ.SafeURL("/m/" + module + "/" + oid)
-}
-
-// WorkspaceSymbolURL is the exported form of workspaceSymbolURL,
-// used by handlers (which sit outside the package's templ files).
-func WorkspaceSymbolURL(module, name, oid string) templ.SafeURL {
-	return workspaceSymbolURL(module, name, oid)
 }
 
 // KindHasChildren is the kind-based heuristic for "does clicking
@@ -195,7 +180,7 @@ func WorkspaceRowURL(view *WorkspaceView, s *model.Symbol) templ.SafeURL {
 	return templ.SafeURL("/m/" + url.PathEscape(s.ModuleName) + "/" + url.PathEscape(s.OID))
 }
 
-// SyntaxShort returns the short display form of a symbol's
+// syntaxShort returns the short display form of a symbol's
 // Syntax for the list pane's narrow SYNTAX column. The compile
 // layer expands `Enumeration` TCs to inline their named-number
 // list (`Enumeration { up(1), down(2), … }`) so the right pane's
@@ -204,7 +189,7 @@ func WorkspaceRowURL(view *WorkspaceView, s *model.Symbol) templ.SafeURL {
 // the rest of the type unreadable. Strip inline `{…}` bodies for
 // the column; the full string still ships in `s.Syntax` and the
 // EnumValues section renders the same named numbers as a table.
-func SyntaxShort(s string) string {
+func syntaxShort(s string) string {
 	if i := strings.IndexByte(s, '{'); i > 0 {
 		return strings.TrimSpace(s[:i])
 	}
@@ -246,11 +231,11 @@ type ImportGroup struct {
 	Symbols []string
 }
 
-// GroupImports collapses a flat `[]model.Import` into one row per
+// groupImports collapses a flat `[]model.Import` into one row per
 // source module. Order is preserved by first occurrence so the
 // rendered list reflects the import order at the top of the MIB
 // source — readable to anyone who knows the file.
-func GroupImports(imports []model.Import) []ImportGroup {
+func groupImports(imports []model.Import) []ImportGroup {
 	if len(imports) == 0 {
 		return nil
 	}
@@ -268,7 +253,7 @@ func GroupImports(imports []model.Import) []ImportGroup {
 	return out
 }
 
-// NotifyObjectURL builds the URL for a notification's OBJECTS-clause
+// notifyObjectURL builds the URL for a notification's OBJECTS-clause
 // entry — `linkDown`'s `ifIndex` / `ifAdminStatus` / `ifOperStatus`
 // each become clickable links into that object's workspace page.
 // Uses the name-based selector so the click works regardless of
@@ -276,7 +261,7 @@ func GroupImports(imports []model.Import) []ImportGroup {
 // the same module (it usually isn't — `linkDown` lives in IF-MIB
 // alongside `ifAdminStatus`, but the notification-objects pattern
 // often crosses module boundaries).
-func NotifyObjectURL(module, name string) templ.SafeURL {
+func notifyObjectURL(module, name string) templ.SafeURL {
 	return templ.SafeURL("/m/" + url.PathEscape(module) + "?sel=" + url.QueryEscape(name))
 }
 
@@ -386,7 +371,7 @@ func ScopeBreadcrumb(v *WorkspaceView) []BreadcrumbStep {
 	return out
 }
 
-// SplitOIDLast splits an OID into its prefix (everything up to and
+// splitOIDLast splits an OID into its prefix (everything up to and
 // including the final dot) and its last numeric segment. Examples:
 //   - "1.3.6.1.4.1.22610.2.4.1.1.1" → ("1.3.6.1.4.1.22610.2.4.1.1.", "1")
 //   - "1.3"                          → ("1.",                          "3")
@@ -396,7 +381,7 @@ func ScopeBreadcrumb(v *WorkspaceView) []BreadcrumbStep {
 // Used by the workspace list pane's OID column to render the
 // prefix in muted color and the last segment bold/bright per the
 // handoff design ("highlighted index indicator").
-func SplitOIDLast(oid string) (prefix, last string) {
+func splitOIDLast(oid string) (prefix, last string) {
 	if oid == "" {
 		return "", ""
 	}
@@ -476,10 +461,10 @@ func isEmptyCounts(c *model.FamilyCounts) bool {
 		c.Structs == 0
 }
 
-// FamilyClass returns the type-family CSS class for a symbol —
+// familyClass returns the type-family CSS class for a symbol —
 // `t-counter`, `t-gauge`, `t-int`, `t-text`, `t-index`, `t-time`,
 // `t-addr`, `t-bool`, `t-notif`, or `t-struct`. Templates emit
-// `class={ "row " + FamilyClass(s) }` so Phase-1's `--c-*` color
+// `class={ "row " + familyClass(s) }` so Phase-1's `--c-*` color
 // tokens reach the rendered DOM.
 //
 // isIndex defaults to false here because most call sites don't have
@@ -487,21 +472,21 @@ func isEmptyCounts(c *model.FamilyCounts) bool {
 // helper passes false too. A future refinement can thread the bool
 // through tree/list rendering when accessing the parent row's
 // IndexColumns is cheap.
-func FamilyClass(s *model.Symbol) string {
+func familyClass(s *model.Symbol) string {
 	if s == nil {
 		return "t-struct"
 	}
 	return model.TypeFamily(s.Kind, s.Syntax, false)
 }
 
-// TypeLetter returns the single-character glyph that appears in the
+// typeLetter returns the single-character glyph that appears in the
 // type-letter badge in the workspace list pane: C/G/I/S/X/T/A/B/N
 // for the nine SMI type families, or `·` (U+00B7) for the structural
 // fallback. Mirrors the family taxonomy in `model.TypeFamily` so the
 // glyph and the family CSS class are always derived from the same
 // source.
-func TypeLetter(s *model.Symbol) string {
-	switch FamilyClass(s) {
+func typeLetter(s *model.Symbol) string {
+	switch familyClass(s) {
 	case "t-counter":
 		return "C"
 	case "t-gauge":
@@ -616,16 +601,16 @@ func TrapTypeLetter(syntax string) string {
 	return "s"
 }
 
-// StatusModifier returns the row-class modifier for an SMI status,
+// statusModifier returns the row-class modifier for an SMI status,
 // or "" for normal states (current / mandatory / optional). The
 // workspace tree, list, and type-definitions bar attach this
 // modifier to their row element so a single CSS rule can dim
 // deprecated and obsolete rows uniformly.
 //
-// The dimming complements `StatusPillLabel`'s text badge —
+// The dimming complements `statusPillLabel`'s text badge —
 // together they signal "this symbol exists in the MIB but is
 // flagged as legacy by its author" without burying the row.
-func StatusModifier(s model.Status) string {
+func statusModifier(s model.Status) string {
 	switch s {
 	case model.StatusDeprecated:
 		return "status-deprecated"
@@ -635,12 +620,12 @@ func StatusModifier(s model.Status) string {
 	return ""
 }
 
-// StatusPillLabel returns the text rendered in the small status
+// statusPillLabel returns the text rendered in the small status
 // pill that appears alongside a symbol's name on surfaces that
 // surface deprecated / obsolete status (list pane, type-defs
 // bar). Returns "" for normal states so the templ can omit the
 // pill entirely with a `len(...) > 0` gate.
-func StatusPillLabel(s model.Status) string {
+func statusPillLabel(s model.Status) string {
 	switch s {
 	case model.StatusDeprecated:
 		return "deprecated"
@@ -650,13 +635,13 @@ func StatusPillLabel(s model.Status) string {
 	return ""
 }
 
-// AccessClass returns the abbreviated CSS class used in the
+// accessClass returns the abbreviated CSS class used in the
 // workspace list-pane access column: "ro" (read-only / cyan), "rw"
 // (read-write / read-create / amber), or "na" (not-accessible /
 // accessible-for-notify / muted). The empty-string case is treated
 // as "na" so SMIv1 imports without a MAX-ACCESS clause still get a
 // neutral pill rather than a missing column.
-func AccessClass(a model.Access) string {
+func accessClass(a model.Access) string {
 	switch a {
 	case model.AccessReadOnly:
 		return "ro"
@@ -666,13 +651,13 @@ func AccessClass(a model.Access) string {
 	return "na"
 }
 
-// AccessLabel returns the short label rendered next to AccessClass:
+// accessLabel returns the short label rendered next to accessClass:
 // "ro", "rw", "na", "n/a", or empty when no MAX-ACCESS applies.
-// Kept separate from AccessClass so future refinements (e.g. an
+// Kept separate from accessClass so future refinements (e.g. an
 // "n/a" label for `accessible-for-notify` while keeping the same
 // muted color class) don't have to fight a single overloaded
 // helper.
-func AccessLabel(a model.Access) string {
+func accessLabel(a model.Access) string {
 	switch a {
 	case model.AccessReadOnly:
 		return "ro"
@@ -684,7 +669,7 @@ func AccessLabel(a model.Access) string {
 	return ""
 }
 
-// SplitCamelPrefix returns the (lowercase camelCase prefix, rest)
+// splitCamelPrefix returns the (lowercase camelCase prefix, rest)
 // pair for an SMI symbol name so the renderer can dim the boring
 // shared prefix and emphasize the distinguishing tail. Examples:
 //   - "axSysCpu"   → ("ax",  "SysCpu")
@@ -695,7 +680,7 @@ func AccessLabel(a model.Access) string {
 // The split is at the first uppercase rune. The empty-prefix cases
 // signal "render the whole name as bright tail with no dimmed
 // prefix", which the templ uses to skip the wrapping `<span class="pre">`.
-func SplitCamelPrefix(name string) (prefix, tail string) {
+func splitCamelPrefix(name string) (prefix, tail string) {
 	for i, r := range name {
 		if r >= 'A' && r <= 'Z' {
 			if i == 0 {
@@ -707,7 +692,7 @@ func SplitCamelPrefix(name string) (prefix, tail string) {
 	return "", name
 }
 
-// SplitNameHTML renders a symbol name as `<span class="pre">…</span><span class="tail">…</span>`
+// splitNameHTML renders a symbol name as `<span class="pre">…</span><span class="tail">…</span>`
 // with NO whitespace between the two spans. Built in Go (rather than
 // composed in `templ`) because templ preserves source whitespace
 // across an `if pre != ""` block, and that inter-element whitespace
@@ -716,8 +701,8 @@ func SplitCamelPrefix(name string) (prefix, tail string) {
 // pre-built HTML string sidesteps that.
 //
 // Returned string is safe to render via templ.Raw.
-func SplitNameHTML(name string) string {
-	pre, tail := SplitCamelPrefix(name)
+func splitNameHTML(name string) string {
+	pre, tail := splitCamelPrefix(name)
 	var b strings.Builder
 	b.Grow(len(name) + 48)
 	if pre != "" {
@@ -731,12 +716,12 @@ func SplitNameHTML(name string) string {
 	return b.String()
 }
 
-// KindLabel returns the human-readable label for a SymbolKind, used
+// kindLabel returns the human-readable label for a SymbolKind, used
 // in the workspace detail pane's "● COLUMN" header. Default is the
 // kind string itself; KindObjectType-derived values (scalar, table,
 // table-entry, column) and special kinds get spelled out for the
 // reader instead of the SMI shorthand.
-func KindLabel(k model.SymbolKind) string {
+func kindLabel(k model.SymbolKind) string {
 	switch k {
 	case model.KindScalar:
 		return "scalar"
@@ -868,7 +853,7 @@ type TrapIndexStrategy struct {
 	Columns []TrapIndexColumn
 }
 
-// TrapIndexColumnsJSON returns a JSON-encoded slice of {name,
+// trapIndexColumnsJSON returns a JSON-encoded slice of {name,
 // syntax} objects for embedding in the notify-objects list's
 // `data-trap-index-columns` attribute. The trap-simulator modal
 // parses this on open() and walks the entries to render per-column
@@ -879,7 +864,7 @@ type TrapIndexStrategy struct {
 // HTML. A column name containing `</script>` or a quote could
 // otherwise terminate the attribute and inject markup. Encoder
 // appends a trailing newline that we strip before return.
-func TrapIndexColumnsJSON(cols []TrapIndexColumn) string {
+func trapIndexColumnsJSON(cols []TrapIndexColumn) string {
 	if len(cols) == 0 {
 		return "[]"
 	}
@@ -1251,7 +1236,7 @@ type WorkspaceView struct {
 // module's description for the collapsed module-info bar, capped
 // at ~120 chars so the summary line stays single-row even on
 // narrow displays. Reuses the same first-sentence + word-boundary
-// truncation as `SummarizeSymbol`.
+// truncation as `summarizeSymbol`.
 func moduleSummaryPreview(desc string) string {
 	d := strings.TrimSpace(collapseWhitespace(desc))
 	if d == "" {
@@ -1264,7 +1249,7 @@ func moduleSummaryPreview(desc string) string {
 	return first
 }
 
-// SummarizeSymbol produces the one-sentence plain-language lede that
+// summarizeSymbol produces the one-sentence plain-language lede that
 // sits between the symbol name and its OID on the symbol page —
 // design.md's "novel for this product" entry-point line.
 //
@@ -1277,7 +1262,7 @@ func moduleSummaryPreview(desc string) string {
 // best-effort: SMI descriptions occasionally embed example dotted
 // notation, but the visible truncation is acceptable cost for a
 // summary that almost always reads cleanly.
-func SummarizeSymbol(s *model.Symbol) string {
+func summarizeSymbol(s *model.Symbol) string {
 	if s == nil {
 		return ""
 	}

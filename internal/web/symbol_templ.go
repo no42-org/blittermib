@@ -182,7 +182,7 @@ func symbolDetailBody(view *SymbolView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
-		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(SummarizeSymbol(view.Symbol))
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(summarizeSymbol(view.Symbol))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/symbol.templ`, Line: 61, Col: 50}
 		}

@@ -145,11 +145,12 @@ func bootstrapImportAndStandard(engine *mibimport.Engine, standardDir string) (i
 // 503). Nil in production.
 var testHookBeforeCorpusLoad func()
 
-// run boots the server. parent is the root context (main passes
-// Background; tests pass a cancellable context to stop the server) —
-// SIGINT/SIGTERM handling is layered on top of it.
-func run(parent context.Context, cfg config) error {
-	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
+// resolveCorpusRoot creates the data directory and settles the corpus
+// root in cfg: defaulting it into the data directory, falling back to
+// serving the read-only standard set when the root is unwritable, and
+// migrating the legacy upload/ drop folder.
+func resolveCorpusRoot(cfg *config) error {
+	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil { // #nosec G703 -- path derives from operator CLI flags (-data/-mibs/-standard-mibs), not request input.
 		return fmt.Errorf("create data dir: %w", err)
 	}
 	// Default corpus location: INSIDE the data directory (the
@@ -161,13 +162,13 @@ func run(parent context.Context, cfg config) error {
 		cfg.mibsDir = filepath.Join(cfg.dataDir, "mibs")
 		warnLegacyCorpus(cfg.mibsDir)
 	}
-	if err := os.MkdirAll(cfg.mibsDir, 0o750); err != nil {
+	if err := os.MkdirAll(cfg.mibsDir, 0o750); err != nil { // #nosec G703 -- path derives from operator CLI flags (-data/-mibs/-standard-mibs), not request input.
 		// Unwritable corpus root (e.g. docker run --read-only without
 		// a data volume): fall back to SERVING the read-only standard
 		// set in place. Imports are disabled; the corpus is whatever
 		// the image ships — matching what such deployments got from
 		// the old baked-corpus layout.
-		if _, sErr := os.Stat(cfg.standardDir); sErr == nil {
+		if _, sErr := os.Stat(cfg.standardDir); sErr == nil { // #nosec G703 -- path derives from operator CLI flags (-data/-mibs/-standard-mibs), not request input.
 			slog.Error("corpus root is not writable — serving the read-only standard corpus; imports DISABLED",
 				"root", cfg.mibsDir, "standard", cfg.standardDir, "err", err)
 			cfg.mibsDir = cfg.standardDir
@@ -177,6 +178,16 @@ func run(parent context.Context, cfg config) error {
 		}
 	}
 	migrateLegacyUpload(cfg.mibsDir)
+	return nil
+}
+
+// run boots the server. parent is the root context (main passes
+// Background; tests pass a cancellable context to stop the server) —
+// SIGINT/SIGTERM handling is layered on top of it.
+func run(parent context.Context, cfg config) error {
+	if err := resolveCorpusRoot(&cfg); err != nil {
+		return err
+	}
 	dbPath := filepath.Join(cfg.dataDir, "blittermib.db")
 
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
@@ -237,98 +248,14 @@ func run(parent context.Context, cfg config) error {
 	srv.EnableWalk()
 	web.SetWalkEnabled(srv.WalkEnabled())
 
-	// rescan processes anything already sitting in import/.
-	rescan := func(ctx context.Context) {
-		pending, err := engine.Pending()
-		if err != nil {
-			slog.Warn("import rescan failed", "err", err)
-			return
-		}
-		if len(pending) > 0 {
-			engine.Import(ctx, pending)
-		}
-	}
-
 	var wg sync.WaitGroup
 
 	// The heavy corpus load runs in the background; the readiness gate
 	// (/readyz) opens when the first pass completes. Joining via wg
 	// keeps shutdown ordered: the deferred store Close must not race a
 	// loader that is still writing.
-	//
-	// The intake watcher + periodic rescan start INSIDE this goroutine,
-	// after the initial sync: engine.Import serializes on the engine
-	// mutex but SyncCorpus does not, so launching the watcher earlier
-	// would let a file dropped into import/ during the load window run
-	// Import concurrently with SyncCorpus — an overlap that cannot
-	// happen today and that this reorder must not introduce.
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// A panicking loader must not take the process down — the pod
-		// stays alive (liveness 200) and visibly not-ready (readiness
-		// 503), with the panic in the logs (design Risk 2).
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("corpus load panicked — readiness gate stays closed", "panic", r)
-			}
-		}()
-		if hook := testHookBeforeCorpusLoad; hook != nil {
-			hook()
-		}
-		if _, _, err := engine.SyncCorpus(ctx); err != nil {
-			slog.Warn("corpus cache validation encountered errors", "err", err)
-		}
-		// Bail BEFORE the boot rescan when shutdown was requested
-		// mid-load: engine.Import with an already-cancelled context
-		// quarantines every pending file into import/failed/ with a
-		// "context canceled" sidecar (the engine treats cancellation
-		// like any compile failure), permanently eating intake that a
-		// clean next boot would have processed.
-		if ctx.Err() != nil {
-			return
-		}
-		if importOK {
-			rescan(ctx)
-
-			watcher := watch.NewSingle(engine.Dir(), 250*time.Millisecond, func(ctx context.Context, files []string) {
-				engine.Import(ctx, files)
-			})
-
-			// Safe concurrent Add: this goroutine still holds a
-			// WaitGroup count, so the counter cannot reach zero while
-			// these are added.
-			wg.Add(2)
-			go func() {
-				defer wg.Done()
-				if err := watcher.Run(ctx); err != nil {
-					slog.Warn("watcher exited with error", "err", err)
-				}
-			}()
-			go func() {
-				defer wg.Done()
-				tick := time.NewTicker(rescanInterval)
-				defer tick.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-tick.C:
-						rescan(ctx)
-					}
-				}
-			}()
-		}
-		if ctx.Err() != nil {
-			// Best-effort: skip reporting ready when shutdown is
-			// already requested. (A cancel can still land between this
-			// check and SetReady — benign: the listener is draining and
-			// the process is exiting either way.)
-			return
-		}
-		srv.SetReady()
-		slog.Info("corpus loaded — readiness gate open")
-	}()
+	go corpusLoader(ctx, engine, srv, importOK, &wg)
 
 	err = srv.Start(ctx)
 	// Release the background goroutines before joining them: when Start
@@ -345,6 +272,102 @@ func run(parent context.Context, cfg config) error {
 	}
 	slog.Info("blittermib stopped")
 	return nil
+}
+
+// corpusLoader is the background corpus-load goroutine: it validates
+// the corpus cache (SyncCorpus), then — for a writable intake — runs
+// the boot rescan and starts the intake watcher + periodic rescan,
+// and finally opens the readiness gate.
+//
+// The watcher + periodic rescan start INSIDE this goroutine, after
+// the initial sync: engine.Import serializes on the engine mutex but
+// SyncCorpus does not, so launching the watcher earlier would let a
+// file dropped into import/ during the load window run Import
+// concurrently with SyncCorpus — an overlap that cannot happen today
+// and that any reorder must not introduce.
+//
+// The caller holds a WaitGroup count for this goroutine (wg.Add(1)
+// before `go corpusLoader(...)`); the watcher and ticker goroutines
+// are added here while that count is still held, so the counter
+// cannot reach zero mid-spawn.
+func corpusLoader(ctx context.Context, engine *mibimport.Engine, srv *server.Server, importOK bool, wg *sync.WaitGroup) {
+	defer wg.Done()
+	// A panicking loader must not take the process down — the pod
+	// stays alive (liveness 200) and visibly not-ready (readiness
+	// 503), with the panic in the logs (design Risk 2).
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("corpus load panicked — readiness gate stays closed", "panic", r)
+		}
+	}()
+
+	// rescan processes anything already sitting in import/.
+	rescan := func(ctx context.Context) {
+		pending, err := engine.Pending()
+		if err != nil {
+			slog.Warn("import rescan failed", "err", err)
+			return
+		}
+		if len(pending) > 0 {
+			engine.Import(ctx, pending)
+		}
+	}
+
+	if hook := testHookBeforeCorpusLoad; hook != nil {
+		hook()
+	}
+	if _, _, err := engine.SyncCorpus(ctx); err != nil {
+		slog.Warn("corpus cache validation encountered errors", "err", err)
+	}
+	// Bail BEFORE the boot rescan when shutdown was requested
+	// mid-load: engine.Import with an already-cancelled context
+	// quarantines every pending file into import/failed/ with a
+	// "context canceled" sidecar (the engine treats cancellation
+	// like any compile failure), permanently eating intake that a
+	// clean next boot would have processed.
+	if ctx.Err() != nil {
+		return
+	}
+	if importOK {
+		rescan(ctx)
+
+		watcher := watch.NewSingle(engine.Dir(), 250*time.Millisecond, func(ctx context.Context, files []string) {
+			engine.Import(ctx, files)
+		})
+
+		// Safe concurrent Add: this goroutine still holds a
+		// WaitGroup count, so the counter cannot reach zero while
+		// these are added.
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if err := watcher.Run(ctx); err != nil {
+				slog.Warn("watcher exited with error", "err", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			tick := time.NewTicker(rescanInterval)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					rescan(ctx)
+				}
+			}
+		}()
+	}
+	if ctx.Err() != nil {
+		// Best-effort: skip reporting ready when shutdown is
+		// already requested. (A cancel can still land between this
+		// check and SetReady — benign: the listener is draining and
+		// the process is exiting either way.)
+		return
+	}
+	srv.SetReady()
+	slog.Info("corpus loaded — readiness gate open")
 }
 
 // warnLegacyCorpus flags a populated pre-relocation corpus at the
@@ -371,15 +394,15 @@ func warnLegacyCorpus(newRoot string) {
 func migrateLegacyUpload(mibsDir string) {
 	legacy := filepath.Join(mibsDir, "upload")
 	current := filepath.Join(mibsDir, "import")
-	if _, err := os.Stat(legacy); err != nil {
+	if _, err := os.Stat(legacy); err != nil { // #nosec G703 -- path derives from operator CLI flags (-data/-mibs/-standard-mibs), not request input.
 		return
 	}
-	if _, err := os.Stat(current); err == nil {
+	if _, err := os.Stat(current); err == nil { // #nosec G703 -- path derives from operator CLI flags (-data/-mibs/-standard-mibs), not request input.
 		slog.Warn("legacy mibs/upload/ present alongside mibs/import/ — not migrating; move its files into import/ manually",
 			"legacy", legacy)
 		return
 	}
-	if err := os.Rename(legacy, current); err != nil {
+	if err := os.Rename(legacy, current); err != nil { // #nosec G703 -- path derives from operator CLI flags (-data/-mibs/-standard-mibs), not request input.
 		slog.Warn("legacy upload/ migration failed", "err", err)
 		return
 	}

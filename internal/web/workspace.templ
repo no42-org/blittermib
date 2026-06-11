@@ -429,14 +429,14 @@ templ moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int, h
 				if len(mod.Imports) > 0 {
 					<span class="module-info-label">Imports</span>
 					<div class="module-info-imports">
-						for _, group := range GroupImports(mod.Imports) {
+						for _, group := range groupImports(mod.Imports) {
 							<div class="imports-group">
 								<a class="imports-source" href={ moduleURL(group.Module) }>
 									{ group.Module }
 								</a>
 								<div class="imports-symbols">
 									for _, sym := range group.Symbols {
-										<a class="imports-symbol" href={ NotifyObjectURL(group.Module, sym) }>
+										<a class="imports-symbol" href={ notifyObjectURL(group.Module, sym) }>
 											<code>{ sym }</code>
 										</a>
 									}
@@ -532,11 +532,11 @@ templ typeDefsBar(view *WorkspaceView) {
 			<div class="type-defs-body">
 				for _, td := range view.TypeDefs {
 					{{ tcSym := model.Symbol{ModuleName: td.Module, Name: td.Name, Kind: model.KindTextualConvention} }}
-					<div class={ "type-defs-row", StatusModifier(td.Status) } x-data="{ open: false }">
+					<div class={ "type-defs-row", statusModifier(td.Status) } x-data="{ open: false }">
 						<a class="type-defs-name" href={ WorkspaceRowURL(view, &tcSym) }>
 							<code>{ td.Name }</code>
 						</a>
-						if pill := StatusPillLabel(td.Status); pill != "" {
+						if pill := statusPillLabel(td.Status); pill != "" {
 							<span class={ "status-pill", string(td.Status) }>{ pill }</span>
 						}
 						if td.Base != "" {
@@ -709,7 +709,7 @@ templ WorkspaceTreeFragment(view *WorkspaceView, rows []TreeRow) {
 // heavy SMI names.
 templ treeRow(view *WorkspaceView, r TreeRow) {
 	if r.HasChildren {
-		<li class={ "tree-row " + FamilyClass(&r.Symbol), StatusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
+		<li class={ "tree-row " + familyClass(&r.Symbol), statusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
 			data-name={ r.Symbol.Name }
 			data-oid={ r.Symbol.OID }
 			x-data={ TreeRowAlpineState(r.Expanded) }
@@ -732,7 +732,7 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
 				>
 					<code class="tree-row-name">
-						@templ.Raw(SplitNameHTML(r.Symbol.Name))
+						@templ.Raw(splitNameHTML(r.Symbol.Name))
 					</code>
 				</a>
 			</div>
@@ -744,7 +744,7 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 			</ul>
 		</li>
 	} else {
-		<li class={ "tree-row " + FamilyClass(&r.Symbol), StatusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
+		<li class={ "tree-row " + familyClass(&r.Symbol), statusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
 			data-name={ r.Symbol.Name }
 			data-oid={ r.Symbol.OID }>
 			<div class="tree-row-head">
@@ -757,7 +757,7 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
 				>
 					<code class="tree-row-name">
-						@templ.Raw(SplitNameHTML(r.Symbol.Name))
+						@templ.Raw(splitNameHTML(r.Symbol.Name))
 					</code>
 				</a>
 			</div>
@@ -839,8 +839,8 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 						} else {
 							<a
 								class="scope-crumb"
-								href={ workspaceURL(c.Module, c.OID) }
-								hx-get={ string(workspaceURL(c.Module, c.OID)) }
+								href={ WorkspaceSymbolURL(c.Module, c.Name, c.OID) }
+								hx-get={ string(WorkspaceSymbolURL(c.Module, c.Name, c.OID)) }
 								hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
 							>{ c.Name }</a>
 							<span class="scope-sep" aria-hidden="true">/</span>
@@ -869,10 +869,10 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 		</thead>
 		<tbody>
 			for _, s := range rows {
-				{{ oidPre, oidLast := SplitOIDLast(s.OID) }}
+				{{ oidPre, oidLast := splitOIDLast(s.OID) }}
 				{{ rowURL := WorkspaceRowURL(view, &s) }}
 				<tr
-					class={ "list-row " + FamilyClass(&s), StatusModifier(s.Status), templ.KV("selected", selectedOID != "" && s.OID == selectedOID) }
+					class={ "list-row " + familyClass(&s), statusModifier(s.Status), templ.KV("selected", selectedOID != "" && s.OID == selectedOID) }
 					data-name={ s.Name }
 					data-oid={ s.OID }
 					data-kind={ string(s.Kind) }
@@ -882,7 +882,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 					x-show="matchesRow($el)"
 					x-on:click="if ($event.target.closest('a, button')) return; if ($event.metaKey || $event.ctrlKey) { window.open($el.dataset.href, '_blank'); return; } if ($event.shiftKey) { window.open($el.dataset.href); return; }">
 					<td class="list-cell-badge">
-						<span class="tlet" aria-hidden="true">{ TypeLetter(&s) }</span>
+						<span class="tlet" aria-hidden="true">{ typeLetter(&s) }</span>
 					</td>
 					<td class="list-cell-name">
 						@copyToClipboardIcon(s.Name, "Copy name")
@@ -892,15 +892,15 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 							hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
 						>
 							<code>
-								@templ.Raw(SplitNameHTML(s.Name))
+								@templ.Raw(splitNameHTML(s.Name))
 							</code>
 						</a>
-						if pill := StatusPillLabel(s.Status); pill != "" {
+						if pill := statusPillLabel(s.Status); pill != "" {
 							<span class={ "status-pill", string(s.Status) }>{ pill }</span>
 						}
 					</td>
-					<td class="list-cell-syntax">{ SyntaxShort(s.Syntax) }</td>
-					<td class={ "list-cell-access " + AccessClass(s.Access) }>{ AccessLabel(s.Access) }</td>
+					<td class="list-cell-syntax">{ syntaxShort(s.Syntax) }</td>
+					<td class={ "list-cell-access " + accessClass(s.Access) }>{ accessLabel(s.Access) }</td>
 					<td class="list-cell-oid">
 						if s.OID != "" {
 							@copyToClipboardIcon(s.OID, "Copy OID")
@@ -980,14 +980,14 @@ templ moduleOverview(mod *model.Module) {
 		if len(mod.Imports) > 0 {
 			<div class="section-title">Imported objects</div>
 			<div class="imports">
-				for _, group := range GroupImports(mod.Imports) {
+				for _, group := range groupImports(mod.Imports) {
 					<div class="imports-group">
 						<a class="imports-source" href={ moduleURL(group.Module) }>
 							{ group.Module }
 						</a>
 						<div class="imports-symbols">
 							for _, sym := range group.Symbols {
-								<a class="imports-symbol" href={ NotifyObjectURL(group.Module, sym) }>
+								<a class="imports-symbol" href={ notifyObjectURL(group.Module, sym) }>
 									<code>{ sym }</code>
 								</a>
 							}
@@ -1019,14 +1019,14 @@ templ moduleOverview(mod *model.Module) {
 //     `name` and `oid` values
 templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 	{{ s := sv.Symbol }}
-	{{ fam := FamilyClass(s) }}
+	{{ fam := familyClass(s) }}
 	<div class="detail-head">
 		<a class="detail-close-x" href={ moduleURL(s.ModuleName) }
 			aria-label="Close detail pane"
 			title="Close">✕</a>
 		<div class={ "detail-kind " + fam }>
 			<span class="kdot" aria-hidden="true"></span>
-			{ KindLabel(s.Kind) }
+			{ kindLabel(s.Kind) }
 		</div>
 		<h2 class="detail-name"><code>{ s.Name }</code></h2>
 		<div class="detail-meta">
@@ -1066,7 +1066,7 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 				data-notification-name={ s.Name }
 				data-notification-module={ s.ModuleName }
 				data-trap-index-mode={ sv.TrapIndex.Mode }
-				data-trap-index-columns={ TrapIndexColumnsJSON(sv.TrapIndex.Columns) }>
+				data-trap-index-columns={ trapIndexColumnsJSON(sv.TrapIndex.Columns) }>
 				for _, obj := range sv.NotifyObjects {
 					<li class="notify-object-row"
 						data-name={ obj.Name }
@@ -1076,7 +1076,7 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 						data-trap-type-letter={ obj.TrapTypeLetter }
 						data-is-column={ fmt.Sprintf("%t", obj.IsColumn) }
 						data-enum-values={ obj.EnumValuesJSON }>
-						<a class="notify-object" href={ NotifyObjectURL(obj.Module, obj.Name) }>
+						<a class="notify-object" href={ notifyObjectURL(obj.Module, obj.Name) }>
 							<code>{ obj.Name }</code>
 							<span class="notify-object-module">{ obj.Module }</span>
 						</a>
@@ -1098,7 +1098,7 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 					{ s.OID }
 				</span>
 			}
-			<span class="k">kind</span><span class="v">{ KindLabel(s.Kind) }</span>
+			<span class="k">kind</span><span class="v">{ kindLabel(s.Kind) }</span>
 			if s.Syntax != "" {
 				<span class="k">syntax</span><span class="v">{ s.Syntax }</span>
 			}

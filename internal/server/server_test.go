@@ -829,17 +829,13 @@ func TestModuleDownloadRouteDispatch(t *testing.T) {
 	}
 }
 
-func TestPathUnderAny(t *testing.T) {
+func TestUnderMIBRoot(t *testing.T) {
 	dir := t.TempDir()
 	mibsDir := filepath.Join(dir, "mibs")
-	stdDir := filepath.Join(dir, "data", "standard-mibs")
 	if err := os.MkdirAll(mibsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(stdDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	roots := []string{stdDir, mibsDir}
+	s := &Server{mibsDir: mibsDir}
 
 	tests := []struct {
 		name string
@@ -847,24 +843,22 @@ func TestPathUnderAny(t *testing.T) {
 		want bool
 	}{
 		{"empty path", "", false},
-		{"under user mibs dir", filepath.Join(mibsDir, "IF-MIB.txt"), true},
-		{"under standard-mibs dir", filepath.Join(stdDir, "SNMPv2-SMI"), true},
+		{"under mibs dir", filepath.Join(mibsDir, "IF-MIB.txt"), true},
 		{"exact root match", mibsDir, true},
 		{"sibling of root", filepath.Join(dir, "elsewhere", "evil.mib"), false},
 		{"escape via ../", filepath.Join(mibsDir, "..", "elsewhere", "evil.mib"), false},
-		{"absolute outside roots", "/etc/passwd", false},
+		{"absolute outside root", "/etc/passwd", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := pathUnderAny(tt.path, roots); got != tt.want {
-				t.Errorf("pathUnderAny(%q) = %v, want %v", tt.path, got, tt.want)
+			if got := s.underMIBRoot(tt.path); got != tt.want {
+				t.Errorf("underMIBRoot(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
 	}
 
-	// Empty roots are skipped — having a single empty root in the
-	// list MUST NOT be treated as "everything is under root".
-	if pathUnderAny("/etc/passwd", []string{""}) {
+	// An empty root MUST NOT be treated as "everything is under root".
+	if (&Server{}).underMIBRoot("/etc/passwd") {
 		t.Error("empty root accepted /etc/passwd")
 	}
 }

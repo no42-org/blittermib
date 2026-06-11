@@ -578,7 +578,7 @@ func moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int, ha
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				for _, group := range GroupImports(mod.Imports) {
+				for _, group := range groupImports(mod.Imports) {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<div class=\"imports-group\"><a class=\"imports-source\" href=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
@@ -615,7 +615,7 @@ func moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int, ha
 							return templ_7745c5c3_Err
 						}
 						var templ_7745c5c3_Var22 templ.SafeURL
-						templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinURLErrs(NotifyObjectURL(group.Module, sym))
+						templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinURLErrs(notifyObjectURL(group.Module, sym))
 						if templ_7745c5c3_Err != nil {
 							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 439, Col: 77}
 						}
@@ -916,7 +916,7 @@ func typeDefsBar(view *WorkspaceView) templ.Component {
 			}
 			for _, td := range view.TypeDefs {
 				tcSym := model.Symbol{ModuleName: td.Module, Name: td.Name, Kind: model.KindTextualConvention}
-				var templ_7745c5c3_Var37 = []any{"type-defs-row", StatusModifier(td.Status)}
+				var templ_7745c5c3_Var37 = []any{"type-defs-row", statusModifier(td.Status)}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var37...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -964,7 +964,7 @@ func typeDefsBar(view *WorkspaceView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				if pill := StatusPillLabel(td.Status); pill != "" {
+				if pill := statusPillLabel(td.Status); pill != "" {
 					var templ_7745c5c3_Var41 = []any{"status-pill", string(td.Status)}
 					templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var41...)
 					if templ_7745c5c3_Err != nil {
@@ -1506,7 +1506,7 @@ func treeRow(view *WorkspaceView, r TreeRow) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if r.HasChildren {
-			var templ_7745c5c3_Var59 = []any{"tree-row " + FamilyClass(&r.Symbol), StatusModifier(r.Symbol.Status), templ.KV("selected", r.Selected)}
+			var templ_7745c5c3_Var59 = []any{"tree-row " + familyClass(&r.Symbol), statusModifier(r.Symbol.Status), templ.KV("selected", r.Selected)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var59...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1646,7 +1646,7 @@ func treeRow(view *WorkspaceView, r TreeRow) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(SplitNameHTML(r.Symbol.Name)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(splitNameHTML(r.Symbol.Name)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1665,7 +1665,7 @@ func treeRow(view *WorkspaceView, r TreeRow) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			var templ_7745c5c3_Var70 = []any{"tree-row " + FamilyClass(&r.Symbol), StatusModifier(r.Symbol.Status), templ.KV("selected", r.Selected)}
+			var templ_7745c5c3_Var70 = []any{"tree-row " + familyClass(&r.Symbol), statusModifier(r.Symbol.Status), templ.KV("selected", r.Selected)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var70...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1744,7 +1744,7 @@ func treeRow(view *WorkspaceView, r TreeRow) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(SplitNameHTML(r.Symbol.Name)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(splitNameHTML(r.Symbol.Name)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1832,9 +1832,9 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 							return templ_7745c5c3_Err
 						}
 						var templ_7745c5c3_Var78 templ.SafeURL
-						templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinURLErrs(workspaceURL(c.Module, c.OID))
+						templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinURLErrs(WorkspaceSymbolURL(c.Module, c.Name, c.OID))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 842, Col: 44}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 842, Col: 58}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 						if templ_7745c5c3_Err != nil {
@@ -1845,9 +1845,9 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 							return templ_7745c5c3_Err
 						}
 						var templ_7745c5c3_Var79 string
-						templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(string(workspaceURL(c.Module, c.OID)))
+						templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(string(WorkspaceSymbolURL(c.Module, c.Name, c.OID)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 843, Col: 54}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 843, Col: 68}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 						if templ_7745c5c3_Err != nil {
@@ -1926,9 +1926,9 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 			return templ_7745c5c3_Err
 		}
 		for _, s := range rows {
-			oidPre, oidLast := SplitOIDLast(s.OID)
+			oidPre, oidLast := splitOIDLast(s.OID)
 			rowURL := WorkspaceRowURL(view, &s)
-			var templ_7745c5c3_Var84 = []any{"list-row " + FamilyClass(&s), StatusModifier(s.Status), templ.KV("selected", selectedOID != "" && s.OID == selectedOID)}
+			var templ_7745c5c3_Var84 = []any{"list-row " + familyClass(&s), statusModifier(s.Status), templ.KV("selected", selectedOID != "" && s.OID == selectedOID)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var84...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -2016,7 +2016,7 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var91 string
-			templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(TypeLetter(&s))
+			templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(typeLetter(&s))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 885, Col: 60}
 			}
@@ -2062,7 +2062,7 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(SplitNameHTML(s.Name)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(splitNameHTML(s.Name)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2070,7 +2070,7 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if pill := StatusPillLabel(s.Status); pill != "" {
+			if pill := statusPillLabel(s.Status); pill != "" {
 				var templ_7745c5c3_Var94 = []any{"status-pill", string(s.Status)}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var94...)
 				if templ_7745c5c3_Err != nil {
@@ -2112,7 +2112,7 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var97 string
-			templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(SyntaxShort(s.Syntax))
+			templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(syntaxShort(s.Syntax))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 902, Col: 57}
 			}
@@ -2124,7 +2124,7 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var98 = []any{"list-cell-access " + AccessClass(s.Access)}
+			var templ_7745c5c3_Var98 = []any{"list-cell-access " + accessClass(s.Access)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var98...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -2147,7 +2147,7 @@ func workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string)
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var100 string
-			templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(AccessLabel(s.Access))
+			templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(accessLabel(s.Access))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 903, Col: 86}
 			}
@@ -2422,7 +2422,7 @@ func moduleOverview(mod *model.Module) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			for _, group := range GroupImports(mod.Imports) {
+			for _, group := range groupImports(mod.Imports) {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 187, "<div class=\"imports-group\"><a class=\"imports-source\" href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -2459,7 +2459,7 @@ func moduleOverview(mod *model.Module) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var113 templ.SafeURL
-					templ_7745c5c3_Var113, templ_7745c5c3_Err = templ.JoinURLErrs(NotifyObjectURL(group.Module, sym))
+					templ_7745c5c3_Var113, templ_7745c5c3_Err = templ.JoinURLErrs(notifyObjectURL(group.Module, sym))
 					if templ_7745c5c3_Err != nil {
 						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 990, Col: 75}
 					}
@@ -2543,7 +2543,7 @@ func workspaceDetailBody(view *WorkspaceView, sv *SymbolView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		s := sv.Symbol
-		fam := FamilyClass(s)
+		fam := familyClass(s)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 196, "<div class=\"detail-head\"><a class=\"detail-close-x\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -2584,7 +2584,7 @@ func workspaceDetailBody(view *WorkspaceView, sv *SymbolView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var119 string
-		templ_7745c5c3_Var119, templ_7745c5c3_Err = templ.JoinStringErrs(KindLabel(s.Kind))
+		templ_7745c5c3_Var119, templ_7745c5c3_Err = templ.JoinStringErrs(kindLabel(s.Kind))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 1029, Col: 22}
 		}
@@ -2822,7 +2822,7 @@ func workspaceDetailBody(view *WorkspaceView, sv *SymbolView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var134 string
-			templ_7745c5c3_Var134, templ_7745c5c3_Err = templ.JoinStringErrs(TrapIndexColumnsJSON(sv.TrapIndex.Columns))
+			templ_7745c5c3_Var134, templ_7745c5c3_Err = templ.JoinStringErrs(trapIndexColumnsJSON(sv.TrapIndex.Columns))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 1069, Col: 72}
 			}
@@ -2931,7 +2931,7 @@ func workspaceDetailBody(view *WorkspaceView, sv *SymbolView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var142 templ.SafeURL
-				templ_7745c5c3_Var142, templ_7745c5c3_Err = templ.JoinURLErrs(NotifyObjectURL(obj.Module, obj.Name))
+				templ_7745c5c3_Var142, templ_7745c5c3_Err = templ.JoinURLErrs(notifyObjectURL(obj.Module, obj.Name))
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 1079, Col: 75}
 				}
@@ -3024,7 +3024,7 @@ func workspaceDetailBody(view *WorkspaceView, sv *SymbolView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var147 string
-		templ_7745c5c3_Var147, templ_7745c5c3_Err = templ.JoinStringErrs(KindLabel(s.Kind))
+		templ_7745c5c3_Var147, templ_7745c5c3_Err = templ.JoinStringErrs(kindLabel(s.Kind))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/workspace.templ`, Line: 1101, Col: 65}
 		}

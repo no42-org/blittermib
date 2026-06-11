@@ -85,7 +85,7 @@ func SymbolDisambiguation(name string, matches []model.Symbol) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var5 templ.SafeURL
-				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(workspaceSymbolURL(s.ModuleName, s.Name, s.OID))
+				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(WorkspaceSymbolURL(s.ModuleName, s.Name, s.OID))
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/disambig.templ`, Line: 22, Col: 67}
 				}

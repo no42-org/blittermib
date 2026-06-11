@@ -137,7 +137,7 @@ templ WalkResults(view WalkResultsView) {
 					<ul class="walk-module-list">
 						for _, n := range view.Notifications {
 							<li class="walk-module-row">
-								<a class="walk-module-link" href={ moduleHref(n.Module) }>{ n.Module }</a>
+								<a class="walk-module-link" href={ moduleURL(n.Module) }>{ n.Module }</a>
 								<span class="walk-module-counts">{ n.Count }</span>
 							</li>
 						}
