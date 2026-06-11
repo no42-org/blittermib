@@ -6,8 +6,8 @@ import "github.com/no42-org/blittermib/internal/model"
 // clicking the module name in the status bar. The full module list
 // is preloaded server-side as a hidden JSON payload (it's bounded —
 // at most ~1k rows in the worst standard-MIB-bundle case), and
-// Alpine renders only the first 10 matches client-side with a
-// "+N more" indicator nudging the user to keep typing.
+// Alpine renders every match into a scrollable list, so all modules
+// are reachable without typing.
 //
 // The picker is a centered card overlaying the page (not a
 // dropdown anchored to the status-bar button). At 1k modules the
@@ -41,8 +41,8 @@ templ modulePicker(modules []model.Module) {
 				</button>
 				<span class="kbd" aria-hidden="true">esc</span>
 			</div>
-			<ul class="module-picker-list" role="listbox">
-				<template x-for="(m, idx) in visible" x-bind:key="m.name">
+			<ul class="module-picker-list" role="listbox" x-ref="list">
+				<template x-for="(m, idx) in filtered" x-bind:key="m.name">
 					<li class="module-picker-item"
 						role="option"
 						x-bind:data-active="idx === active"
@@ -75,11 +75,6 @@ templ modulePicker(modules []model.Module) {
 					<span class="module-picker-empty-hint" x-text="'Tried: ' + query"></span>
 				</li>
 			</ul>
-			<div class="module-picker-footer"
-				x-show="hiddenCount > 0">
-				<span class="module-picker-more"
-					x-text="'+ ' + hiddenCount + ' more — keep typing to narrow'"></span>
-			</div>
 		</div>
 		<!-- picker.js reads the module list from this data attribute on
 		init (mirroring how walk.templ ships WalkDataJSON). A

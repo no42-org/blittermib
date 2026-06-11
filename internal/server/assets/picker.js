@@ -14,12 +14,10 @@
 // walk.templ ships WalkDataJSON) — NOT a <script type="application/json">
 // block: templ emits script content as raw text, so a component call
 // there ships as literal source instead of JSON.
-// Filtering is pure client-side; the visible window is capped at
-// MAX_VISIBLE so a 1k-bundle doesn't push the overlay off-screen,
-// and a "+N more" indicator nudges the user to keep typing.
+// Filtering is pure client-side; the full match list renders into
+// the card's scrollable list (capped at 70vh by CSS), so every
+// module is reachable by scrolling — no typing required.
 window.picker = (function () {
-	var MAX_VISIBLE = 10;
-
 	// currentModuleName extracts the open module from a workspace URL
 	// so the scoped picker can highlight "where you are".
 	function currentModuleName() {
@@ -59,21 +57,26 @@ window.picker = (function () {
 
 			init: function () {
 				this.modules = loadModules();
-				this.$watch('query', () => { this.active = 0; });
+				this.$watch('query', () => {
+					this.active = 0;
+					if (this.$refs.list) this.$refs.list.scrollTop = 0;
+				});
 				// Arrow / Enter navigation only fires while the
 				// overlay is open and the input has focus.
 				this.$el.addEventListener('keydown', (e) => {
 					if (!this.open) return;
 					if (e.key === 'ArrowDown') {
 						e.preventDefault();
-						var n = this.visible.length;
+						var n = this.filtered.length;
 						if (n) this.active = (this.active + 1) % n;
+						this.scrollActiveIntoView();
 					} else if (e.key === 'ArrowUp') {
 						e.preventDefault();
-						var n2 = this.visible.length;
+						var n2 = this.filtered.length;
 						if (n2) this.active = (this.active - 1 + n2) % n2;
+						this.scrollActiveIntoView();
 					} else if (e.key === 'Enter') {
-						var v = this.visible[this.active];
+						var v = this.filtered[this.active];
 						if (v && !v.missing) {
 							e.preventDefault();
 							window.location.assign('/m/' + encodeURIComponent(v.name));
@@ -104,6 +107,15 @@ window.picker = (function () {
 				this.walkScope = null;
 				this.active = 0;
 				this.$refs.input.focus();
+			},
+
+			// scrollActiveIntoView keeps the keyboard selection visible
+			// inside the scrollable list as the arrows move it.
+			scrollActiveIntoView: function () {
+				this.$nextTick(() => {
+					var el = this.$el.querySelector('.module-picker-item[data-active="true"]');
+					if (el) el.scrollIntoView({ block: 'nearest' });
+				});
 			},
 
 			// scopedRows projects the walk scope onto the loaded-module
@@ -141,13 +153,6 @@ window.picker = (function () {
 				});
 			},
 
-			get visible() {
-				return this.filtered.slice(0, MAX_VISIBLE);
-			},
-
-			get hiddenCount() {
-				return Math.max(0, this.filtered.length - MAX_VISIBLE);
-			},
 		};
 	};
 })();

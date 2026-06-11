@@ -2868,11 +2868,10 @@ main.page:has(.workspace-grid) .content-inner,
 /* --- module picker overlay ------------------------------------------ *
  * Body-mounted Alpine overlay triggered by clicking the module name in
  * the status bar. Centered card on a translucent backdrop; the search
- * input is sticky at the top, the result list scrolls underneath, and
- * a footer surfaces "+N more — keep typing to narrow" when the
- * filtered set exceeds the visible window. design.md says no layered
- * shadows, so the lift comes from a 1px border + elevated surface
- * tone, not box-shadow.
+ * input is sticky at the top and the full result list scrolls
+ * underneath, capped by the card's max-height. design.md says no
+ * layered shadows, so the lift comes from a 1px border + elevated
+ * surface tone, not box-shadow.
  */
 .module-picker {
   position: fixed;
@@ -3052,19 +3051,6 @@ main.page:has(.workspace-grid) .content-inner,
   font-feature-settings: 'liga' 0, 'calt' 0;
   font-size: 11px;
   color: var(--fg-4);
-}
-
-.module-picker-footer {
-  padding: 8px 16px;
-  border-top: 1px solid var(--line-soft);
-  background: var(--bg);
-  text-align: center;
-}
-.module-picker-more {
-  font-family: var(--font-mono);
-  font-feature-settings: 'liga' 0, 'calt' 0;
-  font-size: 11px;
-  color: var(--fg-3);
 }
 
 /* ----------------------------------------------------------- *
