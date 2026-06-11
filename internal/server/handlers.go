@@ -536,7 +536,7 @@ func (s *Server) handleModuleBundle(w http.ResponseWriter, r *http.Request, name
 		}
 		fmt.Fprintf(&buf, "  reason:      %s\n\n", m.Reason)
 	}
-	if err := writeZipString(zw, "MISSING.txt", buf.String()); err != nil {
+	if err := writeZipString(zw, "MISSING.txt", buf.String(), time.Now()); err != nil {
 		slog.Warn("bundle: write MISSING.txt", "module", name, "err", err)
 		return
 	}

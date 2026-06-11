@@ -134,6 +134,11 @@ func TestIsInetAddressTypeSyntax(t *testing.T) {
 		"InetAddressIPv4",
 		"InetAddressIPv6",
 		"IpAddress",
+		// RFC 4001 §3 permits restricting the enumeration; the
+		// hardcoded full-enum <select> would offer forbidden values,
+		// so refined columns must fall through to raw-suffix.
+		"InetAddressType { ipv4(1), ipv6(2) }",
+		"InetAddressType {unknown(0), dns(16)}",
 	}
 	for _, s := range yes {
 		if !isInetAddressTypeSyntax(s) {

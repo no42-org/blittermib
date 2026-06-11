@@ -10,10 +10,9 @@ import (
 // baseSyntaxToken strips an SMI syntax string to its base token:
 // surrounding whitespace, any inline `{ named-values }` body, and any
 // `( constraint )` group are dropped — `Integer32 (1..65535)` →
-// `Integer32`, `BITS { a(0) }` → `BITS`. Some callers' base types can
-// never carry a `{…}` body; stripping it anyway is harmless and keeps
-// this the single strip rule for every syntax classifier in the
-// package.
+// `Integer32`, `BITS { a(0) }` → `BITS`. Callers whose match must NOT
+// survive an enum refinement (isInetAddressTypeSyntax) check for `{`
+// on the raw string themselves before delegating here.
 func baseSyntaxToken(s string) string {
 	t := strings.TrimSpace(s)
 	if i := strings.IndexByte(t, '{'); i >= 0 {
@@ -155,16 +154,23 @@ func isOctetStringSyntax(s string) bool {
 }
 
 // isInetAddressTypeSyntax reports whether `s` is the SMIv2 RFC
-// 4001 `InetAddressType` Textual Convention. It's an enumerated
-// integer (`unknown(0), ipv4(1), ipv6(2), ipv4z(3), ipv6z(4),
-// dns(16)`) used as the FIRST column of the discriminator pair
-// `INDEX { InetAddressType, InetAddress* }`. The trap-simulator
-// modal renders a `<select>` for this syntax with the standard
-// enum options hardcoded — RFC 4001 freezes the set, so a
-// per-MIB lookup of the underlying `EnumValues` would be wasted
-// work.
+// 4001 `InetAddressType` Textual Convention WITHOUT an enumeration
+// refinement. It's an enumerated integer (`unknown(0), ipv4(1),
+// ipv6(2), ipv4z(3), ipv6z(4), dns(16)`) used as the FIRST column
+// of the discriminator pair `INDEX { InetAddressType, InetAddress* }`.
+// The trap-simulator modal renders a `<select>` for this syntax
+// with the standard enum options hardcoded — RFC 4001 freezes the
+// full set, so a per-MIB lookup of the underlying `EnumValues`
+// would be wasted work.
+//
+// A column MAY legally restrict the enumeration (RFC 4001 §3), e.g.
+// `InetAddressType { ipv4(1), ipv6(2) }` — the hardcoded select
+// would offer values such a refinement forbids, so refined columns
+// are rejected here and fall through to the raw-suffix input. The
+// `{` check must run on the RAW string: baseSyntaxToken strips the
+// body the refinement lives in.
 func isInetAddressTypeSyntax(s string) bool {
-	return baseSyntaxToken(s) == "InetAddressType"
+	return !strings.ContainsRune(s, '{') && baseSyntaxToken(s) == "InetAddressType"
 }
 
 // isOIDSyntax reports whether `s` resolves to an SMI

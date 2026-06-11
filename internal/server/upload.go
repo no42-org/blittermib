@@ -221,6 +221,9 @@ func (s *Server) processUploadPart(part interface {
 	io.Reader
 }, replace bool) uploadOutcome {
 	raw := part.FileName()
+	// oc.Name (the Base'd form) is display-only: it is echoed in the
+	// JSON outcome but never used to build a filesystem path until
+	// both guards below have passed.
 	oc := uploadOutcome{Name: filepath.Base(raw)}
 	// drain consumes the part's remaining bytes before an early return.
 	// multipart.Reader.NextPart would skip them anyway; kept explicit so
@@ -237,9 +240,12 @@ func (s *Server) processUploadPart(part interface {
 		return oc
 	}
 
-	// Reject path separators and traversal segments BEFORE
-	// filepath.Base — otherwise `../../../etc/passwd` collapses to
-	// `passwd` and silently writes into the intake dir.
+	// Reject path separators and traversal segments by inspecting the
+	// RAW filename — filepath.Base collapses `../../../etc/passwd` to
+	// a clean-looking `passwd`, so this guard must never look at the
+	// Base'd oc.Name above. It is load-bearing for `..` specifically:
+	// ValidModuleName's character class admits dots, so the regex
+	// below is not a backstop for traversal segments.
 	if raw == "" || raw == "." || raw == ".." ||
 		strings.ContainsAny(raw, "/\\\x00") {
 		drain()

@@ -113,8 +113,14 @@ func copyMIBsToZip(ctx context.Context, zw *zip.Writer, shippable []bundleEntry,
 }
 
 // writeZipString adds a deflate-compressed text entry to the archive.
-func writeZipString(zw *zip.Writer, name, content string) error {
-	fw, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate})
+// modTime stamps the entry; the zero time omits the stamp (the entry
+// then reads as the ZIP DOS epoch). The module bundle stamps its
+// MISSING.txt with the download time (its content already embeds a
+// `# Generated:` wall-clock line, so reproducibility is forfeit
+// there anyway); the walk bundle passes zero for every text entry to
+// keep re-downloads of the same walk byte-identical.
+func writeZipString(zw *zip.Writer, name, content string, modTime time.Time) error {
+	fw, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate, Modified: modTime})
 	if err != nil {
 		return err
 	}

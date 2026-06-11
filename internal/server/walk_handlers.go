@@ -403,11 +403,11 @@ func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// The walk verbatim, byte-for-byte as posted.
-	if err := writeZipString(zw, "walk.txt", walkText); err != nil {
+	if err := writeZipString(zw, "walk.txt", walkText, time.Time{}); err != nil {
 		slog.Warn("walk bundle: walk.txt", "err", err)
 		return
 	}
-	if err := writeZipString(zw, "README.txt", walkBundleReadme(len(rw.Modules), len(shippable))); err != nil {
+	if err := writeZipString(zw, "README.txt", walkBundleReadme(len(rw.Modules), len(shippable)), time.Time{}); err != nil {
 		slog.Warn("walk bundle: README.txt", "err", err)
 		return
 	}
@@ -443,7 +443,7 @@ func (s *Server) handleWalkBundle(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&buf, "  hint:  %s\n\n", u.Hint)
 	}
 
-	if err := writeZipString(zw, "MISSING.txt", buf.String()); err != nil {
+	if err := writeZipString(zw, "MISSING.txt", buf.String(), time.Time{}); err != nil {
 		slog.Warn("walk bundle: MISSING.txt", "err", err)
 		return
 	}
