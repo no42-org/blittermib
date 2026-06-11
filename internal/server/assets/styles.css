@@ -3586,10 +3586,15 @@ main.page:has(.workspace-grid) .content-inner,
 /* Stable width + centered label so the "Decode" → "Decoding…" swap does
  * not reflow the button (its `transition: all` would otherwise animate
  * the width and ghost a second copy). user-select:none avoids the label
- * being text-selected on click. */
+ * being text-selected on click — the -webkit- prefix is load-bearing:
+ * Safari only honors the unprefixed form since 18.2, and without it a
+ * double-click word-selects the freshly-swapped "Decoding…" label
+ * (rendered as a dark ::selection box behind the text). walk-modal.js
+ * additionally swallows the second mousedown as a JS-level backstop. */
 .walk-intake button[type="submit"] {
   min-width: 6.5rem;
   justify-content: center;
+  -webkit-user-select: none;
   user-select: none;
 }
 .walk-error {

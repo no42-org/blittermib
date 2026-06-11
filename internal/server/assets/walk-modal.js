@@ -167,6 +167,17 @@
 					var btn = form.querySelector('button[type="submit"]');
 					if (btn) btn.textContent = 'Decoding…';
 				});
+				var btn = form.querySelector('button[type="submit"]');
+				if (btn) {
+					// Swallow the second click of a double-click: the first
+					// click submits and swaps the label to "Decoding…"; the
+					// second would word-select the new label in browsers
+					// that ignore unprefixed user-select (Safari < 18.2),
+					// painting a dark ::selection box behind the text.
+					btn.addEventListener('mousedown', function (e) {
+						if (e.detail > 1) e.preventDefault();
+					});
+				}
 			}
 		);
 
