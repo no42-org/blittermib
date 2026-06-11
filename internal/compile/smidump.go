@@ -14,19 +14,14 @@ import (
 
 // Smidump invokes libsmi's smidump tool and parses its XML output.
 //
-// Construct with NewSmidump for default settings; override Path or Paths
-// directly for tests or non-standard installs.
+// Construct with a struct literal, setting Path (and Paths) as needed —
+// callers default Path to "smidump" resolved via PATH.
 type Smidump struct {
 	// Path to the smidump binary. Defaults to "smidump" (resolved via PATH).
 	Path string
 
 	// Paths to prepend to libsmi's MIB search path (`-p` flag, repeated).
 	Paths []string
-}
-
-// NewSmidump returns a Smidump that resolves the smidump binary from PATH.
-func NewSmidump() *Smidump {
-	return &Smidump{Path: "smidump"}
 }
 
 // DumpModule runs `smidump -f xml <module>` and returns the parsed

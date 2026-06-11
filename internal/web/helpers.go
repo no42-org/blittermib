@@ -444,19 +444,6 @@ func PickerModulesJSON(mods []model.Module) string {
 	return strings.TrimRight(buf.String(), "\n")
 }
 
-// IsTabular reports whether the kind names a symbol that participates
-// in SMIv2 conceptual-row table rendering. The three answers — table,
-// table-entry, column — are grouped here so templates and handlers
-// don't fan out into kind-by-kind switches when they want a coarse
-// "is this part of a table" predicate.
-func IsTabular(k model.SymbolKind) bool {
-	switch k {
-	case model.KindTable, model.KindTableEntry, model.KindColumn:
-		return true
-	}
-	return false
-}
-
 // OIDUnderPrefix reports whether oid is at or under prefix, treated
 // as a `.`-delimited OID path. Empty prefix matches everything; an
 // exact match counts as "under". Used by handleWorkspace to scope

@@ -25,12 +25,6 @@ type Smilint struct {
 	Level int
 }
 
-// NewSmilint returns a Smilint at default severity, resolving the binary
-// from PATH.
-func NewSmilint() *Smilint {
-	return &Smilint{Path: "smilint", Level: -1}
-}
-
 // Lint runs `smilint <target>` and returns the parsed diagnostics.
 //
 // smilint exits non-zero whenever it emits any diagnostic, so a non-zero

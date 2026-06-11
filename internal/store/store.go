@@ -243,10 +243,6 @@ func OpenInMemory(ctx context.Context) (*Store, error) {
 // Close closes the underlying database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// DB exposes the underlying *sql.DB for advanced uses (e.g. backups).
-// Callers should generally prefer the typed methods on Store.
-func (s *Store) DB() *sql.DB { return s.db }
-
 // ReplaceModule atomically replaces a module's data in a single
 // transaction: the old module rows are removed (cascading to symbols
 // via FK), the new rows are written, and the module's outgoing

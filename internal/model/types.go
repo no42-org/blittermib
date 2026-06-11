@@ -219,14 +219,6 @@ func (s Symbol) QualifiedName() string {
 	return s.ModuleName + "::" + s.Name
 }
 
-// OIDNode is a node in the OID tree.
-type OIDNode struct {
-	OID        string
-	ParentOID  string
-	SymbolID   int64
-	ChildCount int
-}
-
 // Reference relates one symbol to another by qualified name.
 //
 // Qualified-name keys (rather than database IDs) make hot-reload simpler:
@@ -244,18 +236,6 @@ type Reference struct {
 	// position-numbered consumers (the eventconf %parm[#N]% tokens)
 	// read in MIB source order.
 	Position int
-}
-
-// SourceQualifiedName returns the canonical Module::Symbol identifier
-// of the reference's source.
-func (r Reference) SourceQualifiedName() string {
-	return r.SourceModule + "::" + r.SourceName
-}
-
-// TargetQualifiedName returns the canonical Module::Symbol identifier
-// of the reference's target.
-func (r Reference) TargetQualifiedName() string {
-	return r.TargetModule + "::" + r.TargetName
 }
 
 // Diagnostic is a single parse warning or error from smilint.

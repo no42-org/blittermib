@@ -9,11 +9,7 @@ import "github.com/no42-org/blittermib/internal/mibcorpus"
 // the migrate package keeps the short identifiers it had before
 // the extract refactor.
 
-type (
-	Confidence     = mibcorpus.Confidence
-	Classification = mibcorpus.Classification
-	GroupMap       = mibcorpus.GroupMap
-)
+type Confidence = mibcorpus.Confidence
 
 const (
 	ConfidenceHigh   = mibcorpus.ConfidenceHigh

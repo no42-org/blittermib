@@ -19,33 +19,3 @@ templ ModuleIndex(modules []model.Module) {
 		</table>
 	}
 }
-
-// ModuleDetail renders a module's metadata + symbol list.
-templ ModuleDetail(mod *model.Module, symbols []model.Symbol) {
-	@Base(mod.Name + " · blittermib") {
-		<nav class="breadcrumb">
-			<a href="/m">Modules</a>
-			<span class="sep">›</span>
-			{ mod.Name }
-		</nav>
-		<h1 class="symbol-name">{ mod.Name }</h1>
-		if mod.Description != "" {
-			<p class="summary">{ mod.Description }</p>
-		}
-		<div class="oid">
-			@templ.Raw(FormatOIDHTML(mod.OIDRoot))
-		</div>
-		<h2 class="section-label">Symbols</h2>
-		<table class="refs">
-			<tbody>
-				for _, s := range symbols {
-					<tr>
-						<td><a href={ symbolURL(s.ModuleName, s.Name) }><code>{ s.Name }</code></a></td>
-						<td class="kind">{ string(s.Kind) }</td>
-						<td class="module">{ s.OID }</td>
-					</tr>
-				}
-			</tbody>
-		</table>
-	}
-}

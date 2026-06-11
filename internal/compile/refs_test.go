@@ -25,7 +25,7 @@ func TestBuildReferences(t *testing.T) {
 
 	got := map[string]model.ReferenceKind{}
 	for _, r := range refs {
-		got[r.SourceQualifiedName()+"|"+r.TargetQualifiedName()] = r.Kind
+		got[r.SourceModule+"::"+r.SourceName+"|"+r.TargetModule+"::"+r.TargetName] = r.Kind
 	}
 
 	for k, kind := range want {
