@@ -765,12 +765,14 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 	}
 }
 
-// workspaceList renders the flat symbol list. The filter input is
-// pure Alpine; rows that don't match the active filter combination
-// (kind chip + text query) get hidden via x-show. When the URL has
-// a scope, the list is server-narrowed to symbols at or under the
-// selected OID and a "View all in module" link surfaces in the
-// chrome.
+// workspaceList renders the flat symbol list. The filter input and
+// kind chips are Alpine-bound; rows that don't match the active
+// filter combination get the `hidden` attribute set by a single
+// batched pass (workspace.js applyFilter) — NOT per-row x-show,
+// which cost one Alpine reactive effect per row (7,000+ on large
+// modules). When the URL has a scope, the list is server-narrowed
+// to symbols at or under the selected OID and a "View all in
+// module" link surfaces in the chrome.
 //
 // Each row carries the design's `ls -l`-style 5-column anatomy:
 // type-letter badge · name (mono) · syntax (family-colored) · access
@@ -874,8 +876,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 					data-name={ s.Name }
 					data-oid={ s.OID }
 					data-kind={ string(s.Kind) }
-					data-href={ string(rowURL) }
-					x-show="matchesRow($el)">
+					data-href={ string(rowURL) }>
 					<td class="list-cell-badge">
 						<span class="tlet" aria-hidden="true">{ typeLetter(&s) }</span>
 					</td>

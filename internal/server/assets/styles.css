@@ -1744,10 +1744,17 @@ main.page:has(.workspace-grid) .content-inner,
 }
 
 /* List table — sticky header + 5-col grid (badge / name / syntax /
- * access / oid). Implemented with display:grid on rows so column
- * widths line up `ls -l`-style across the whole list, even when the
- * user filters or scopes the dataset. */
+ * access / oid). Each row is its OWN grid box sharing one column
+ * template (--list-cols), NOT one giant grid with display:contents
+ * rows: a 7,000-symbol module put ~35,000 cells into a single grid
+ * whose max-content column forced a full-list measure on every
+ * relayout — seconds of jank per click. Per-row grids resolve to
+ * identical tracks (same template, same row width — fr instead of
+ * max-content, ellipsis absorbs the overflow), so columns still
+ * line up `ls -l`-style, and content-visibility on the rows lets
+ * the browser skip layout/paint for everything off-screen. */
 .workspace-list .list-table {
+  --list-cols: 28px minmax(220px, 1.6fr) minmax(110px, 0.7fr) 70px minmax(180px, 1fr);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -1763,21 +1770,23 @@ main.page:has(.workspace-grid) .content-inner,
 .workspace-list .list-table::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
 
 .workspace-list .list-table thead,
-.workspace-list .list-table tbody,
-.workspace-list .list-table tr {
+.workspace-list .list-table tbody {
   display: contents;
 }
-.workspace-list .list-table {
+.workspace-list .list-table tr {
   display: grid;
-  grid-template-columns: 28px minmax(220px, 1.6fr) minmax(110px, max-content) 70px minmax(180px, 1fr);
+  grid-template-columns: var(--list-cols);
   align-items: stretch;
-  align-content: start;
 }
-.workspace-list .list-head-cell {
+/* The header row (not the cells) is sticky: a sticky cell would be
+ * constrained to its own row box now that rows are real boxes. */
+.workspace-list .list-table thead tr {
   position: sticky;
   top: 0;
   z-index: 4;
   background: var(--bg-elev);
+}
+.workspace-list .list-head-cell {
   border-bottom: 1px solid var(--line);
   font-family: var(--font-sans);
   font-size: 10px;
@@ -1793,8 +1802,20 @@ main.page:has(.workspace-grid) .content-inner,
 }
 .workspace-list .list-head-cell:first-child { padding-left: 12px; }
 
+/* content-visibility lets the browser skip rendering work for
+ * off-screen rows entirely; the intrinsic-size hint (the row
+ * height) keeps the scrollbar stable before rows are realized.
+ * `auto` remembers the real rendered size once a row has been
+ * on-screen. */
 .workspace-list .list-row {
-  display: contents;
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--row-h, 28px);
+}
+/* The filter pass in workspace.js hides rows via the `hidden`
+ * attribute; the explicit rule is needed because the author-level
+ * `display: grid` on tr would otherwise beat the UA's [hidden]. */
+.workspace-list .list-row[hidden] {
+  display: none;
 }
 .workspace-list .list-row > td,
 .workspace-list .list-row > th {
@@ -1826,10 +1847,8 @@ main.page:has(.workspace-grid) .content-inner,
 .workspace-list .list-cell-name .tail { color: var(--fg); font-weight: inherit; }
 
 /* 2px family stripe on the leftmost cell — drawn as a left border
- * on the first cell (rather than `::before` on the row) because
- * each row is rendered as `display: contents` and has no box of
- * its own. design.md mandates "no layered shadows", so border —
- * not inset box-shadow — is the correct primitive here.
+ * on the first cell. design.md mandates "no layered shadows", so
+ * border — not inset box-shadow — is the correct primitive here.
  *
  * Padding is tuned so the 28px badge column actually fits the
  * 18px tlet square: 28 - 6(left) - 2(right) - 2(border) = 18px.

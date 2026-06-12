@@ -46,21 +46,53 @@ window.workspace = function () {
 		kindFilter: loadKindFilter(),
 
 		init() {
-			this.$watch('kindFilter', (v) => saveKindFilter(v));
+			this.$watch('kindFilter', (v) => {
+				saveKindFilter(v);
+				this.applyFilter();
+			});
+			this.$watch('filter', () => this.applyFilter());
+			// Case-B partial navigations replace the list pane via an
+			// out-of-band swap; the fresh rows arrive unfiltered and
+			// need the active filter re-applied. (The grid's Alpine
+			// scope — and therefore this listener — is never swapped,
+			// so registering once here is enough.)
+			document.body.addEventListener('htmx:oobAfterSwap', (evt) => {
+				if (
+					evt.detail &&
+					evt.detail.target &&
+					evt.detail.target.id === 'workspace-list'
+				) {
+					this.applyFilter();
+				}
+			});
+			// Apply the persisted kind filter to the server-rendered
+			// rows before the selection reveal measures geometry.
+			this.applyFilter();
 			// Scroll the server-marked selected row into view. On
 			// long modules the highlighted row often lands below
 			// the fold and the user has to hunt for it; this makes
-			// the selection self-revealing on page load. Runs on
-			// the next frame so Alpine's x-show pass has finished
-			// hiding rows that don't match the current filter —
-			// scrolling before that lands at the wrong vertical
-			// offset.
+			// the selection self-revealing on page load.
 			requestAnimationFrame(() => {
 				var row = document.querySelector('.list-row.selected');
 				if (row) {
 					row.scrollIntoView({ block: 'center', behavior: 'auto' });
 				}
 			});
+		},
+
+		// applyFilter hides non-matching list rows in one batched pass
+		// by toggling the `hidden` attribute. An earlier version put
+		// x-show="matchesRow($el)" on every row, which created one
+		// Alpine reactive effect per row — 7,000+ effects on large
+		// modules, re-evaluated on every keystroke and rebuilt on every
+		// list swap. One plain loop over the rows is microseconds of
+		// JS, and the rows' content-visibility containment keeps the
+		// resulting relayout proportional to the visible viewport.
+		applyFilter() {
+			var rows = document.querySelectorAll('#workspace-list .list-row');
+			for (var i = 0; i < rows.length; i++) {
+				rows[i].hidden = !this.matchesRow(rows[i]);
+			}
 		},
 
 		// matchesKind reads `data-kind` from the row and answers
@@ -350,9 +382,10 @@ window.workspace = function () {
 					sel
 			  )
 			: moveSelected('#workspace-list', 'data-oid', nav.scope);
-		// Reveal on the next frame so Alpine's x-show pass has hidden
-		// filter-excluded rows first — mirrors the full-page init()
-		// reveal; measuring earlier lands at the wrong offset.
+		// Reveal on the next frame: the workspace component's
+		// htmx:oobAfterSwap hook has already re-applied the filter
+		// synchronously during swap processing, so the deferred
+		// measurement sees the final row visibility.
 		requestAnimationFrame(function () {
 			revealListSelection(listRow);
 		});
