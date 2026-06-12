@@ -14,13 +14,18 @@ templ Base(title string) {
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
-			// History snapshots are disabled: htmx would otherwise clone
-			// and serialize the entire <body> into localStorage on every
-			// hx-push-url navigation — on large modules (FspR7-MIB renders
-			// ~20 MB of HTML) the write always exceeds the localStorage
-			// quota, firing htmx:historyCacheError in a retry loop that
-			// janks every click. With refreshOnHistoryMiss the back button
-			// does a plain full-page load instead of an ajax restore.
+			// htmx history is disabled. Without this, every hx-push-url
+			// navigation cloned and serialized the entire <body> into
+			// localStorage — on large modules (FspR7-MIB renders ~10 MB
+			// of HTML) the write always exceeded the quota, firing
+			// htmx:historyCacheError in a retry loop that janked every
+			// click. Two pieces, both needed: hx-history="false" on
+			// <body> is what actually skips the snapshot — in htmx 2.0.4
+			// saveToHistoryCache serializes the DOM *before* checking
+			// historyCacheSize, so the cache-size knob alone doesn't
+			// stop the clone. This meta then clears any stale cache from
+			// localStorage and makes back/forward a plain full-page load
+			// instead of an ajax restore.
 			<meta name="htmx-config" content={ `{"historyCacheSize": 0, "refreshOnHistoryMiss": true}` }/>
 			<title>{ title }</title>
 			<script>
@@ -48,7 +53,9 @@ templ Base(title string) {
 			<script src={ string(assetURL("upload.js")) } defer></script>
 			<script src={ string(assetURL("alpine.min.js")) } defer></script>
 		</head>
-		<body>
+		// hx-history="false" skips the history snapshot entirely —
+		// see the htmx-config comment in <head>.
+		<body hx-history="false">
 			// Shared icon sprite. The clipboard glyph used to be inlined
 			// into every copy button — at two buttons per list row that
 			// alone was ~9 MB of repeated SVG on a 7,000-symbol module.

@@ -138,20 +138,38 @@ window.workspace = function () {
 		var btn = e.target.closest('.copy-btn[data-clipboard-text]');
 		if (btn) {
 			if (navigator.clipboard) {
-				navigator.clipboard.writeText(btn.dataset.clipboardText);
-				btn.classList.add('copied');
-				setTimeout(function () {
-					btn.classList.remove('copied');
-				}, 1500);
+				navigator.clipboard.writeText(btn.dataset.clipboardText).then(
+					function () {
+						btn.classList.add('copied');
+						// Re-clicks within the flash window restart it
+						// instead of letting the first timer strip the
+						// class mid-flash.
+						clearTimeout(btn._copiedTimer);
+						btn._copiedTimer = setTimeout(function () {
+							btn.classList.remove('copied');
+						}, 1500);
+					},
+					function () {
+						// Write denied (unfocused document, permissions
+						// policy) — no false "copied" flash, no unhandled
+						// rejection.
+					}
+				);
 			}
 			return;
 		}
 
 		if (!e.target.closest('.workspace-grid')) return;
 
+		// If htmx never loaded (asset failure, CSP), keep the browser's
+		// native href navigation instead of preventDefault-ing links
+		// into dead clicks.
+		var hasHtmx = typeof htmx !== 'undefined';
+
 		var a = e.target.closest('a[data-nav]');
 		if (a) {
 			if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+			if (!hasHtmx) return;
 			e.preventDefault();
 			htmx.ajax('GET', a.getAttribute('href'), { source: a });
 			return;
@@ -167,7 +185,7 @@ window.workspace = function () {
 			window.open(row.dataset.href);
 			return;
 		}
-		if (e.altKey) return;
+		if (e.altKey || !hasHtmx) return;
 		htmx.ajax('GET', row.dataset.href, { source: row });
 	});
 })();
