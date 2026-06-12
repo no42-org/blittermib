@@ -16,10 +16,15 @@ templ Workspace(view *WorkspaceView) {
 		@workspaceStatusBar(view)
 		@moduleInfoBar(view.Module, view.ModuleDownloadable, view.BundleFileCount, view.HasNotifications)
 		@typeDefsBar(view)
-		// The htmx swap attributes live ONCE here and are inherited by
-		// every in-workspace hx-get inside the grid (tree links, list
-		// rows, crumbs) — repeating them per row added ~40 KB to the
-		// full page. The chevron fragment fetch passes its own explicit
+		// The htmx swap attributes live ONCE here. In-workspace
+		// navigation (tree links, list rows, crumbs) carries no hx-*
+		// attributes at all — elements opt in via `data-nav` (links)
+		// or `data-href` (list rows) and a single delegated listener
+		// in workspace.js issues htmx.ajax with the element as
+		// `source`, which inherits this grid's target/swap/push-url.
+		// Per-element hx-get/hx-trigger/x-on:click repeated across
+		// 7,000 rows previously added megabytes to the full page.
+		// The chevron fragment fetch passes its own explicit
 		// target/swap to htmx.ajax and is unaffected.
 		<div
 			class="workspace-grid"
@@ -470,31 +475,23 @@ templ moduleInfoBar(mod *model.Module, downloadable bool, bundleFileCount int, h
 }
 
 // copyToClipboardIcon renders a small clipboard icon button used
-// inline in the Properties grid (kvbox) — replaces the prior
-// "Copy OID" / "Copy name" text buttons. Each instance has its
-// own Alpine `x-data` scope so multiple icons on the same page
-// can flash a transient `copied` state without leaking state
-// between rows.
+// inline in the Properties grid (kvbox) and twice per list row —
+// replaces the prior "Copy OID" / "Copy name" text buttons.
 //
-// The icon is a 14×14 inline SVG (rather than a Unicode glyph)
-// so it renders consistently across browsers / fonts. Inline
-// SVG also picks up the parent's text color via `currentColor`,
-// which the `:hover` and `.copied` states tint without needing
-// a separate icon variant.
+// The markup is deliberately minimal: the glyph is a 14×14 SVG
+// referencing the page-level `#icon-copy` <symbol> (defined once
+// in Base), and the click + transient `copied` flash live in a
+// single delegated listener in workspace.js. An earlier version
+// inlined the full SVG and a per-instance Alpine scope here; at
+// two buttons per row that added ~9 MB to a 7,000-symbol module
+// page.
 templ copyToClipboardIcon(value, label string) {
 	<button type="button" class="copy-btn"
-		x-data="{ copied: false }"
 		data-clipboard-text={ value }
-		x-on:click="if (navigator.clipboard) { navigator.clipboard.writeText($el.dataset.clipboardText); copied = true; setTimeout(() => copied = false, 1500); }"
-		x-bind:class="{ copied: copied }"
 		aria-label={ label }
 		title={ label }>
-		<svg viewBox="0 0 24 24" width="14" height="14"
-			fill="none" stroke="currentColor" stroke-width="2"
-			stroke-linecap="round" stroke-linejoin="round"
-			aria-hidden="true">
-			<rect x="9" y="2" width="6" height="4" rx="1"></rect>
-			<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+		<svg width="14" height="14" aria-hidden="true">
+			<use href="#icon-copy"></use>
 		</svg>
 	</button>
 }
@@ -733,8 +730,7 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 				<a
 					class="tree-row-link"
 					href={ rowURL }
-					hx-get={ string(rowURL) }
-					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+					data-nav
 				>
 					<code class="tree-row-name">
 						@templ.Raw(splitNameHTML(r.Symbol.Name))
@@ -758,8 +754,7 @@ templ treeRow(view *WorkspaceView, r TreeRow) {
 				<a
 					class="tree-row-link"
 					href={ rowURL }
-					hx-get={ string(rowURL) }
-					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+					data-nav
 				>
 					<code class="tree-row-name">
 						@templ.Raw(splitNameHTML(r.Symbol.Name))
@@ -845,8 +840,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 							<a
 								class="scope-crumb"
 								href={ WorkspaceSymbolURL(c.Module, c.Name, c.OID) }
-								hx-get={ string(WorkspaceSymbolURL(c.Module, c.Name, c.OID)) }
-								hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+								data-nav
 							>{ c.Name }</a>
 							<span class="scope-sep" aria-hidden="true">/</span>
 						}
@@ -856,8 +850,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 			<a
 				class="list-scope-clear"
 				href={ moduleURL(module) }
-				hx-get={ string(moduleURL(module)) }
-				hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+				data-nav
 			>↑ View all in module</a>
 			<span class="list-scope-count">{ fmt.Sprintf("%d objects", len(rows)) }</span>
 		</div>
@@ -882,10 +875,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 					data-oid={ s.OID }
 					data-kind={ string(s.Kind) }
 					data-href={ string(rowURL) }
-					hx-get={ string(rowURL) }
-					hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey&&!target.closest('a, button')]"
-					x-show="matchesRow($el)"
-					x-on:click="if ($event.target.closest('a, button')) return; if ($event.metaKey || $event.ctrlKey) { window.open($el.dataset.href, '_blank'); return; } if ($event.shiftKey) { window.open($el.dataset.href); return; }">
+					x-show="matchesRow($el)">
 					<td class="list-cell-badge">
 						<span class="tlet" aria-hidden="true">{ typeLetter(&s) }</span>
 					</td>
@@ -893,8 +883,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 						@copyToClipboardIcon(s.Name, "Copy name")
 						<a
 							href={ rowURL }
-							hx-get={ string(rowURL) }
-							hx-trigger="click[!ctrlKey&&!metaKey&&!shiftKey&&!altKey]"
+							data-nav
 						>
 							<code>
 								@templ.Raw(splitNameHTML(s.Name))

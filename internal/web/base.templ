@@ -14,6 +14,14 @@ templ Base(title string) {
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			// History snapshots are disabled: htmx would otherwise clone
+			// and serialize the entire <body> into localStorage on every
+			// hx-push-url navigation — on large modules (FspR7-MIB renders
+			// ~20 MB of HTML) the write always exceeds the localStorage
+			// quota, firing htmx:historyCacheError in a retry loop that
+			// janks every click. With refreshOnHistoryMiss the back button
+			// does a plain full-page load instead of an ajax restore.
+			<meta name="htmx-config" content={ `{"historyCacheSize": 0, "refreshOnHistoryMiss": true}` }/>
 			<title>{ title }</title>
 			<script>
 				// Pre-paint theme application — keep this tight and inline.
@@ -41,6 +49,21 @@ templ Base(title string) {
 			<script src={ string(assetURL("alpine.min.js")) } defer></script>
 		</head>
 		<body>
+			// Shared icon sprite. The clipboard glyph used to be inlined
+			// into every copy button — at two buttons per list row that
+			// alone was ~9 MB of repeated SVG on a 7,000-symbol module.
+			// Each button now references this single <symbol> via
+			// <use href="#icon-copy">; the stroke styling lives here so
+			// per-use markup stays minimal (currentColor still resolves
+			// at the use site, so hover/copied tints keep working).
+			<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+				<symbol id="icon-copy" viewBox="0 0 24 24"
+					fill="none" stroke="currentColor" stroke-width="2"
+					stroke-linecap="round" stroke-linejoin="round">
+					<rect x="9" y="2" width="6" height="4" rx="1"></rect>
+					<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+				</symbol>
+			</svg>
 			<header class="topbar">
 				<a href="/" class="brand">
 					<span class="brand-mark" aria-hidden="true">

@@ -111,6 +111,67 @@ window.workspace = function () {
 // after each fragment swap, resetting `expanded` to false and
 // hiding the just-appended children. Removed.
 
+// --- delegated workspace interactions --------------------------------
+//
+// Copy buttons and in-workspace navigation used to carry per-element
+// Alpine and htmx attributes (x-data/x-on:click on every copy button,
+// hx-get/hx-trigger on every row and link). On a 7,000-symbol module
+// that repeated attribute text added megabytes of HTML, so the
+// behavior lives here once, document-delegated — which also survives
+// htmx pane swaps without rebinding.
+//
+// Navigation elements opt in via markup:
+//   - `data-nav` on an <a>: plain click issues a partial-navigation
+//     GET through htmx; modifier-clicks fall through to the browser's
+//     native link handling (new tab / new window).
+//   - `data-href` on a tr.list-row: the whole row is a click target
+//     for the same navigation; clicks on inner links/buttons belong
+//     to those elements.
+//
+// htmx.ajax gets the clicked element as `source`, so the request
+// inherits the workspace grid's hx-target / hx-swap / hx-push-url —
+// the same inheritance the per-element hx-get attributes used.
+(function () {
+	'use strict';
+
+	document.addEventListener('click', function (e) {
+		var btn = e.target.closest('.copy-btn[data-clipboard-text]');
+		if (btn) {
+			if (navigator.clipboard) {
+				navigator.clipboard.writeText(btn.dataset.clipboardText);
+				btn.classList.add('copied');
+				setTimeout(function () {
+					btn.classList.remove('copied');
+				}, 1500);
+			}
+			return;
+		}
+
+		if (!e.target.closest('.workspace-grid')) return;
+
+		var a = e.target.closest('a[data-nav]');
+		if (a) {
+			if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+			e.preventDefault();
+			htmx.ajax('GET', a.getAttribute('href'), { source: a });
+			return;
+		}
+
+		var row = e.target.closest('tr.list-row[data-href]');
+		if (!row || e.target.closest('a, button')) return;
+		if (e.metaKey || e.ctrlKey) {
+			window.open(row.dataset.href, '_blank');
+			return;
+		}
+		if (e.shiftKey) {
+			window.open(row.dataset.href);
+			return;
+		}
+		if (e.altKey) return;
+		htmx.ajax('GET', row.dataset.href, { source: row });
+	});
+})();
+
 // --- partial-navigation sync (workspace-partial-nav) ----------------
 //
 // In-workspace clicks swap only the detail pane (plus, on scope
