@@ -1755,6 +1755,15 @@ main.page:has(.workspace-grid) .content-inner,
  * the browser skip layout/paint for everything off-screen. */
 .workspace-list .list-table {
   --list-cols: 28px minmax(220px, 1.6fr) minmax(110px, 0.7fr) 70px minmax(180px, 1fr);
+  /* Sum of the fixed track minimums above — keep in sync. Rows get
+   * this as min-width so the tracks always fit INSIDE the row box:
+   * content-visibility's paint containment clips anything that
+   * overflows a row, so without the min-width a pane narrower than
+   * the tracks would clip the OID column dead while the header row
+   * (uncontained) still scrolled. With it, header and body share
+   * one scrollWidth and pan together, as the single-grid layout
+   * did. */
+  --list-min-w: 608px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -1777,6 +1786,7 @@ main.page:has(.workspace-grid) .content-inner,
   display: grid;
   grid-template-columns: var(--list-cols);
   align-items: stretch;
+  min-width: var(--list-min-w);
 }
 /* The header row (not the cells) is sticky: a sticky cell would be
  * constrained to its own row box now that rows are real boxes. */

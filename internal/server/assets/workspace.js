@@ -51,20 +51,6 @@ window.workspace = function () {
 				this.applyFilter();
 			});
 			this.$watch('filter', () => this.applyFilter());
-			// Case-B partial navigations replace the list pane via an
-			// out-of-band swap; the fresh rows arrive unfiltered and
-			// need the active filter re-applied. (The grid's Alpine
-			// scope — and therefore this listener — is never swapped,
-			// so registering once here is enough.)
-			document.body.addEventListener('htmx:oobAfterSwap', (evt) => {
-				if (
-					evt.detail &&
-					evt.detail.target &&
-					evt.detail.target.id === 'workspace-list'
-				) {
-					this.applyFilter();
-				}
-			});
 			// Apply the persisted kind filter to the server-rendered
 			// rows before the selection reveal measures geometry.
 			this.applyFilter();
@@ -131,6 +117,26 @@ window.workspace = function () {
 		},
 	};
 };
+
+// Case-B partial navigations replace the list pane via an out-of-band
+// swap; the fresh rows arrive unfiltered and need the active filter
+// re-applied. Registered once at module scope — NOT inside the Alpine
+// component's init() — so a re-initialized component (however the
+// document gets there) can never stack a second listener pinning a
+// dead scope; the live component is resolved at event time instead.
+document.body.addEventListener('htmx:oobAfterSwap', function (evt) {
+	if (
+		!evt.detail ||
+		!evt.detail.target ||
+		evt.detail.target.id !== 'workspace-list'
+	) {
+		return;
+	}
+	var grid = document.querySelector('.workspace-grid');
+	if (!grid || !window.Alpine || typeof Alpine.$data !== 'function') return;
+	var ws = Alpine.$data(grid);
+	if (ws && typeof ws.applyFilter === 'function') ws.applyFilter();
+});
 
 // Alpine 3's MutationObserver auto-initializes any x-data scopes
 // inserted into the DOM, so HTMX `beforeend` swaps (the chevron's
