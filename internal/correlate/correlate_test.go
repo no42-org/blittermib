@@ -257,6 +257,74 @@ func TestClassifyLargeGroupNoOverpairing(t *testing.T) {
 	}
 }
 
+// TestScoreConfidence pins the scoring policy directly.
+func TestScoreConfidence(t *testing.T) {
+	cases := []struct {
+		name   string
+		sig    signalSet
+		fanOut int
+		confl  bool
+		want   Confidence
+	}{
+		{"name+varbind 1:1", signalSet{name: true, varbind: true}, 1, false, ConfHigh},
+		{"three signals", signalSet{varbind: true, desc: true, group: true}, 1, false, ConfHigh},
+		{"name+varbind but conflict", signalSet{name: true, varbind: true}, 1, true, ConfLikely},
+		{"name+varbind but fan-out", signalSet{name: true, varbind: true}, 2, false, ConfLikely},
+		{"two signals", signalSet{desc: true, group: true}, 1, false, ConfLikely},
+		{"name only (weak, no corroboration)", signalSet{name: true}, 1, false, ConfGuess},
+		{"group only", signalSet{group: true}, 1, false, ConfGuess},
+	}
+	for _, c := range cases {
+		if got := scoreConfidence(c.sig, c.fanOut, c.confl); got != c.want {
+			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
+		}
+	}
+}
+
+// TestConfidenceConflictCap: a notification whose name says raise but
+// whose description says clear is contradictory — capped to Likely even
+// when name+varbind would otherwise be High. Its partner, with no
+// conflict, stays High.
+func TestConfidenceConflictCap(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "C-MIB", Name: "fooDown", Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: "the condition has been restored"},
+		{ModuleName: "C-MIB", Name: "fooUp", Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: "the condition comes up"},
+	}
+	refs := []model.Reference{
+		{SourceModule: "C-MIB", SourceName: "fooDown", TargetModule: "C-MIB", TargetName: "fooId", Kind: model.RefNotificationObject},
+		{SourceModule: "C-MIB", SourceName: "fooUp", TargetModule: "C-MIB", TargetName: "fooId", Kind: model.RefNotificationObject},
+	}
+	m := byName(Classify(syms, refs))
+	if m["fooDown"].Confidence != ConfLikely {
+		t.Errorf("fooDown confidence = %s, want likely (name says down, description says restored)", m["fooDown"].Confidence)
+	}
+	if m["fooUp"].Confidence != ConfHigh {
+		t.Errorf("fooUp confidence = %s, want high (no conflict, 1:1)", m["fooUp"].Confidence)
+	}
+}
+
+// TestConfidenceFanoutCap: a clear that resolves more than one raise is
+// less certain than a clean 1:1 pairing — capped to Likely. The 1:1
+// raises stay High.
+func TestConfidenceFanoutCap(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "S-MIB", Name: "svcDown", Kind: model.KindNotificationType, Status: model.StatusCurrent},
+		{ModuleName: "S-MIB", Name: "svcFail", Kind: model.KindNotificationType, Status: model.StatusCurrent},
+		{ModuleName: "S-MIB", Name: "svcUp", Kind: model.KindNotificationType, Status: model.StatusCurrent},
+	}
+	var refs []model.Reference
+	for _, n := range []string{"svcDown", "svcFail", "svcUp"} {
+		refs = append(refs, model.Reference{SourceModule: "S-MIB", SourceName: n, TargetModule: "S-MIB", TargetName: "svcId", Kind: model.RefNotificationObject})
+	}
+	m := byName(Classify(syms, refs))
+	if got := m["svcUp"]; got.Confidence != ConfLikely || len(got.Clears) != 2 {
+		t.Errorf("svcUp = %+v, want likely with 2 clears (fan-out cap)", got)
+	}
+	if m["svcDown"].Confidence != ConfHigh {
+		t.Errorf("svcDown confidence = %s, want high (1:1)", m["svcDown"].Confidence)
+	}
+}
+
 // TestEvidenceJSONShape locks the serialized contract shared by the UI
 // popover and the export provenance comment: lowercase keys
 // signals/kind/detail/summary.

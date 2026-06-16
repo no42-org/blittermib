@@ -293,13 +293,13 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 			sigs = append(sigs, SignalHit{Kind: SignalGroup, Detail: a.groupEx})
 		}
 
-		conf := ConfGuess
-		switch {
-		case len(sigs) >= 3 || (a.sigName && a.sigVb):
-			conf = ConfHigh
-		case len(sigs) == 2 || a.sigName:
-			conf = ConfLikely
-		}
+		// A notification whose own name and description directions
+		// disagree is an uncertain signal; so is a one-to-many pairing.
+		conflict := ni.nameDir != dirNone && ni.descDir != dirNone && ni.nameDir != ni.descDir
+		conf := scoreConfidence(
+			signalSet{name: a.sigName, varbind: a.sigVb, desc: a.sigDesc, group: a.sigGroup},
+			len(a.partners), conflict,
+		)
 
 		summary := "problem; cleared by " + strings.Join(a.partners, ", ")
 		if a.class == ClassClear {
