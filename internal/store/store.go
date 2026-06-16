@@ -416,13 +416,17 @@ func writeRelationships(ctx context.Context, ex execer, module string, rels []co
 	return nil
 }
 
-// relationshipsBackfillVersion gates the one-time classification of an
-// already-ingested corpus. The notification_relationship tables are
+// relationshipsBackfillVersion gates the one-time (re-)classification of
+// an already-ingested corpus. The notification_relationship tables are
 // populated on ReplaceModule (ingest), but a corpus cached by a build
 // that predates Notification Intelligence — or by any build, since the
-// boot sync skips unchanged MIBs — has empty tables. Bump to re-run the
-// backfill after a relationship-schema change.
-const relationshipsBackfillVersion = 1
+// boot sync skips unchanged MIBs — has empty (or stale) tables.
+//
+// Bump this whenever the correlate engine's output can change so that
+// already-backfilled DBs re-classify on the next boot instead of serving
+// a stale generation. (v2: re-run after the status-aware pairing /
+// confidence calibration so deprecated-duplicate handling is consistent.)
+const relationshipsBackfillVersion = 2
 
 // backfillRelationships classifies every already-stored module into the
 // relationship tables, once, when the cache predates the feature. It
@@ -441,6 +445,15 @@ func (s *Store) backfillRelationships(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Clear any prior generation up front so a version bump re-classifies
+	// cleanly: a module that no longer yields relationships must not keep
+	// stale rows (a per-module delete inside the loop would skip it).
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM notification_relationship`); err != nil {
+		return fmt.Errorf("clear relationships: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM notification_pair`); err != nil {
+		return fmt.Errorf("clear pairs: %w", err)
+	}
 	for i := range mods {
 		name := mods[i].Name
 		syms, err := s.ListSymbolsByModule(ctx, name)
@@ -457,14 +470,6 @@ func (s *Store) backfillRelationships(ctx context.Context) error {
 		}
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM notification_relationship WHERE module_name = ?`, name); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM notification_pair WHERE module_name = ?`, name); err != nil {
-			_ = tx.Rollback()
 			return err
 		}
 		if err := writeRelationships(ctx, tx, name, rels); err != nil {
