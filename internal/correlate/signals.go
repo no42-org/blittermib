@@ -114,9 +114,10 @@ func varbindSets(refs []model.Reference) map[string]map[string]bool {
 	return out
 }
 
-// sharedVarbind returns the lexically-first varbind key present in both
-// sets, or "" if they share none. Deterministic by construction.
-func sharedVarbind(a, b map[string]bool) string {
+// firstShared returns the lexically-first key present in both sets, or
+// "" if they share none. Deterministic by construction; used for both
+// the varbind-signature and group-membership signals.
+func firstShared(a, b map[string]bool) string {
 	if len(a) == 0 || len(b) == 0 {
 		return ""
 	}
@@ -131,6 +132,65 @@ func sharedVarbind(a, b map[string]bool) string {
 	}
 	sort.Strings(shared)
 	return shared[0]
+}
+
+// clearPhrases / raisePhrases are the DESCRIPTION-prose vocabulary,
+// including the protocol-state idioms that carry direction when the
+// name does not (e.g. BGP "enters the established state" /
+// "lower numbered state"). Clear phrases are matched FIRST so a
+// recovery worded around the fault state ("left the down state") is not
+// misread as a raise.
+var clearPhrases = []string{
+	"left the down state", "out of the down state", "comes up", "has come up",
+	"back in service", "returned to service", "returned to normal",
+	"is restored", "restored", "cleared", "no longer", "recovered",
+	"enters the established state", "established state", "established",
+	"normal operation", "transitioned into some other state",
+}
+
+var raisePhrases = []string{
+	"about to enter the down state", "enter the down state", "down state",
+	"has failed", "failure", "failed", "loss of", "is lost", "lost",
+	"lower numbered state", "higher numbered state to a lower", "backward",
+	"unreachable", "not responding", "abnormal", "degraded",
+}
+
+// descriptionDirection scans a notification's DESCRIPTION (and
+// REFERENCE) prose for directional intent, returning the direction and
+// the phrase that matched (for evidence). It is a corroborating signal:
+// callers require an independent grouping signal before pairing on it.
+func descriptionDirection(description, reference string) (direction, string) {
+	text := strings.ToLower(description + " " + reference)
+	for _, p := range clearPhrases {
+		if strings.Contains(text, p) {
+			return dirClear, p
+		}
+	}
+	for _, p := range raisePhrases {
+		if strings.Contains(text, p) {
+			return dirRaise, p
+		}
+	}
+	return dirNone, ""
+}
+
+// groupSets maps each notification name to the set of group keys
+// ("module::group") it belongs to, from NOTIFICATION-GROUP /
+// OBJECT-GROUP membership references (source = group, target = member).
+func groupSets(refs []model.Reference) map[string]map[string]bool {
+	out := make(map[string]map[string]bool)
+	for _, r := range refs {
+		if r.Kind != model.RefGroupMember {
+			continue
+		}
+		set := out[r.TargetName]
+		if set == nil {
+			set = make(map[string]bool)
+			out[r.TargetName] = set
+		}
+		set[r.SourceModule+"::"+r.SourceName] = true
+	}
+	return out
 }
 
 // legacyStatus reports whether a STATUS marks a notification as

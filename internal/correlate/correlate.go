@@ -20,7 +20,6 @@
 package correlate
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -70,6 +69,12 @@ type Relationship struct {
 	Clears       []string
 }
 
+// maxPairingGroupMembers bounds the notification membership of a
+// NOTIFICATION-GROUP for it to count as a pairing signal. A 2-member
+// group identifies a pair (linkUp/linkDown, BGP established/transition);
+// larger groups bundle unrelated notifications and are ignored.
+const maxPairingGroupMembers = 2
+
 // Classify infers relationships for every NOTIFICATION-TYPE/TRAP-TYPE
 // in syms, using refs for the varbind signal.
 //
@@ -82,13 +87,24 @@ type Relationship struct {
 // output), never panics on malformed input, and never returns an error
 // — inference is best-effort enrichment, never a gate on ingest.
 //
-// It pairs directionally-named notifications (e.g. linkDown/linkUp) by
-// shared root + opposing tokens, confirmed by a shared correlating
-// varbind (1.2); refuses to cross-pair current with deprecated/obsolete
-// near-duplicates (1.3); and classifies every unpaired notification as
-// an orphan — a problem with no clear, or a standalone/informational
-// notification (1.3). The description/group signals (1.4) and
-// calibrated confidence scoring (1.5) build on this.
+// It pairs opposing-direction notifications that share a grouping
+// signal — same name root (1.2) or membership in the same SMALL
+// NOTIFICATION-GROUP (1.4) — using four signals: name-token,
+// varbind-signature, DESCRIPTION-prose, and group membership. Direction
+// comes from the name when present, else from the description, so pairs
+// whose names carry no directional token (e.g. BGP
+// backward-transition/established) still pair. It refuses to cross-pair
+// current with deprecated/obsolete near-duplicates (1.3) and classifies
+// every unpaired notification as an orphan (1.3). Confidence rises with
+// signal agreement; Story 1.5 calibrates the bands and Story 1.6
+// measures precision/recall.
+//
+// Pairing is O(n²) in the module's notification count, which is small
+// in practice (tens; inference runs once per ingest). A group is only
+// treated as a pairing signal when it binds at most maxPairingGroupMembers
+// notifications: a group that bundles many notifications says nothing
+// about which pairs with which, so counting it would combinatorially
+// over-pair.
 func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 	notifs := make([]model.Symbol, 0)
 	for _, s := range syms {
@@ -102,78 +118,133 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 	// Sort by name so all downstream iteration is deterministic.
 	sort.Slice(notifs, func(i, j int) bool { return notifs[i].Name < notifs[j].Name })
 
-	vb := varbindSets(refs)
+	vbAll := varbindSets(refs)
+	grpAll := groupSets(refs)
 
-	// Direction + STATUS per notification, grouped by root.
-	dir := make(map[string]direction)
-	tok := make(map[string]string)
-	status := make(map[string]model.Status)
-	byRoot := make(map[string][]string)
+	// A NOTIFICATION-GROUP is a trustworthy pairing signal only when it
+	// binds a small set of notifications (e.g. the 2-member
+	// linkUpDownNotificationsGroup / bgp4MIBNotificationGroup). Count the
+	// notification members per group; groups above the threshold are
+	// ignored as a pairing signal to avoid combinatorial over-pairing.
+	notifNames := make(map[string]bool, len(notifs))
 	for _, n := range notifs {
-		root, d, t := splitDirection(tokenize(n.Name))
-		dir[n.Name] = d
-		tok[n.Name] = t
-		status[n.Name] = n.Status
-		if d != dirNone {
-			byRoot[root] = append(byRoot[root], n.Name)
+		notifNames[n.Name] = true
+	}
+	groupNotifCount := make(map[string]int)
+	for _, r := range refs {
+		if r.Kind == model.RefGroupMember && notifNames[r.TargetName] {
+			groupNotifCount[r.SourceModule+"::"+r.SourceName]++
 		}
 	}
 
-	// Build clear→raise edges and per-notification evidence within each
-	// root that has both a raise and a clear member.
+	// Per-notification facts. eff is the name direction when present,
+	// else the description direction. groups holds only small (pairing)
+	// groups the notification belongs to.
+	type ninfo struct {
+		nameRoot   string
+		nameDir    direction
+		descDir    direction
+		descPhrase string
+		vb         map[string]bool
+		groups     map[string]bool
+		status     model.Status
+		eff        direction
+	}
+	info := make(map[string]*ninfo, len(notifs))
+	for _, n := range notifs {
+		root, nd, _ := splitDirection(tokenize(n.Name))
+		dd, ph := descriptionDirection(n.Description, n.Reference)
+		eff := nd
+		if eff == dirNone {
+			eff = dd
+		}
+		var smallGroups map[string]bool
+		for g := range grpAll[n.Name] {
+			if c := groupNotifCount[g]; c >= 2 && c <= maxPairingGroupMembers {
+				if smallGroups == nil {
+					smallGroups = make(map[string]bool)
+				}
+				smallGroups[g] = true
+			}
+		}
+		info[n.Name] = &ninfo{
+			nameRoot: root, nameDir: nd, descDir: dd, descPhrase: ph,
+			vb: vbAll[n.Name], groups: smallGroups,
+			status: n.Status, eff: eff,
+		}
+	}
+
+	// acc records which signals paired a notification and its partners.
 	type acc struct {
 		class    Classification
-		shared   bool
-		varbind  string // example shared varbind (human-readable)
-		token    string
-		partners []string // raises (for a clear) or clears (for a raise)
+		partners []string
+		sigName  bool
+		sigVb    bool
+		sigDesc  bool
+		sigGroup bool
+		vbEx     string
+		groupEx  string
 	}
 	rels := make(map[string]*acc)
 	get := func(name string, class Classification) *acc {
 		a := rels[name]
 		if a == nil {
-			a = &acc{class: class, token: tok[name]}
+			a = &acc{class: class}
 			rels[name] = a
 		}
 		return a
 	}
 
-	roots := make([]string, 0, len(byRoot))
-	for r := range byRoot {
-		roots = append(roots, r)
-	}
-	sort.Strings(roots)
-
-	for _, root := range roots {
-		var raises, clears []string
-		for _, nm := range byRoot[root] {
-			switch dir[nm] {
-			case dirRaise:
-				raises = append(raises, nm)
-			case dirClear:
-				clears = append(clears, nm)
+	// Candidate pairs: every opposing-direction pair that shares a
+	// grouping signal (same name-root, NOTIFICATION-GROUP, or OID
+	// parent). Iterated over the name-sorted notifs by index, and each
+	// (i,j) is visited once, so pairing and partner lists are
+	// deterministic with no duplicates.
+	for i := 0; i < len(notifs); i++ {
+		for j := i + 1; j < len(notifs); j++ {
+			a, b := info[notifs[i].Name], info[notifs[j].Name]
+			var raise, clear string
+			switch {
+			case a.eff == dirRaise && b.eff == dirClear:
+				raise, clear = notifs[i].Name, notifs[j].Name
+			case a.eff == dirClear && b.eff == dirRaise:
+				raise, clear = notifs[j].Name, notifs[i].Name
+			default:
+				continue
 			}
-		}
-		if len(raises) == 0 || len(clears) == 0 {
-			continue // no opposing partner in this root → left for 1.3 (orphan)
-		}
-		for _, c := range clears {
-			for _, r := range raises {
-				// Never cross-pair a current notification with a
-				// deprecated/obsolete near-duplicate (FR5).
-				if !statusCompatible(status[c], status[r]) {
-					continue
+			ra, ca := info[raise], info[clear]
+			// Never cross-pair current with deprecated/obsolete (FR5).
+			if !statusCompatible(ra.status, ca.status) {
+				continue
+			}
+			sameRoot := ra.nameDir != dirNone && ca.nameDir != dirNone &&
+				ra.nameRoot != "" && ra.nameRoot == ca.nameRoot
+			grpEx := firstShared(ra.groups, ca.groups)
+			if !sameRoot && grpEx == "" {
+				continue // no grouping signal → don't link arbitrary notifications
+			}
+			vbEx := firstShared(ra.vb, ca.vb)
+			descOpposing := ra.descDir == dirRaise && ca.descDir == dirClear
+
+			rAcc, cAcc := get(raise, ClassRaise), get(clear, ClassClear)
+			rAcc.partners = append(rAcc.partners, clear)
+			cAcc.partners = append(cAcc.partners, raise)
+			for _, x := range []*acc{rAcc, cAcc} {
+				if sameRoot {
+					x.sigName = true
 				}
-				ca, ra := get(c, ClassClear), get(r, ClassRaise)
-				ca.partners = append(ca.partners, r)
-				ra.partners = append(ra.partners, c)
-				if s := sharedVarbind(vb[c], vb[r]); s != "" {
-					for _, a := range []*acc{ca, ra} {
-						a.shared = true
-						if a.varbind == "" {
-							a.varbind = shortVarbind(s)
-						}
+				if vbEx != "" {
+					x.sigVb = true
+					if x.vbEx == "" {
+						x.vbEx = shortVarbind(vbEx)
 					}
+				}
+				if descOpposing {
+					x.sigDesc = true
+				}
+				if grpEx != "" && !x.sigGroup {
+					x.sigGroup = true
+					x.groupEx = "NOTIFICATION-GROUP " + shortVarbind(grpEx)
 				}
 			}
 		}
@@ -186,15 +257,16 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 	out := make([]Relationship, 0, len(notifs))
 	for _, n := range notifs {
 		name := n.Name
+		ni := info[name]
 		a := rels[name]
 		if a == nil {
 			summary := "no resolution found"
 			switch {
-			case dir[name] == dirRaise:
+			case ni.eff == dirRaise:
 				summary = "problem with no matching clear notification"
-			case dir[name] == dirClear:
+			case ni.eff == dirClear:
 				summary = "resolution with no matching problem notification"
-			case len(vb[name]) == 0:
+			case len(ni.vb) == 0:
 				summary = "standalone notification (no varbinds); no resolution"
 			}
 			out = append(out, Relationship{
@@ -206,24 +278,39 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 			continue
 		}
 		sort.Strings(a.partners)
-		conf := ConfLikely
-		ev := Evidence{Signals: []SignalHit{{
-			Kind:   SignalName,
-			Detail: fmt.Sprintf("directional token %q with a matching-root partner", a.token),
-		}}}
-		if a.shared {
+
+		var sigs []SignalHit
+		if a.sigName {
+			sigs = append(sigs, SignalHit{Kind: SignalName, Detail: "matching name root with opposing directional token"})
+		}
+		if a.sigVb {
+			sigs = append(sigs, SignalHit{Kind: SignalVarbind, Detail: "shared correlating varbind " + a.vbEx})
+		}
+		if a.sigDesc {
+			sigs = append(sigs, SignalHit{Kind: SignalDescription, Detail: "DESCRIPTION direction: " + ni.descPhrase})
+		}
+		if a.sigGroup {
+			sigs = append(sigs, SignalHit{Kind: SignalGroup, Detail: a.groupEx})
+		}
+
+		conf := ConfGuess
+		switch {
+		case len(sigs) >= 3 || (a.sigName && a.sigVb):
 			conf = ConfHigh
-			ev.Signals = append(ev.Signals, SignalHit{
-				Kind:   SignalVarbind,
-				Detail: "shared correlating varbind " + a.varbind,
-			})
+		case len(sigs) == 2 || a.sigName:
+			conf = ConfLikely
 		}
+
+		summary := "problem; cleared by " + strings.Join(a.partners, ", ")
 		if a.class == ClassClear {
-			ev.Summary = "clears " + strings.Join(a.partners, ", ")
-		} else {
-			ev.Summary = "problem; cleared by " + strings.Join(a.partners, ", ")
+			summary = "clears " + strings.Join(a.partners, ", ")
 		}
-		rel := Relationship{Notification: name, Class: a.class, Confidence: conf, Evidence: ev}
+		rel := Relationship{
+			Notification: name,
+			Class:        a.class,
+			Confidence:   conf,
+			Evidence:     Evidence{Signals: sigs, Summary: summary},
+		}
 		if a.class == ClassClear {
 			rel.Clears = append([]string(nil), a.partners...)
 		}

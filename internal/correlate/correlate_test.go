@@ -168,6 +168,95 @@ func TestClassifyStatusGuard(t *testing.T) {
 	}
 }
 
+// TestClassifyBGPNameless is the adversarial golden case: the BGP4-MIB
+// current pair carries NO directional name token, so it can only be
+// paired via the description-prose direction ("established" vs "lower
+// numbered state"), shared NOTIFICATION-GROUP, and shared varbinds.
+// Proves multi-signal necessity (Story 1.4).
+func TestClassifyBGPNameless(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "BGP4-MIB", Name: "bgpBackwardTransNotification", Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			Description: "generated when the BGP FSM moves from a higher numbered state to a lower numbered state."},
+		{ModuleName: "BGP4-MIB", Name: "bgpEstablishedNotification", Kind: model.KindNotificationType, Status: model.StatusCurrent,
+			Description: "generated when the BGP FSM enters the established state."},
+	}
+	notif := func(src, tgt string) model.Reference {
+		return model.Reference{SourceModule: "BGP4-MIB", SourceName: src, TargetModule: "BGP4-MIB", TargetName: tgt, Kind: model.RefNotificationObject}
+	}
+	member := func(notifName string) model.Reference {
+		return model.Reference{SourceModule: "BGP4-MIB", SourceName: "bgp4MIBNotificationGroup", TargetModule: "BGP4-MIB", TargetName: notifName, Kind: model.RefGroupMember}
+	}
+	refs := []model.Reference{
+		notif("bgpBackwardTransNotification", "bgpPeerState"),
+		notif("bgpBackwardTransNotification", "bgpPeerLastError"),
+		notif("bgpEstablishedNotification", "bgpPeerState"),
+		notif("bgpEstablishedNotification", "bgpPeerLastError"),
+		member("bgpBackwardTransNotification"),
+		member("bgpEstablishedNotification"),
+	}
+	m := byName(Classify(syms, refs))
+
+	bt := m["bgpBackwardTransNotification"]
+	est := m["bgpEstablishedNotification"]
+	if bt.Class != ClassRaise {
+		t.Fatalf("bgpBackwardTransNotification = %q, want raise", bt.Class)
+	}
+	if est.Class != ClassClear || len(est.Clears) != 1 || est.Clears[0] != "bgpBackwardTransNotification" {
+		t.Fatalf("bgpEstablishedNotification = %+v, want clear of bgpBackwardTransNotification", est)
+	}
+	if est.Confidence != ConfHigh {
+		t.Errorf("confidence = %s, want high (description+group+varbind agree)", est.Confidence)
+	}
+	// Crucially, the NAME signal must NOT have fired — this pair is
+	// found without it.
+	for _, s := range est.Evidence.Signals {
+		if s.Kind == SignalName {
+			t.Errorf("name signal should not fire for the BGP pair: %+v", est.Evidence.Signals)
+		}
+	}
+	// The description and group signals must be present.
+	kinds := map[SignalKind]bool{}
+	for _, s := range est.Evidence.Signals {
+		kinds[s.Kind] = true
+	}
+	if !kinds[SignalDescription] || !kinds[SignalGroup] {
+		t.Errorf("BGP pair evidence missing description/group signal: %+v", est.Evidence.Signals)
+	}
+}
+
+// TestClassifyLargeGroupNoOverpairing guards the code-review finding:
+// a NOTIFICATION-GROUP that bundles many notifications must NOT act as a
+// pairing signal (else every raise-ish trap would pair with every
+// clear-ish trap that co-resides in the group and shares a module-wide
+// index varbind, producing spurious High-confidence pairs). Here four
+// nameless, description-directed notifications share one big group and a
+// common varbind; with no name-root and an over-size group, none should
+// pair — all fall through to orphan.
+func TestClassifyLargeGroupNoOverpairing(t *testing.T) {
+	mk := func(name, desc string) model.Symbol {
+		return model.Symbol{ModuleName: "BIG-MIB", Name: name, Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: desc}
+	}
+	syms := []model.Symbol{
+		mk("alphaProblem", "the subsystem has failed"),
+		mk("alphaRecovery", "the subsystem is restored"),
+		mk("betaProblem", "interface is down state detected"),
+		mk("betaRecovery", "interface comes up"),
+	}
+	var refs []model.Reference
+	for _, n := range []string{"alphaProblem", "alphaRecovery", "betaProblem", "betaRecovery"} {
+		// All four in one group, all sharing a common varbind.
+		refs = append(refs,
+			model.Reference{SourceModule: "BIG-MIB", SourceName: "bigGroup", TargetModule: "BIG-MIB", TargetName: n, Kind: model.RefGroupMember},
+			model.Reference{SourceModule: "BIG-MIB", SourceName: n, TargetModule: "BIG-MIB", TargetName: "commonIndex", Kind: model.RefNotificationObject},
+		)
+	}
+	for _, r := range Classify(syms, refs) {
+		if r.Class != ClassOrphan {
+			t.Errorf("%s = %q, want orphan — a 4-member group must not pair notifications", r.Notification, r.Class)
+		}
+	}
+}
+
 // TestEvidenceJSONShape locks the serialized contract shared by the UI
 // popover and the export provenance comment: lowercase keys
 // signals/kind/detail/summary.
