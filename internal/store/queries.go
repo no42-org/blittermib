@@ -398,6 +398,22 @@ func (s *Store) ListRelationships(ctx context.Context, module string) ([]correla
 	return out, nil
 }
 
+// listReferencesByModule returns every reference originating in a
+// module, in a stable order. Used by the boot relationship backfill,
+// which needs a module's notification-object and group-member edges to
+// re-run inference over stored data.
+func (s *Store) listReferencesByModule(ctx context.Context, module string) ([]model.Reference, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT source_module, source_name, target_module, target_name, kind, position
+		FROM reference
+		WHERE source_module = ?
+		ORDER BY source_name, position, rowid`, module)
+	if err != nil {
+		return nil, fmt.Errorf("list references for %s: %w", module, err)
+	}
+	return scanReferenceRows(rows)
+}
+
 // GetRelationship returns the inferred relationship for a single
 // notification, or (nil, nil) when none is recorded. Clear→raise edges
 // are joined in for clears. Used by the symbol/workspace detail views.
