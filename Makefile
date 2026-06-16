@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke
+.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report correlate-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -151,6 +151,13 @@ ingest:
 # (invoke the binary directly).
 ingest-report:
 	$(GO) run ./cmd/mib-ingest --report
+
+# Notification Intelligence coverage over the bundled standard corpus:
+# raise/clear/orphan and confidence distribution (FR26). Correctness is
+# asserted by the golden tests in `make verify`; this is the on-demand
+# distribution snapshot across the full corpus.
+correlate-report:
+	$(GO) run ./cmd/mib-correlate-report
 
 # Tiered MIB-corpus validation per design.md Decision 6. CI runs all
 # three tiers on every PR touching `mibs/**`; local pre-flight before
