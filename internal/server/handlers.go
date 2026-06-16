@@ -417,7 +417,11 @@ func (s *Server) handleModuleEvents(w http.ResponseWriter, r *http.Request, name
 			if !ok {
 				continue
 			}
-			er := eventconf.Relationship{AlarmType: alarmType(rel.Class)}
+			er := eventconf.Relationship{
+				AlarmType: alarmType(rel.Class),
+				Provenance: fmt.Sprintf("Notification Intelligence: inferred %s — %s; confidence %s",
+					rel.Class, rel.Evidence.String(), rel.Confidence),
+			}
 			if rel.Class == correlate.ClassClear {
 				// Keep only raises that are themselves High, so the
 				// clear-key resolves to an emitted reduction-key. A clear

@@ -5,6 +5,8 @@
 
 package correlate
 
+import "strings"
+
 // SignalHit records one signal that fired during inference, with a
 // human-readable detail (e.g. "shared varbind ifIndex").
 type SignalHit struct {
@@ -22,4 +24,19 @@ type SignalHit struct {
 type Evidence struct {
 	Signals []SignalHit `json:"signals"`
 	Summary string      `json:"summary"`
+}
+
+// String renders the evidence as a one-line human explanation —
+// "summary (signal-detail; signal-detail)". It is the single source
+// behind both the UI's evidence popover and the eventconf export's
+// provenance comment, so the two never diverge (D4).
+func (e Evidence) String() string {
+	if len(e.Signals) == 0 {
+		return e.Summary
+	}
+	details := make([]string, 0, len(e.Signals))
+	for _, s := range e.Signals {
+		details = append(details, s.Detail)
+	}
+	return e.Summary + " (" + strings.Join(details, "; ") + ")"
 }

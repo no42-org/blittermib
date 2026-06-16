@@ -139,3 +139,35 @@ func TestReductionKeyUsesSharedVarbind(t *testing.T) {
 		t.Errorf("reduction-key = %q, must not scope on the non-shared first object (parm[#1])", rk)
 	}
 }
+
+// TestProvenanceComment covers Story 2.4: a provenance XML comment is
+// emitted before the alarm-data, sanitized against "--", and absent
+// when there is no alarm-data.
+func TestProvenanceComment(t *testing.T) {
+	classified := notif("fooDown", "1.3.6.1.4.1.99.0.1")
+	classified.Relationship = Relationship{
+		AlarmType:  AlarmTypeRaise,
+		Provenance: "inferred raise -- shared ifIndex; confidence High",
+	}
+	plain := notif("barEvent", "1.3.6.1.4.1.99.0.2") // unclassified
+	out, err := Marshal(FromModule("M", []Notification{classified, plain}, Options{UEIBase: "uei.opennms.org/traps/M"}), "M")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+
+	prov := strings.Index(s, "inferred raise")
+	if prov < 0 {
+		t.Fatalf("provenance comment not emitted:\n%s", s)
+	}
+	if strings.Contains(s, "raise -- shared") {
+		t.Errorf("`--` not sanitized in comment (XML forbids it):\n%s", s)
+	}
+	if ad := strings.Index(s, "<alarm-data"); ad < 0 || prov > ad {
+		t.Errorf("provenance comment must precede alarm-data (prov=%d, alarm-data=%d)", prov, ad)
+	}
+	// The unclassified event must carry no provenance comment.
+	if strings.Count(s, "inferred ") != 1 {
+		t.Errorf("expected exactly one provenance comment (only the classified event):\n%s", s)
+	}
+}

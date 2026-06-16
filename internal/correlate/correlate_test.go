@@ -110,6 +110,21 @@ func TestClassifyNoPanicOnEmpty(t *testing.T) {
 	}
 }
 
+// TestEvidenceString covers the shared renderer behind the UI popover
+// and the export provenance comment (D4).
+func TestEvidenceString(t *testing.T) {
+	e := Evidence{
+		Signals: []SignalHit{{Kind: SignalName, Detail: "matching root"}, {Kind: SignalVarbind, Detail: "shared ifIndex"}},
+		Summary: "clears linkDown",
+	}
+	if got, want := e.String(), "clears linkDown (matching root; shared ifIndex)"; got != want {
+		t.Errorf("Evidence.String() = %q, want %q", got, want)
+	}
+	if got := (Evidence{Summary: "no resolution found"}).String(); got != "no resolution found" {
+		t.Errorf("empty-signals String() = %q", got)
+	}
+}
+
 // TestClassifyOrphans confirms the orphan cases: a standalone
 // informational notification (entConfigChange — no varbinds, no
 // directional token) and a problem with no clear (authenticationFailure

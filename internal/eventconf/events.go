@@ -46,7 +46,10 @@ type Event struct {
 	Logmsg         Logmsg           `xml:"logmsg"`
 	Severity       string           `xml:"severity"`
 	Varbindsdecode []Varbindsdecode `xml:"varbindsdecode,omitempty"`
-	AlarmData      *AlarmData       `xml:"alarm-data,omitempty"`
+	// Provenance is an XML comment (empty = omitted) explaining the
+	// alarm-data inference; it precedes the alarm-data element.
+	Provenance string     `xml:",comment"`
+	AlarmData  *AlarmData `xml:"alarm-data,omitempty"`
 }
 
 // AlarmType values map an inferred classification to the OpenNMS

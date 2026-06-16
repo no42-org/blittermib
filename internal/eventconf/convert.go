@@ -36,6 +36,10 @@ type Relationship struct {
 	// Clears names the raise notification(s) this clear resolves. Used
 	// for clear-key generation in Story 2.2; unused here.
 	Clears []string
+	// Provenance is a human explanation of the inference (basis +
+	// confidence), emitted as an XML comment beside the alarm-data so
+	// the export is auditable without the UI. Empty = no comment.
+	Provenance string
 }
 
 // Options tune the generated events.
@@ -149,6 +153,8 @@ func buildEvent(moduleName string, n Notification, ueibase string, forcePosition
 	evt.Varbindsdecode = buildVarbindsdecode(n, forcePositional)
 	if ad := buildAlarmData(n.Relationship, instanceTok); ad != nil {
 		evt.AlarmData = ad
+		// commentSafe guards against `--`, which XML forbids in comments.
+		evt.Provenance = commentSafe(n.Relationship.Provenance)
 	}
 	return evt
 }

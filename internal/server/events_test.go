@@ -146,6 +146,10 @@ func TestModuleEventsAlarmData(t *testing.T) {
 	if !strings.Contains(got, `reduction-key="`) {
 		t.Errorf("alarm-data missing required reduction-key:\n%s", got)
 	}
+	// Story 2.4: a provenance comment derived from the inference accompanies it.
+	if !strings.Contains(got, "Notification Intelligence: inferred orphan") || !strings.Contains(got, "confidence high") {
+		t.Errorf("export missing provenance comment with confidence:\n%s", got)
+	}
 }
 
 // TestModuleEventsAlarmsOff covers FR23: ?alarms=off suppresses all
