@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/no42-org/blittermib/internal/correlate"
 	"github.com/no42-org/blittermib/internal/eventconf"
 	"github.com/no42-org/blittermib/internal/iana"
 	"github.com/no42-org/blittermib/internal/model"
@@ -324,6 +326,76 @@ func (s *Store) ListReferencesTo(ctx context.Context, module, name string) ([]mo
 		return nil, err
 	}
 	return scanReferenceRows(rows)
+}
+
+// ListRelationships returns the inferred notification relationships
+// for a module — one entry per classified NOTIFICATION-TYPE/TRAP-TYPE,
+// with its clear→raise edges joined in — ordered by notification name
+// for stable output. The derived tables are a projection rebuilt on
+// every ReplaceModule, so this read reflects the current corpus.
+func (s *Store) ListRelationships(ctx context.Context, module string) ([]correlate.Relationship, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT notification_name, classification, confidence, evidence_json
+		FROM notification_relationship
+		WHERE module_name = ?
+		ORDER BY notification_name`, module)
+	if err != nil {
+		return nil, fmt.Errorf("list relationships for %s: %w", module, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []correlate.Relationship
+	for rows.Next() {
+		var (
+			r                   correlate.Relationship
+			class, conf, evJSON string
+		)
+		if err := rows.Scan(&r.Notification, &class, &conf, &evJSON); err != nil {
+			return nil, fmt.Errorf("scan relationship: %w", err)
+		}
+		r.Class = correlate.Classification(class)
+		r.Confidence = correlate.Confidence(conf)
+		if evJSON != "" {
+			if err := json.Unmarshal([]byte(evJSON), &r.Evidence); err != nil {
+				// Degrade rather than fail the read: a corrupt evidence
+				// blob shouldn't blank out the classification it annotates.
+				return nil, fmt.Errorf("decode evidence for %s::%s: %w", module, r.Notification, err)
+			}
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate relationships: %w", err)
+	}
+
+	// Join clear→raise edges in one pass and attach to their clears.
+	pairs, err := s.db.QueryContext(ctx, `
+		SELECT clear_name, raise_name
+		FROM notification_pair
+		WHERE module_name = ?
+		ORDER BY clear_name, raise_name`, module)
+	if err != nil {
+		return nil, fmt.Errorf("list pairs for %s: %w", module, err)
+	}
+	defer func() { _ = pairs.Close() }()
+
+	clears := make(map[string][]string)
+	for pairs.Next() {
+		var clearName, raiseName string
+		if err := pairs.Scan(&clearName, &raiseName); err != nil {
+			return nil, fmt.Errorf("scan pair: %w", err)
+		}
+		clears[clearName] = append(clears[clearName], raiseName)
+	}
+	if err := pairs.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pairs: %w", err)
+	}
+	for i := range out {
+		if edges := clears[out[i].Notification]; len(edges) > 0 {
+			out[i].Clears = edges
+		}
+	}
+	return out, nil
 }
 
 // ListNotificationsWithObjects returns every NOTIFICATION-TYPE and

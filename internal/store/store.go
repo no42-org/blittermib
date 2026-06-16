@@ -11,6 +11,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/no42-org/blittermib/internal/correlate"
 	"github.com/no42-org/blittermib/internal/model"
 )
 
@@ -340,6 +341,43 @@ func (s *Store) ReplaceModule(
 		}
 	}
 
+	// Derived: inferred notification relationships (Notification
+	// Intelligence). Best-effort enrichment computed from the symbols
+	// and refs we just inserted — a classifier fault must never abort a
+	// module's ingest (see classify's recover), and the rows were
+	// already cleared by the `DELETE FROM module` cascade above.
+	if rels := classify(ctx, mod.Name, syms, refs); len(rels) > 0 {
+		insRel, err := tx.PrepareContext(ctx, `
+			INSERT INTO notification_relationship
+			    (module_name, notification_name, classification, confidence, evidence_json)
+			VALUES (?, ?, ?, ?, ?)`)
+		if err != nil {
+			return fmt.Errorf("prepare insert relationship: %w", err)
+		}
+		defer func() { _ = insRel.Close() }()
+		insPair, err := tx.PrepareContext(ctx, `
+			INSERT OR IGNORE INTO notification_pair
+			    (module_name, clear_name, raise_name)
+			VALUES (?, ?, ?)`)
+		if err != nil {
+			return fmt.Errorf("prepare insert pair: %w", err)
+		}
+		defer func() { _ = insPair.Close() }()
+		for _, r := range rels {
+			if _, err := insRel.ExecContext(ctx,
+				mod.Name, r.Notification, string(r.Class),
+				string(r.Confidence), encodeEvidence(r.Evidence),
+			); err != nil {
+				return fmt.Errorf("insert relationship %s::%s: %w", mod.Name, r.Notification, err)
+			}
+			for _, raise := range r.Clears {
+				if _, err := insPair.ExecContext(ctx, mod.Name, r.Notification, raise); err != nil {
+					return fmt.Errorf("insert pair %s::%s→%s: %w", mod.Name, r.Notification, raise, err)
+				}
+			}
+		}
+	}
+
 	if len(diags) > 0 {
 		insDiag, err := tx.PrepareContext(ctx, `
 			INSERT INTO diagnostic
@@ -363,6 +401,32 @@ func (s *Store) ReplaceModule(
 		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
+}
+
+// classify runs correlate.Classify behind a recover guard. Inference
+// is best-effort enrichment, so a classifier panic is logged and
+// treated as "no relationships" rather than aborting the module's
+// ingest transaction (and thus blocking an otherwise-valid MIB).
+func classify(ctx context.Context, module string, syms []model.Symbol, refs []model.Reference) (rels []correlate.Relationship) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.WarnContext(ctx, "notification inference panicked; skipping module", "module", module, "panic", r)
+			rels = nil
+		}
+	}()
+	return correlate.Classify(syms, refs)
+}
+
+// encodeEvidence serializes an inference's evidence trail for the
+// notification_relationship.evidence_json column. A marshal failure
+// degrades to "{}" rather than failing the row (consistent with
+// encodeIndex/encodeEnumValues).
+func encodeEvidence(ev correlate.Evidence) string {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
 
 func encodeIndex(cols []string) string {

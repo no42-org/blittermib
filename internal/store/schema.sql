@@ -98,6 +98,39 @@ CREATE TABLE IF NOT EXISTS reference (
 
 CREATE INDEX IF NOT EXISTS reference_target_idx ON reference(target_module, target_name);
 
+-- Inferred notification relationships (Notification Intelligence).
+-- DERIVED data, recomputed from `symbol`/`reference` on every
+-- ReplaceModule — like symbol_fts, never authored by hand. Both
+-- tables carry an ON DELETE CASCADE FK to `module`, so the per-module
+-- `DELETE FROM module` in ReplaceModule clears them before the
+-- module's symbols are re-inserted and re-classified; no bespoke
+-- migration is needed (the rows are a projection of compiled data).
+--
+-- notification_relationship: one row per NOTIFICATION-TYPE/TRAP-TYPE
+-- with its inferred classification (raise/clear/orphan), confidence
+-- band, and the JSON evidence trail behind the inference.
+CREATE TABLE IF NOT EXISTS notification_relationship (
+    module_name       TEXT NOT NULL REFERENCES module(name) ON DELETE CASCADE,
+    notification_name TEXT NOT NULL,
+    classification    TEXT NOT NULL CHECK (classification IN ('raise', 'clear', 'orphan')),
+    confidence        TEXT NOT NULL CHECK (confidence IN ('high', 'likely', 'guess')),
+    evidence_json     TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (module_name, notification_name)
+);
+
+-- notification_pair: directional clear→raise edges. A clear may
+-- resolve more than one raise (and a raise be cleared by more than
+-- one clear), so pairing is a separate edge table rather than a
+-- column on notification_relationship.
+CREATE TABLE IF NOT EXISTS notification_pair (
+    module_name TEXT NOT NULL REFERENCES module(name) ON DELETE CASCADE,
+    clear_name  TEXT NOT NULL,
+    raise_name  TEXT NOT NULL,
+    PRIMARY KEY (module_name, clear_name, raise_name)
+);
+
+CREATE INDEX IF NOT EXISTS notification_pair_raise_idx ON notification_pair(module_name, raise_name);
+
 CREATE TABLE IF NOT EXISTS diagnostic (
     id          INTEGER PRIMARY KEY,
     module_name TEXT    NOT NULL DEFAULT '',
