@@ -87,6 +87,12 @@ templ workspaceDetailSection(view *WorkspaceView) {
 templ WorkspacePartial(view *WorkspaceView, includeList bool) {
 	if includeList {
 		@workspaceListSection(view, true)
+	} else if view.Selected != nil && view.Selected.Relationship != nil {
+		// Case A re-renders only the detail pane, so keep the selected
+		// row's list badge in sync with a targeted out-of-band swap —
+		// the two panes can't then show different classification
+		// generations after a runtime re-classification.
+		@notificationBadgeIcon(*view.Selected.Relationship, view.Selected.Symbol.Name, true)
 	}
 	@workspaceDetailSection(view)
 }
@@ -884,6 +890,9 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 					</td>
 					<td class="list-cell-name">
 						@copyToClipboardIcon(s.Name, "Copy name")
+						if rel, ok := view.Relationships[s.Name]; ok {
+							@notificationBadgeIcon(rel, s.Name, false)
+						}
 						<a
 							href={ rowURL }
 							data-nav
@@ -894,9 +903,6 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 						</a>
 						if pill := statusPillLabel(s.Status); pill != "" {
 							<span class={ "status-pill", string(s.Status) }>{ pill }</span>
-						}
-						if rel, ok := view.Relationships[s.Name]; ok {
-							@notificationBadge(rel)
 						}
 					</td>
 					<td class="list-cell-syntax">{ syntaxShort(s.Syntax) }</td>

@@ -232,3 +232,23 @@ templ notificationBadge(rel correlate.Relationship) {
 			<span class="rel-pill rel-orphan" aria-label={ "inferred: no resolution, " + string(rel.Confidence) + " confidence" }>⊘ orphan</span>
 	}
 }
+
+// notificationBadgeIcon is the compact, icon-only variant used in dense
+// list rows. Meaning is carried by the distinct glyph (not colour alone —
+// WCAG 1.4.1) with the full classification + confidence in the accessible
+// name and a hover title; the full labelled badge lives in the detail pane.
+//
+// The stable `rel-badge-{name}` id lets a same-scope partial nav keep this
+// badge in sync via a targeted out-of-band swap (oob=true) — the list pane
+// isn't re-rendered on same-scope selection, so without this the badge
+// could lag the detail pane after a runtime re-classification.
+templ notificationBadgeIcon(rel correlate.Relationship, name string, oob bool) {
+	switch rel.Class {
+		case correlate.ClassRaise:
+			<span id={ "rel-badge-" + name } if oob { hx-swap-oob="outerHTML" } class="rel-pill rel-icon rel-raise" title="raises a problem" aria-label={ "inferred: raises a problem, " + string(rel.Confidence) + " confidence" }>▲</span>
+		case correlate.ClassClear:
+			<span id={ "rel-badge-" + name } if oob { hx-swap-oob="outerHTML" } class="rel-pill rel-icon rel-clear" title="clears a problem" aria-label={ "inferred: clears a problem, " + string(rel.Confidence) + " confidence" }>↺</span>
+		case correlate.ClassOrphan:
+			<span id={ "rel-badge-" + name } if oob { hx-swap-oob="outerHTML" } class="rel-pill rel-icon rel-orphan" title="no resolution" aria-label={ "inferred: no resolution, " + string(rel.Confidence) + " confidence" }>⊘</span>
+	}
+}
