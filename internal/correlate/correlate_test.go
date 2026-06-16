@@ -41,13 +41,64 @@ func TestClassifyDeterministic(t *testing.T) {
 	}
 }
 
-// TestClassifyScaffoldEmpty documents the Phase-0 scaffold state:
-// Classify returns no relationships until the signals land. Updated
-// in Story 1.2 when linkDown/linkUp must classify.
-func TestClassifyScaffoldEmpty(t *testing.T) {
+// byName indexes relationships for assertion convenience.
+func byName(rels []Relationship) map[string]Relationship {
+	m := make(map[string]Relationship, len(rels))
+	for _, r := range rels {
+		m[r.Notification] = r
+	}
+	return m
+}
+
+// TestClassifyLinkUpDown is the canonical golden case: linkDown is a
+// raise, linkUp is its clear (shared root + opposing tokens, confirmed
+// by the shared ifIndex varbind → High confidence), with a clear→raise
+// edge and evidence recording both signals.
+func TestClassifyLinkUpDown(t *testing.T) {
 	syms, refs := sampleNotifs()
-	if got := Classify(syms, refs); len(got) != 0 {
-		t.Fatalf("scaffold Classify should return no relationships, got %d", len(got))
+	m := byName(Classify(syms, refs))
+
+	down, ok := m["linkDown"]
+	if !ok || down.Class != ClassRaise {
+		t.Fatalf("linkDown = %+v, want classified raise", down)
+	}
+	up, ok := m["linkUp"]
+	if !ok || up.Class != ClassClear {
+		t.Fatalf("linkUp = %+v, want classified clear", up)
+	}
+	if len(up.Clears) != 1 || up.Clears[0] != "linkDown" {
+		t.Errorf("linkUp.Clears = %v, want [linkDown]", up.Clears)
+	}
+	if up.Confidence != ConfHigh || down.Confidence != ConfHigh {
+		t.Errorf("confidence = %s/%s, want high/high (shared varbind)", down.Confidence, up.Confidence)
+	}
+	// Evidence records the name signal and the varbind signal.
+	kinds := map[SignalKind]bool{}
+	for _, s := range up.Evidence.Signals {
+		kinds[s.Kind] = true
+	}
+	if !kinds[SignalName] || !kinds[SignalVarbind] {
+		t.Errorf("linkUp evidence missing a signal: %+v", up.Evidence.Signals)
+	}
+}
+
+// TestClassifyTrapTypeSMIv1 confirms FR6: SMIv1 TRAP-TYPE pairs classify
+// identically to SMIv2 NOTIFICATION-TYPE.
+func TestClassifyTrapTypeSMIv1(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "V1-MIB", Name: "tunnelFailed", Kind: model.KindTrapType, Status: model.StatusMandatory},
+		{ModuleName: "V1-MIB", Name: "tunnelOk", Kind: model.KindTrapType, Status: model.StatusMandatory},
+	}
+	refs := []model.Reference{
+		{SourceModule: "V1-MIB", SourceName: "tunnelFailed", TargetModule: "V1-MIB", TargetName: "tunnelId", Kind: model.RefNotificationObject},
+		{SourceModule: "V1-MIB", SourceName: "tunnelOk", TargetModule: "V1-MIB", TargetName: "tunnelId", Kind: model.RefNotificationObject},
+	}
+	m := byName(Classify(syms, refs))
+	if m["tunnelFailed"].Class != ClassRaise {
+		t.Errorf("tunnelFailed = %q, want raise", m["tunnelFailed"].Class)
+	}
+	if got := m["tunnelOk"]; got.Class != ClassClear || len(got.Clears) != 1 || got.Clears[0] != "tunnelFailed" {
+		t.Errorf("tunnelOk = %+v, want clear of tunnelFailed", got)
 	}
 }
 
