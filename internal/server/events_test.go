@@ -46,6 +46,37 @@ func eventsTestServer(t *testing.T) *httptest.Server {
 		nil, nil); err != nil {
 		t.Fatal(err)
 	}
+	// WEAK-MIB: a name-only pair (no shared varbind/group) → Guess
+	// confidence, below the High export gate.
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: "WEAK-MIB", OIDRoot: "1.3.6.1.4.1.101", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{
+			{ModuleName: "WEAK-MIB", Name: "fooDown", OID: "1.3.6.1.4.1.101.0.1", Kind: model.KindNotificationType},
+			{ModuleName: "WEAK-MIB", Name: "fooUp", OID: "1.3.6.1.4.1.101.0.2", Kind: model.KindNotificationType},
+		}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	// FANOUT-MIB: one raise (svcDown) cleared by two clears (svcUp,
+	// svcOk) sharing svcId. The raise fans out → Likely (gated); each
+	// clear is High but its only raise is below the gate, so the
+	// asymmetric-pair guard exports them as plain events (no clears-
+	// nothing type-2).
+	fanSyms := []model.Symbol{
+		{ModuleName: "FANOUT-MIB", Name: "svcDown", OID: "1.3.6.1.4.1.102.0.1", Kind: model.KindNotificationType},
+		{ModuleName: "FANOUT-MIB", Name: "svcUp", OID: "1.3.6.1.4.1.102.0.2", Kind: model.KindNotificationType},
+		{ModuleName: "FANOUT-MIB", Name: "svcOk", OID: "1.3.6.1.4.1.102.0.3", Kind: model.KindNotificationType},
+		{ModuleName: "FANOUT-MIB", Name: "svcId", OID: "1.3.6.1.4.1.102.1.1", Kind: model.KindColumn},
+	}
+	fanRefs := []model.Reference{
+		{SourceModule: "FANOUT-MIB", SourceName: "svcDown", TargetModule: "FANOUT-MIB", TargetName: "svcId", Kind: model.RefNotificationObject},
+		{SourceModule: "FANOUT-MIB", SourceName: "svcUp", TargetModule: "FANOUT-MIB", TargetName: "svcId", Kind: model.RefNotificationObject},
+		{SourceModule: "FANOUT-MIB", SourceName: "svcOk", TargetModule: "FANOUT-MIB", TargetName: "svcId", Kind: model.RefNotificationObject},
+	}
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: "FANOUT-MIB", OIDRoot: "1.3.6.1.4.1.102", ParseStatus: model.ParseStatusClean},
+		fanSyms, fanRefs, nil); err != nil {
+		t.Fatal(err)
+	}
 
 	srv := New(st, "", "test", t.TempDir())
 	ts := httptest.NewServer(srv.Handler())
@@ -114,6 +145,56 @@ func TestModuleEventsAlarmData(t *testing.T) {
 	}
 	if !strings.Contains(got, `reduction-key="`) {
 		t.Errorf("alarm-data missing required reduction-key:\n%s", got)
+	}
+}
+
+// TestModuleEventsAlarmsOff covers FR23: ?alarms=off suppresses all
+// alarm-data while leaving the rest of the export intact.
+func TestModuleEventsAlarmsOff(t *testing.T) {
+	ts := eventsTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/TEST-MIB/events.xml?alarms=off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if strings.Contains(got, "<alarm-data") {
+		t.Errorf("?alarms=off must suppress alarm-data:\n%s", got)
+	}
+	if !strings.Contains(got, "<uei>uei.opennms.org/traps/TEST-MIB/alarmRaised</uei>") {
+		t.Errorf("?alarms=off must still emit the event:\n%s", got)
+	}
+}
+
+// TestModuleEventsHighConfidenceGate covers FR20: a below-High
+// (Guess) relationship is exported as a plain event, no alarm-data.
+func TestModuleEventsHighConfidenceGate(t *testing.T) {
+	ts := eventsTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/WEAK-MIB/events.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := body(t, resp)
+	if strings.Contains(got, "<alarm-data") {
+		t.Errorf("below-High relationship must not emit alarm-data:\n%s", got)
+	}
+}
+
+// TestModuleEventsAsymmetricPairGuard: a High clear whose only raise is
+// below the gate must NOT emit a clears-nothing type-2 — it falls back
+// to a plain event. With svcDown (Likely, fanned out) gated and svcUp/
+// svcOk's only raise below-High, the export carries no alarm-data.
+func TestModuleEventsAsymmetricPairGuard(t *testing.T) {
+	ts := eventsTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/FANOUT-MIB/events.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if strings.Contains(got, "<alarm-data") {
+		t.Errorf("expected no alarm-data (raise gated, clears have no High raise):\n%s", got)
 	}
 }
 

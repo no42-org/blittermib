@@ -395,22 +395,44 @@ func (s *Server) handleModuleEvents(w http.ResponseWriter, r *http.Request, name
 		return
 	}
 
-	// Attach inferred relationships so the export can emit alarm-data.
-	rels, err := s.store.ListRelationships(r.Context(), name)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	relByName := make(map[string]correlate.Relationship, len(rels))
-	for _, rel := range rels {
-		relByName[rel.Notification] = rel
-	}
-	for i := range notifs {
-		if rel, ok := relByName[notifs[i].Symbol.Name]; ok {
-			notifs[i].Relationship = eventconf.Relationship{
-				AlarmType: alarmType(rel.Class),
-				Clears:    rel.Clears,
+	// Attach inferred relationships so the export can emit alarm-data —
+	// unless suppressed (?alarms=off) or below the High-confidence gate.
+	// Only High-confidence relationships emit alarm-data; lower-confidence
+	// inferences are exported as plain events (FR20, FR23).
+	if r.URL.Query().Get("alarms") != "off" {
+		rels, err := s.store.ListRelationships(r.Context(), name)
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		// Only High-confidence relationships emit alarm-data.
+		high := make(map[string]correlate.Relationship, len(rels))
+		for _, rel := range rels {
+			if rel.Confidence == correlate.ConfHigh {
+				high[rel.Notification] = rel
 			}
+		}
+		for i := range notifs {
+			rel, ok := high[notifs[i].Symbol.Name]
+			if !ok {
+				continue
+			}
+			er := eventconf.Relationship{AlarmType: alarmType(rel.Class)}
+			if rel.Class == correlate.ClassClear {
+				// Keep only raises that are themselves High, so the
+				// clear-key resolves to an emitted reduction-key. A clear
+				// with no High raise to resolve is exported as a plain
+				// event rather than a clear that clears nothing.
+				for _, raise := range rel.Clears {
+					if _, ok := high[raise]; ok {
+						er.Clears = append(er.Clears, raise)
+					}
+				}
+				if len(er.Clears) == 0 {
+					continue
+				}
+			}
+			notifs[i].Relationship = er
 		}
 	}
 
