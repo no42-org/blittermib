@@ -202,6 +202,62 @@ func TestModuleEventsAsymmetricPairGuard(t *testing.T) {
 	}
 }
 
+// TestSymbolPageShowsRelationshipBadge covers Stories 1.7/1.8: the
+// symbol detail page renders the inferred classification badge and the
+// evidence disclosure. alarmRaised classifies as an orphan.
+func TestSymbolPageShowsRelationshipBadge(t *testing.T) {
+	ts := eventsTestServer(t)
+	resp, err := http.Get(ts.URL + "/s/TEST-MIB::alarmRaised")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, "rel-orphan") {
+		t.Errorf("symbol page missing orphan badge:\n%s", got)
+	}
+	if !strings.Contains(got, "Alarm semantics") {
+		t.Errorf("symbol page missing alarm-semantics section")
+	}
+	if !strings.Contains(got, "Why was this inferred?") {
+		t.Errorf("symbol page missing evidence disclosure")
+	}
+}
+
+// TestWorkspacePaneShowsRelationship: the workspace right pane (selecting
+// a notification row) also carries the Alarm-semantics section, not just
+// the static list-row pill.
+func TestWorkspacePaneShowsRelationship(t *testing.T) {
+	ts := eventsTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/TEST-MIB/1.3.6.1.4.1.99.0.1") // alarmRaised selected
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, "rel-orphan") || !strings.Contains(got, "Alarm semantics") {
+		t.Errorf("workspace right pane missing the relationship section:\n%s", got)
+	}
+}
+
+// TestBadgeStylesServed guards the prepare-assets pipeline: the badge CSS
+// must reach the served stylesheet (the prototype source is copied into
+// the embedded assets at build time).
+func TestBadgeStylesServed(t *testing.T) {
+	ts := eventsTestServer(t)
+	resp, err := http.Get(ts.URL + "/static/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !strings.Contains(body(t, resp), ".rel-pill") {
+		t.Error("served styles.css is missing .rel-pill — badges would render unstyled")
+	}
+}
+
 func TestModuleEventsNoNotifications404(t *testing.T) {
 	ts := eventsTestServer(t)
 	resp, err := http.Get(ts.URL + "/m/EMPTY-MIB/events.xml")

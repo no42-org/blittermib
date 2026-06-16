@@ -2589,6 +2589,66 @@ main.page:has(.workspace-grid) .content-inner,
   color: oklch(72% 0.16 30);
 }
 
+/* Notification Intelligence: inferred raise/clear/orphan badge. Colour
+ * is additive to the icon glyph + text label (never colour alone —
+ * WCAG 1.4.1), and the pill chrome marks it as inferred, distinct from
+ * the declared-fact status-pill. */
+.rel-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.rel-pill.rel-raise {
+  background: color-mix(in oklch, var(--c-notif) 16%, transparent);
+  border-color: color-mix(in oklch, var(--c-notif) 40%, transparent);
+  color: var(--c-notif);
+}
+.rel-pill.rel-clear {
+  background: color-mix(in oklch, var(--c-bool) 16%, transparent);
+  border-color: color-mix(in oklch, var(--c-bool) 40%, transparent);
+  color: var(--c-bool);
+}
+.rel-pill.rel-orphan {
+  background: color-mix(in oklch, var(--c-struct) 18%, transparent);
+  border-color: color-mix(in oklch, var(--c-struct) 45%, transparent);
+  color: var(--fg-2);
+}
+
+/* Alarm-semantics block in the symbol detail body. */
+.rel-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+}
+.rel-line .rel-pill {
+  margin-left: 0;
+}
+.rel-clears,
+.rel-conf {
+  font-size: 0.85em;
+  color: var(--fg-2);
+}
+.rel-evidence {
+  margin-top: 0.35em;
+  font-size: 0.85em;
+}
+.rel-evidence > summary {
+  cursor: pointer;
+  color: var(--fg-2);
+}
+
 /* Dim deprecated and obsolete rows uniformly across the three
  * surfaces that surface SMI status (workspace tree, list pane,
  * type-definitions bar) so the row visually recedes — the user

@@ -816,6 +816,19 @@ func (s *Server) buildWorkspaceView(ctx context.Context, mod *model.Module, syms
 		}
 	}
 
+	// Per-notification classifications for the inline list-row badges.
+	var relationships map[string]correlate.Relationship
+	if hasNotifications {
+		if rels, err := s.store.ListRelationships(ctx, name); err != nil {
+			slog.Warn("workspace: relationship lookup failed", "module", name, "err", err)
+		} else if len(rels) > 0 {
+			relationships = make(map[string]correlate.Relationship, len(rels))
+			for _, rel := range rels {
+				relationships[rel.Notification] = rel
+			}
+		}
+	}
+
 	return &web.WorkspaceView{
 		Module:             mod,
 		Counts:             counts,
@@ -828,6 +841,7 @@ func (s *Server) buildWorkspaceView(ctx context.Context, mod *model.Module, syms
 		TypeDefs:           web.CollectTypeDefs(syms),
 		BundleFileCount:    bundleFileCount,
 		HasNotifications:   hasNotifications,
+		Relationships:      relationships,
 	}, nil
 }
 
@@ -1003,6 +1017,13 @@ func (s *Server) handleSymbolDisambiguation(w http.ResponseWriter, r *http.Reque
 // the two surfaces can't drift on the shared pieces.
 func (s *Server) buildSymbolView(ctx context.Context, sym *model.Symbol) (*web.SymbolView, error) {
 	v := &web.SymbolView{Symbol: sym}
+	if sym.Kind == model.KindNotificationType || sym.Kind == model.KindTrapType {
+		if rel, err := s.store.GetRelationship(ctx, sym.ModuleName, sym.Name); err == nil {
+			v.Relationship = rel
+		} else {
+			slog.WarnContext(ctx, "symbol view: relationship lookup failed", "module", sym.ModuleName, "name", sym.Name, "err", err)
+		}
+	}
 	v.Context = s.buildSymbolContext(ctx, sym)
 	if sym.Kind == model.KindTable {
 		v.Columns = s.buildTableColumns(ctx, sym)

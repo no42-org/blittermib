@@ -2,7 +2,9 @@ package web
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/no42-org/blittermib/internal/correlate"
 	"github.com/no42-org/blittermib/internal/model"
 )
 
@@ -893,6 +895,9 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 						if pill := statusPillLabel(s.Status); pill != "" {
 							<span class={ "status-pill", string(s.Status) }>{ pill }</span>
 						}
+						if rel, ok := view.Relationships[s.Name]; ok {
+							@notificationBadge(rel)
+						}
 					</td>
 					<td class="list-cell-syntax">{ syntaxShort(s.Syntax) }</td>
 					<td class={ "list-cell-access " + accessClass(s.Access) }>{ accessLabel(s.Access) }</td>
@@ -1048,6 +1053,20 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 		}
 	</div>
 	<div class="detail-body">
+		if sv.Relationship != nil {
+			<div class="section-title">Alarm semantics</div>
+			<p class="rel-line">
+				@notificationBadge(*sv.Relationship)
+				if sv.Relationship.Class == correlate.ClassClear && len(sv.Relationship.Clears) > 0 {
+					<span class="rel-clears">resolves <code>{ strings.Join(sv.Relationship.Clears, ", ") }</code></span>
+				}
+				<span class="rel-conf">confidence: { string(sv.Relationship.Confidence) }</span>
+			</p>
+			<details class="rel-evidence">
+				<summary>Why was this inferred?</summary>
+				<p class="desc">{ sv.Relationship.Evidence.String() }</p>
+			</details>
+		}
 		if s.Description != "" {
 			<div class="section-title">Description</div>
 			<div class="desc">{ collapseWhitespace(s.Description) }</div>

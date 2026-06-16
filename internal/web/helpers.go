@@ -11,6 +11,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/no42-org/blittermib/internal/correlate"
 	"github.com/no42-org/blittermib/internal/textutil"
 
 	"github.com/no42-org/blittermib/internal/model"
@@ -1230,6 +1231,10 @@ type WorkspaceView struct {
 	// hidden otherwise, since the endpoint 404s for a module with no
 	// notifications.
 	HasNotifications bool
+	// Relationships holds the inferred raise/clear/orphan classification
+	// per notification name, for the inline list-row badges. Empty for
+	// modules with no notifications.
+	Relationships map[string]correlate.Relationship
 }
 
 // moduleSummaryPreview returns the first-sentence preview of a

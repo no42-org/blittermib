@@ -398,6 +398,54 @@ func (s *Store) ListRelationships(ctx context.Context, module string) ([]correla
 	return out, nil
 }
 
+// GetRelationship returns the inferred relationship for a single
+// notification, or (nil, nil) when none is recorded. Clear→raise edges
+// are joined in for clears. Used by the symbol/workspace detail views.
+func (s *Store) GetRelationship(ctx context.Context, module, name string) (*correlate.Relationship, error) {
+	var class, conf, evJSON string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT classification, confidence, evidence_json
+		FROM notification_relationship
+		WHERE module_name = ? AND notification_name = ?`, module, name).Scan(&class, &conf, &evJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get relationship %s::%s: %w", module, name, err)
+	}
+	rel := correlate.Relationship{
+		Notification: name,
+		Class:        correlate.Classification(class),
+		Confidence:   correlate.Confidence(conf),
+	}
+	if evJSON != "" {
+		if err := json.Unmarshal([]byte(evJSON), &rel.Evidence); err != nil {
+			return nil, fmt.Errorf("decode evidence for %s::%s: %w", module, name, err)
+		}
+	}
+	if rel.Class == correlate.ClassClear {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT raise_name FROM notification_pair
+			WHERE module_name = ? AND clear_name = ?
+			ORDER BY raise_name`, module, name)
+		if err != nil {
+			return nil, fmt.Errorf("get pairs for %s::%s: %w", module, name, err)
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var raise string
+			if err := rows.Scan(&raise); err != nil {
+				return nil, fmt.Errorf("scan pair: %w", err)
+			}
+			rel.Clears = append(rel.Clears, raise)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate pairs: %w", err)
+		}
+	}
+	return &rel, nil
+}
+
 // ListNotificationsWithObjects returns every NOTIFICATION-TYPE and
 // TRAP-TYPE in the module paired with its objects (varbinds) in
 // OBJECTS-clause order. Objects are resolved to full symbols via

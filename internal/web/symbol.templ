@@ -1,6 +1,11 @@
 package web
 
-import "github.com/no42-org/blittermib/internal/model"
+import (
+	"strings"
+
+	"github.com/no42-org/blittermib/internal/correlate"
+	"github.com/no42-org/blittermib/internal/model"
+)
 
 // SymbolView aggregates everything the symbol detail page needs:
 // the symbol itself, its in-context placement (where it sits in the
@@ -35,6 +40,10 @@ type SymbolView struct {
 	TrapIndex     TrapIndexStrategy
 	SourceText    string // raw SMI lines from the module's source file
 	SourcePath    string // module.source_path; empty if no source available
+	// Relationship is the inferred raise/clear/orphan classification for
+	// a NOTIFICATION-TYPE/TRAP-TYPE symbol; nil for anything else or when
+	// inference produced no record.
+	Relationship *correlate.Relationship
 }
 
 // SymbolDetail renders the canonical reference page for a symbol
@@ -81,6 +90,22 @@ templ symbolDetailBody(view *SymbolView) {
 			units: { view.Symbol.Units }
 		}
 	</div>
+	if view.Relationship != nil {
+		<section class="section rel-section">
+			<h2 class="section-label">Alarm semantics</h2>
+			<p class="rel-line">
+				@notificationBadge(*view.Relationship)
+				if view.Relationship.Class == correlate.ClassClear && len(view.Relationship.Clears) > 0 {
+					<span class="rel-clears">resolves <code>{ strings.Join(view.Relationship.Clears, ", ") }</code></span>
+				}
+				<span class="rel-conf">confidence: { string(view.Relationship.Confidence) }</span>
+			</p>
+			<details class="rel-evidence">
+				<summary>Why was this inferred?</summary>
+				<p class="prose">{ view.Relationship.Evidence.String() }</p>
+			</details>
+		</section>
+	}
 	if len(view.Symbol.EnumValues) > 0 {
 		<section class="section">
 			<h2 class="section-label">Values</h2>
@@ -192,4 +217,18 @@ templ inContext(info *SymbolContext) {
 			}
 		</dl>
 	</section>
+}
+
+// notificationBadge renders the inferred raise/clear/orphan badge.
+// Classification is conveyed by icon + text + colour (never colour
+// alone — WCAG 1.4.1), with the confidence in the accessible name.
+templ notificationBadge(rel correlate.Relationship) {
+	switch rel.Class {
+		case correlate.ClassRaise:
+			<span class="rel-pill rel-raise" aria-label={ "inferred: raises a problem, " + string(rel.Confidence) + " confidence" }>▲ raise</span>
+		case correlate.ClassClear:
+			<span class="rel-pill rel-clear" aria-label={ "inferred: clears a problem, " + string(rel.Confidence) + " confidence" }>↺ clears</span>
+		case correlate.ClassOrphan:
+			<span class="rel-pill rel-orphan" aria-label={ "inferred: no resolution, " + string(rel.Confidence) + " confidence" }>⊘ orphan</span>
+	}
 }
