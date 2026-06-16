@@ -16,6 +16,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/no42-org/blittermib/internal/correlate"
 	"github.com/no42-org/blittermib/internal/eventconf"
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/source"
@@ -394,6 +395,25 @@ func (s *Server) handleModuleEvents(w http.ResponseWriter, r *http.Request, name
 		return
 	}
 
+	// Attach inferred relationships so the export can emit alarm-data.
+	rels, err := s.store.ListRelationships(r.Context(), name)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	relByName := make(map[string]correlate.Relationship, len(rels))
+	for _, rel := range rels {
+		relByName[rel.Notification] = rel
+	}
+	for i := range notifs {
+		if rel, ok := relByName[notifs[i].Symbol.Name]; ok {
+			notifs[i].Relationship = eventconf.Relationship{
+				AlarmType: alarmType(rel.Class),
+				Clears:    rel.Clears,
+			}
+		}
+	}
+
 	events := eventconf.FromModule(name, notifs, eventconf.Options{
 		UEIBase:         ueibase,
 		ForcePositional: forcePositional,
@@ -409,6 +429,20 @@ func (s *Server) handleModuleEvents(w http.ResponseWriter, r *http.Request, name
 	setAttachmentDisposition(w, name+".events.xml")
 	// #nosec G705 -- `out` is generated eventconf XML served as an application/xml attachment with X-Content-Type-Options: nosniff; it is never interpreted as HTML, so the taint-flagged write is not an XSS vector.
 	_, _ = w.Write(out)
+}
+
+// alarmType maps an inferred classification onto the OpenNMS
+// alarm-data/@alarm-type value, or "" when unclassified.
+func alarmType(c correlate.Classification) string {
+	switch c {
+	case correlate.ClassRaise:
+		return eventconf.AlarmTypeRaise
+	case correlate.ClassClear:
+		return eventconf.AlarmTypeClear
+	case correlate.ClassOrphan:
+		return eventconf.AlarmTypeNotification
+	}
+	return ""
 }
 
 // validUEIBase reports whether s is a plausible event UEI base — the

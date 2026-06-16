@@ -95,6 +95,28 @@ func TestModuleEventsEndpoint(t *testing.T) {
 	}
 }
 
+// TestModuleEventsAlarmData covers the full handler path (Story 2.1):
+// ingest runs Classify (alarmRaised → orphan), the handler fetches the
+// relationship and maps it onto alarm-data, and the export carries
+// alarm-type="3" with a reduction-key.
+func TestModuleEventsAlarmData(t *testing.T) {
+	ts := eventsTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/TEST-MIB/events.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := body(t, resp)
+	if !strings.Contains(got, "<alarm-data") {
+		t.Fatalf("export missing alarm-data:\n%s", got)
+	}
+	if !strings.Contains(got, `alarm-type="3"`) {
+		t.Errorf("alarmRaised is an orphan; expected alarm-type=\"3\":\n%s", got)
+	}
+	if !strings.Contains(got, `reduction-key="`) {
+		t.Errorf("alarm-data missing required reduction-key:\n%s", got)
+	}
+}
+
 func TestModuleEventsNoNotifications404(t *testing.T) {
 	ts := eventsTestServer(t)
 	resp, err := http.Get(ts.URL + "/m/EMPTY-MIB/events.xml")

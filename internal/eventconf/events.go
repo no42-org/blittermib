@@ -33,8 +33,11 @@ type Events struct {
 
 // Event is one `<event>`. Field order matches the eventconf XSD
 // sequence (mask, uei, event-label, descr, logmsg, severity,
-// varbindsdecode) — OpenNMS validates against an ordered schema, so
-// the order is load-bearing, not cosmetic.
+// varbindsdecode, …, alarm-data) — OpenNMS validates against an ordered
+// schema, so the order is load-bearing, not cosmetic. `alarm-data`
+// follows `varbindsdecode` in the schema's `event` sequence (the
+// intervening optional elements — script, mouseovertext — are not
+// emitted).
 type Event struct {
 	Mask           *Mask            `xml:"mask,omitempty"`
 	UEI            string           `xml:"uei"`
@@ -43,6 +46,26 @@ type Event struct {
 	Logmsg         Logmsg           `xml:"logmsg"`
 	Severity       string           `xml:"severity"`
 	Varbindsdecode []Varbindsdecode `xml:"varbindsdecode,omitempty"`
+	AlarmData      *AlarmData       `xml:"alarm-data,omitempty"`
+}
+
+// AlarmType values map an inferred classification to the OpenNMS
+// `alarm-data/@alarm-type`: 1 = problem (raise), 2 = resolution
+// (clear), 3 = notification with no resolution (orphan).
+const (
+	AlarmTypeRaise        = "1"
+	AlarmTypeClear        = "2"
+	AlarmTypeNotification = "3"
+)
+
+// AlarmData is the `<alarm-data>` element that turns an event into an
+// OpenNMS alarm. `reduction-key` is required by the schema; `alarm-type`
+// drives pairwise correlation; `clear-key` (Story 2.2) lets a clear
+// resolve its problem alarm.
+type AlarmData struct {
+	ReductionKey string `xml:"reduction-key,attr"`
+	AlarmType    string `xml:"alarm-type,attr,omitempty"`
+	ClearKey     string `xml:"clear-key,attr,omitempty"`
 }
 
 // Mask carries the trap-matching elements (id / generic / specific).

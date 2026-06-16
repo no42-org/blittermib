@@ -19,8 +19,23 @@ import (
 // for FromModule; the store populates it from the reference table's
 // position-ordered rows.
 type Notification struct {
-	Symbol  model.Symbol
-	Objects []model.Symbol
+	Symbol       model.Symbol
+	Objects      []model.Symbol
+	Relationship Relationship
+}
+
+// Relationship carries the inferred classification for a notification,
+// supplied by the caller to drive alarm-data emission. It is decoupled
+// from internal/correlate so eventconf stays a leaf package: the caller
+// maps a correlate result onto these fields.
+type Relationship struct {
+	// AlarmType is "1"/"2"/"3" (raise/clear/notification) or "" when the
+	// notification is unclassified — in which case no alarm-data is
+	// emitted.
+	AlarmType string
+	// Clears names the raise notification(s) this clear resolves. Used
+	// for clear-key generation in Story 2.2; unused here.
+	Clears []string
 }
 
 // Options tune the generated events.
@@ -57,7 +72,25 @@ func buildEvent(moduleName string, n Notification, ueibase string, forcePosition
 		evt.Mask = mask
 	}
 	evt.Varbindsdecode = buildVarbindsdecode(n, forcePositional)
+	if ad := buildAlarmData(n.Relationship); ad != nil {
+		evt.AlarmData = ad
+	}
 	return evt
+}
+
+// buildAlarmData emits the <alarm-data> for a classified notification.
+// The reduction-key is the node-scoped base (Story 2.2 adds the
+// per-instance varbind token and the clear-key that pairs a clear with
+// its problem). An unclassified notification (empty AlarmType) emits no
+// alarm-data.
+func buildAlarmData(rel Relationship) *AlarmData {
+	if rel.AlarmType == "" {
+		return nil
+	}
+	return &AlarmData{
+		ReductionKey: "%uei%:%dpname%:%nodeid%",
+		AlarmType:    rel.AlarmType,
+	}
 }
 
 // buildLogmsg renders "{name} trap received" followed by each
