@@ -8,6 +8,8 @@ package eventconf
 import (
 	"strings"
 	"testing"
+
+	"github.com/no42-org/blittermib/internal/model"
 )
 
 // TestFromModuleAlarmData covers Story 2.1: a classified notification
@@ -69,5 +71,71 @@ func TestFromModuleAlarmData(t *testing.T) {
 	}
 	if ad < sev {
 		t.Errorf("alarm-data (%d) must appear after severity (%d) per the eventconf XSD sequence", ad, sev)
+	}
+}
+
+// TestFromModuleClearKeyRoundTrip covers Story 2.2: a clear's clear-key
+// equals its raise's reduction-key (with %uei% bound to the raise UEI),
+// and both are entity-scoped by the correlating varbind — so the pair
+// auto-clears in OpenNMS and never clears an unrelated instance
+// (FR21/FR24/NFR11/NFR12).
+func TestFromModuleClearKeyRoundTrip(t *testing.T) {
+	ifIndex := model.Symbol{ModuleName: "IF-MIB", Name: "ifIndex", OID: "1.3.6.1.2.1.2.2.1.1", Kind: model.KindColumn}
+	down := Notification{
+		Symbol:       model.Symbol{ModuleName: "IF-MIB", Name: "linkDown", OID: "1.3.6.1.6.3.1.1.5.3"},
+		Objects:      []model.Symbol{ifIndex},
+		Relationship: Relationship{AlarmType: AlarmTypeRaise},
+	}
+	up := Notification{
+		Symbol:       model.Symbol{ModuleName: "IF-MIB", Name: "linkUp", OID: "1.3.6.1.6.3.1.1.5.4"},
+		Objects:      []model.Symbol{ifIndex},
+		Relationship: Relationship{AlarmType: AlarmTypeClear, Clears: []string{"linkDown"}},
+	}
+	events := FromModule("IF-MIB", []Notification{down, up}, Options{UEIBase: "uei.opennms.org/traps/IF-MIB"})
+
+	ad := make(map[string]*AlarmData)
+	uei := make(map[string]string)
+	for _, e := range events.Events {
+		name := e.UEI[strings.LastIndex(e.UEI, "/")+1:]
+		ad[name], uei[name] = e.AlarmData, e.UEI
+	}
+
+	if !strings.Contains(ad["linkDown"].ReductionKey, "parm[") {
+		t.Errorf("raise reduction-key not entity-scoped: %q", ad["linkDown"].ReductionKey)
+	}
+	wantClearKey := strings.Replace(ad["linkDown"].ReductionKey, "%uei%", uei["linkDown"], 1)
+	if ad["linkUp"].ClearKey != wantClearKey {
+		t.Errorf("clear-key = %q, want %q (must equal the raise reduction-key for auto-clear)", ad["linkUp"].ClearKey, wantClearKey)
+	}
+	if !strings.Contains(ad["linkUp"].ClearKey, "parm[") {
+		t.Errorf("clear-key not entity-scoped — would over-clear: %q", ad["linkUp"].ClearKey)
+	}
+}
+
+// TestReductionKeyUsesSharedVarbind: the per-instance token must be a
+// varbind the pair SHARES (so the clear can actually match it), not an
+// arbitrary first object the partner doesn't carry. Here the raise's
+// first object is raise-only and the shared index is second — the
+// reduction-key must scope on the shared index (position 2).
+func TestReductionKeyUsesSharedVarbind(t *testing.T) {
+	raiseOnly := model.Symbol{ModuleName: "M", Name: "fooReason", OID: "1.3.6.1.4.1.99.2.1", Kind: model.KindColumn}
+	idx := model.Symbol{ModuleName: "M", Name: "fooIndex", OID: "1.3.6.1.4.1.99.2.2", Kind: model.KindColumn}
+	raise := Notification{
+		Symbol:       model.Symbol{ModuleName: "M", Name: "fooDown", OID: "1.3.6.1.4.1.99.0.1"},
+		Objects:      []model.Symbol{raiseOnly, idx}, // first object not shared; index second
+		Relationship: Relationship{AlarmType: AlarmTypeRaise},
+	}
+	clear := Notification{
+		Symbol:       model.Symbol{ModuleName: "M", Name: "fooUp", OID: "1.3.6.1.4.1.99.0.2"},
+		Objects:      []model.Symbol{idx}, // shares only the index
+		Relationship: Relationship{AlarmType: AlarmTypeClear, Clears: []string{"fooDown"}},
+	}
+	events := FromModule("M", []Notification{raise, clear}, Options{UEIBase: "uei.opennms.org/traps/M"})
+	rk := events.Events[0].AlarmData.ReductionKey
+	if !strings.Contains(rk, "parm[#2]") {
+		t.Errorf("reduction-key = %q, want it scoped on the shared index (parm[#2])", rk)
+	}
+	if strings.Contains(rk, "parm[#1]") {
+		t.Errorf("reduction-key = %q, must not scope on the non-shared first object (parm[#1])", rk)
 	}
 }

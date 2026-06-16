@@ -51,16 +51,91 @@ type Options struct {
 
 // FromModule converts a module's notifications into an eventconf
 // document.
+//
+// Two passes: the first builds every event with its entity-scoped
+// reduction-key; the second sets each clear's clear-key to the
+// reduction-key of the raise it resolves (with %uei% bound to the
+// raise's literal UEI), so a resolution clears exactly its problem
+// alarm and only that one (the pairwise round-trip, FR24/NFR11).
 func FromModule(moduleName string, notifs []Notification, opts Options) Events {
 	base := strings.TrimRight(opts.UEIBase, "/")
-	out := Events{Events: make([]Event, 0, len(notifs))}
+
+	// Index notifications and pair each with its partner so a
+	// reduction-key can be scoped by the varbind the pair actually
+	// shares (the correlating index), not an arbitrary first object.
+	byName := make(map[string]Notification, len(notifs))
 	for _, n := range notifs {
-		out.Events = append(out.Events, buildEvent(moduleName, n, base, opts.ForcePositional))
+		byName[n.Symbol.Name] = n
+	}
+	partner := make(map[string]string)
+	for _, n := range notifs {
+		for _, raise := range n.Relationship.Clears {
+			if _, ok := partner[n.Symbol.Name]; !ok {
+				partner[n.Symbol.Name] = raise
+			}
+			if _, ok := partner[raise]; !ok {
+				partner[raise] = n.Symbol.Name
+			}
+		}
+	}
+
+	out := Events{Events: make([]Event, 0, len(notifs))}
+	redKeyByName := make(map[string]string)
+	for _, n := range notifs {
+		tok := instanceToken(n, byName[partner[n.Symbol.Name]], opts.ForcePositional)
+		evt := buildEvent(moduleName, n, base, opts.ForcePositional, tok)
+		if evt.AlarmData != nil {
+			// Bind %uei% to this event's literal UEI so the stored key
+			// can be referenced as a clear-key by its partner.
+			redKeyByName[n.Symbol.Name] = strings.Replace(evt.AlarmData.ReductionKey, "%uei%", evt.UEI, 1)
+		}
+		out.Events = append(out.Events, evt)
+	}
+	for i := range out.Events {
+		ad := out.Events[i].AlarmData
+		if ad == nil || ad.AlarmType != AlarmTypeClear {
+			continue
+		}
+		// A clear resolves its raise: clear-key == the raise's
+		// reduction-key. Use the first raise (genuine pairs are 1:1;
+		// fan-out is capped to Likely upstream and gated from export).
+		for _, raiseName := range notifs[i].Relationship.Clears {
+			if rk, ok := redKeyByName[raiseName]; ok {
+				ad.ClearKey = rk
+				break
+			}
+		}
 	}
 	return out
 }
 
-func buildEvent(moduleName string, n Notification, ueibase string, forcePositional bool) Event {
+// instanceToken returns the %parm[...]% token for the varbind this
+// notification shares (by OID) with its pair partner — the correlating
+// index that scopes the alarm per entity. It is empty when there is no
+// partner or no shared varbind, in which case the reduction-key stays
+// node-scoped rather than guessing an arbitrary object (which could
+// over-clear unrelated instances). The positional case relies on the
+// shared varbind sitting at the same OBJECTS position in both members,
+// which holds for genuine pairs that share their OBJECTS structure.
+func instanceToken(n, partner Notification, forcePositional bool) string {
+	if n.Relationship.AlarmType == "" || len(n.Objects) == 0 || len(partner.Objects) == 0 {
+		return ""
+	}
+	partnerOIDs := make(map[string]bool, len(partner.Objects))
+	for _, o := range partner.Objects {
+		if o.OID != "" {
+			partnerOIDs[o.OID] = true
+		}
+	}
+	for i, o := range n.Objects {
+		if o.OID != "" && partnerOIDs[o.OID] {
+			return "%" + parmName(o, i+1, forcePositional) + "%"
+		}
+	}
+	return ""
+}
+
+func buildEvent(moduleName string, n Notification, ueibase string, forcePositional bool, instanceTok string) Event {
 	evt := Event{
 		UEI:        ueibase + "/" + n.Symbol.Name,
 		EventLabel: moduleName + " defined trap event: " + n.Symbol.Name,
@@ -72,23 +147,30 @@ func buildEvent(moduleName string, n Notification, ueibase string, forcePosition
 		evt.Mask = mask
 	}
 	evt.Varbindsdecode = buildVarbindsdecode(n, forcePositional)
-	if ad := buildAlarmData(n.Relationship); ad != nil {
+	if ad := buildAlarmData(n.Relationship, instanceTok); ad != nil {
 		evt.AlarmData = ad
 	}
 	return evt
 }
 
 // buildAlarmData emits the <alarm-data> for a classified notification.
-// The reduction-key is the node-scoped base (Story 2.2 adds the
-// per-instance varbind token and the clear-key that pairs a clear with
-// its problem). An unclassified notification (empty AlarmType) emits no
+// The reduction-key is node-scoped (%uei%:%dpname%:%nodeid%) plus the
+// per-instance discriminator instanceTok (the token of the correlating
+// varbind the pair shares, supplied by FromModule). The instance token
+// keeps the alarm per-entity so a key never clears unrelated instances
+// (FR21, NFR12). The clear-key is filled in by FromModule's second
+// pass. An unclassified notification (empty AlarmType) emits no
 // alarm-data.
-func buildAlarmData(rel Relationship) *AlarmData {
+func buildAlarmData(rel Relationship, instanceTok string) *AlarmData {
 	if rel.AlarmType == "" {
 		return nil
 	}
+	key := "%uei%:%dpname%:%nodeid%"
+	if instanceTok != "" {
+		key += ":" + instanceTok
+	}
 	return &AlarmData{
-		ReductionKey: "%uei%:%dpname%:%nodeid%",
+		ReductionKey: key,
 		AlarmType:    rel.AlarmType,
 	}
 }
