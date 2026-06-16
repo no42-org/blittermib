@@ -110,6 +110,64 @@ func TestClassifyNoPanicOnEmpty(t *testing.T) {
 	}
 }
 
+// TestClassifyOrphans confirms the orphan cases: a standalone
+// informational notification (entConfigChange — no varbinds, no
+// directional token) and a problem with no clear (authenticationFailure
+// — raise-leaning but unpaired) both classify as orphan (alarm-type 3).
+func TestClassifyOrphans(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "ENTITY-MIB", Name: "entConfigChange", Kind: model.KindNotificationType, Status: model.StatusCurrent},
+		{ModuleName: "SNMPv2-MIB", Name: "authenticationFailure", Kind: model.KindNotificationType, Status: model.StatusCurrent},
+	}
+	m := byName(Classify(syms, nil))
+	for _, name := range []string{"entConfigChange", "authenticationFailure"} {
+		r, ok := m[name]
+		if !ok || r.Class != ClassOrphan {
+			t.Errorf("%s = %+v, want orphan", name, r)
+		}
+		if len(r.Clears) != 0 {
+			t.Errorf("%s orphan should have no Clears, got %v", name, r.Clears)
+		}
+	}
+}
+
+// TestClassifyStatusGuard confirms FR5: a current notification is never
+// paired with a deprecated near-duplicate. A current raise whose only
+// candidate clear is deprecated stays unpaired — both fall through to
+// orphan rather than forming a cross-status pair.
+func TestClassifyStatusGuard(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "X-MIB", Name: "sessionDown", Kind: model.KindNotificationType, Status: model.StatusCurrent},
+		{ModuleName: "X-MIB", Name: "sessionUp", Kind: model.KindNotificationType, Status: model.StatusDeprecated},
+	}
+	refs := []model.Reference{
+		{SourceModule: "X-MIB", SourceName: "sessionDown", TargetModule: "X-MIB", TargetName: "sessionId", Kind: model.RefNotificationObject},
+		{SourceModule: "X-MIB", SourceName: "sessionUp", TargetModule: "X-MIB", TargetName: "sessionId", Kind: model.RefNotificationObject},
+	}
+	m := byName(Classify(syms, refs))
+	if m["sessionDown"].Class != ClassOrphan {
+		t.Errorf("sessionDown (current) = %q, want orphan — must not pair with deprecated sessionUp", m["sessionDown"].Class)
+	}
+	if m["sessionUp"].Class != ClassOrphan {
+		t.Errorf("sessionUp (deprecated) = %q, want orphan", m["sessionUp"].Class)
+	}
+	// A clear-leaning orphan gets a clear-specific summary, not the
+	// "standalone"/"no resolution" fallback.
+	if got := m["sessionUp"].Evidence.Summary; got != "resolution with no matching problem notification" {
+		t.Errorf("sessionUp orphan summary = %q, want clear-specific", got)
+	}
+
+	// Sanity: two deprecated members of the same root DO pair (both legacy).
+	legacy := []model.Symbol{
+		{ModuleName: "X-MIB", Name: "oldFail", Kind: model.KindNotificationType, Status: model.StatusDeprecated},
+		{ModuleName: "X-MIB", Name: "oldOk", Kind: model.KindNotificationType, Status: model.StatusDeprecated},
+	}
+	lm := byName(Classify(legacy, nil))
+	if lm["oldFail"].Class != ClassRaise || lm["oldOk"].Class != ClassClear {
+		t.Errorf("both-deprecated pair should still pair: oldFail=%q oldOk=%q", lm["oldFail"].Class, lm["oldOk"].Class)
+	}
+}
+
 // TestEvidenceJSONShape locks the serialized contract shared by the UI
 // popover and the export provenance comment: lowercase keys
 // signals/kind/detail/summary.

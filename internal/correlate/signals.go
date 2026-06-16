@@ -133,6 +133,23 @@ func sharedVarbind(a, b map[string]bool) string {
 	return shared[0]
 }
 
+// legacyStatus reports whether a STATUS marks a notification as
+// deprecated or obsolete — definitions kept for backward compatibility
+// rather than current use.
+func legacyStatus(s model.Status) bool {
+	return s == model.StatusDeprecated || s == model.StatusObsolete
+}
+
+// statusCompatible reports whether two notifications may be paired given
+// their STATUS. A `current` notification is never paired with a
+// `deprecated`/`obsolete` near-duplicate (which would, e.g., cross-pair
+// the legacy and current BGP transition/established notifications that
+// share identical varbinds): pairing is allowed only when both members
+// are legacy or both are active.
+func statusCompatible(a, b model.Status) bool {
+	return legacyStatus(a) == legacyStatus(b)
+}
+
 // shortVarbind strips the module prefix from a "module::name" key for
 // human-readable evidence ("IF-MIB::ifIndex" -> "ifIndex").
 func shortVarbind(key string) string {

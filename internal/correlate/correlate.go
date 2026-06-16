@@ -73,16 +73,22 @@ type Relationship struct {
 // Classify infers relationships for every NOTIFICATION-TYPE/TRAP-TYPE
 // in syms, using refs for the varbind signal.
 //
+// syms/refs are expected to be a SINGLE module's symbols and references
+// (notification names are unique within a module per the store's
+// (module_name, name) constraint); Classify keys its working maps by
+// bare name and is not designed for multi-module input.
+//
 // Contract: deterministic (identical input → identical, stably-ordered
 // output), never panics on malformed input, and never returns an error
 // — inference is best-effort enrichment, never a gate on ingest.
 //
-// Story 1.2: pairs directionally-named notifications (e.g.
-// linkDown/linkUp) by shared root + opposing tokens, confirmed by a
-// shared correlating varbind. Orphan detection and STATUS handling
-// (1.3), the description/group signals (1.4), and calibrated confidence
-// scoring (1.5) build on this. A notification not yet matched to a pair
-// produces no row until 1.3 classifies the remainder as orphans.
+// It pairs directionally-named notifications (e.g. linkDown/linkUp) by
+// shared root + opposing tokens, confirmed by a shared correlating
+// varbind (1.2); refuses to cross-pair current with deprecated/obsolete
+// near-duplicates (1.3); and classifies every unpaired notification as
+// an orphan — a problem with no clear, or a standalone/informational
+// notification (1.3). The description/group signals (1.4) and
+// calibrated confidence scoring (1.5) build on this.
 func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 	notifs := make([]model.Symbol, 0)
 	for _, s := range syms {
@@ -98,14 +104,16 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 
 	vb := varbindSets(refs)
 
-	// Direction per notification + group by root.
+	// Direction + STATUS per notification, grouped by root.
 	dir := make(map[string]direction)
 	tok := make(map[string]string)
+	status := make(map[string]model.Status)
 	byRoot := make(map[string][]string)
 	for _, n := range notifs {
 		root, d, t := splitDirection(tokenize(n.Name))
 		dir[n.Name] = d
 		tok[n.Name] = t
+		status[n.Name] = n.Status
 		if d != dirNone {
 			byRoot[root] = append(byRoot[root], n.Name)
 		}
@@ -151,6 +159,11 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 		}
 		for _, c := range clears {
 			for _, r := range raises {
+				// Never cross-pair a current notification with a
+				// deprecated/obsolete near-duplicate (FR5).
+				if !statusCompatible(status[c], status[r]) {
+					continue
+				}
 				ca, ra := get(c, ClassClear), get(r, ClassRaise)
 				ca.partners = append(ca.partners, r)
 				ra.partners = append(ra.partners, c)
@@ -166,18 +179,32 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 		}
 	}
 
-	if len(rels) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(rels))
-	for n := range rels {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-
-	out := make([]Relationship, 0, len(rels))
-	for _, name := range names {
+	// Emit one relationship per notification, in name order. Paired
+	// notifications are raise/clear; everything else is an orphan
+	// (a problem with no clear, or a standalone/informational
+	// notification — both alarm-type 3).
+	out := make([]Relationship, 0, len(notifs))
+	for _, n := range notifs {
+		name := n.Name
 		a := rels[name]
+		if a == nil {
+			summary := "no resolution found"
+			switch {
+			case dir[name] == dirRaise:
+				summary = "problem with no matching clear notification"
+			case dir[name] == dirClear:
+				summary = "resolution with no matching problem notification"
+			case len(vb[name]) == 0:
+				summary = "standalone notification (no varbinds); no resolution"
+			}
+			out = append(out, Relationship{
+				Notification: name,
+				Class:        ClassOrphan,
+				Confidence:   ConfHigh,
+				Evidence:     Evidence{Summary: summary},
+			})
+			continue
+		}
 		sort.Strings(a.partners)
 		conf := ConfLikely
 		ev := Evidence{Signals: []SignalHit{{
@@ -191,14 +218,15 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 				Detail: "shared correlating varbind " + a.varbind,
 			})
 		}
-		rel := Relationship{Notification: name, Class: a.class, Confidence: conf, Evidence: ev}
 		if a.class == ClassClear {
-			rel.Clears = append([]string(nil), a.partners...)
 			ev.Summary = "clears " + strings.Join(a.partners, ", ")
 		} else {
 			ev.Summary = "problem; cleared by " + strings.Join(a.partners, ", ")
 		}
-		rel.Evidence.Summary = ev.Summary
+		rel := Relationship{Notification: name, Class: a.class, Confidence: conf, Evidence: ev}
+		if a.class == ClassClear {
+			rel.Clears = append([]string(nil), a.partners...)
+		}
 		out = append(out, rel)
 	}
 	return out
