@@ -68,5 +68,14 @@ func scoreConfidence(s signalSet, fanOut int, conflict bool) Confidence {
 	if band == ConfHigh && (conflict || fanOut > maxFanOutForHigh) {
 		band = ConfLikely
 	}
+	// Structural-corroboration cap (Story 3.1 AC5): High requires a
+	// name-root or named-group grouping signal. A pairing grouped only by
+	// a shared varbind signature (no name, no group) is surfaced in-UI
+	// but never minted High — so it is never exported as auto-clearing
+	// alarm-data until a labeled oracle certifies it. (No-op on the MVP
+	// signal combinations; a guard for the varbind-signature path.)
+	if band == ConfHigh && !s.name && !s.group {
+		band = ConfLikely
+	}
 	return band
 }

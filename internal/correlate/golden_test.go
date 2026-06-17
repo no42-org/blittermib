@@ -99,6 +99,127 @@ func goldenSet() []goldenCase {
 				"bgpEstablished":               {ClassClear, []string{"bgpBackwardTransition"}},
 			},
 		},
+		{
+			// Story 3.1 AC1+AC2: the directional token is glued to an
+			// all-caps acronym run; the tokenizer fix surfaces it. Names
+			// share a root → name+varbind → High.
+			name: "Cisco ATM OAM Failure/Recover (acronym-glued)",
+			syms: []model.Symbol{
+				nt("CISCO-ATM-PVCTRAP-EXTN-MIB", "catmIntfPvcOAMFailureTrap", model.StatusCurrent, "one or more PVCLs on this interface has OAM loop back failed"),
+				nt("CISCO-ATM-PVCTRAP-EXTN-MIB", "catmIntfPvcOAMRecoverTrap", model.StatusCurrent, "one or more PVCLs on this interface has OAM loop back recovered"),
+			},
+			refs: []model.Reference{
+				obj("CISCO-ATM-PVCTRAP-EXTN-MIB", "catmIntfPvcOAMFailureTrap", "catmIntfPvcFailures"),
+				obj("CISCO-ATM-PVCTRAP-EXTN-MIB", "catmIntfPvcOAMRecoverTrap", "catmIntfPvcFailures"),
+			},
+			want: map[string]want{
+				"catmIntfPvcOAMFailureTrap": {ClassRaise, nil},
+				"catmIntfPvcOAMRecoverTrap": {ClassClear, []string{"catmIntfPvcOAMFailureTrap"}},
+			},
+		},
+		{
+			// Story 3.1 AC2: "raised"/"cleared" vocabulary (absent before).
+			name: "Cisco Content Engine Raised/Cleared",
+			syms: []model.Symbol{
+				nt("CISCO-CONTENT-ENGINE-MIB", "cceAlarmCriticalRaised", model.StatusCurrent, "the Agent generates this trap when any module raises a Critical alarm"),
+				nt("CISCO-CONTENT-ENGINE-MIB", "cceAlarmCriticalCleared", model.StatusCurrent, "the Agent generates this trap when any module clears a Critical alarm"),
+			},
+			refs: []model.Reference{
+				obj("CISCO-CONTENT-ENGINE-MIB", "cceAlarmCriticalRaised", "cceAlarmType"),
+				obj("CISCO-CONTENT-ENGINE-MIB", "cceAlarmCriticalCleared", "cceAlarmType"),
+			},
+			want: map[string]want{
+				"cceAlarmCriticalRaised":  {ClassRaise, nil},
+				"cceAlarmCriticalCleared": {ClassClear, []string{"cceAlarmCriticalRaised"}},
+			},
+		},
+		{
+			// Story 3.1 AC2: assert/deassert vocabulary, shared name-root.
+			name: "Huawei Assert/Deassert (name-root)",
+			syms: []model.Symbol{
+				nt("HUAWEI-SERVER-IBMC-MIB", "hwBoardMismatchAssert", model.StatusCurrent, "the board is mismatched. (Generated)"),
+				nt("HUAWEI-SERVER-IBMC-MIB", "hwBoardMismatchDeassert", model.StatusCurrent, "the board is mismatched. (Cleared)"),
+			},
+			refs: []model.Reference{
+				obj("HUAWEI-SERVER-IBMC-MIB", "hwBoardMismatchAssert", "hwTrapObject"),
+				obj("HUAWEI-SERVER-IBMC-MIB", "hwBoardMismatchDeassert", "hwTrapObject"),
+			},
+			want: map[string]want{
+				"hwBoardMismatchAssert":   {ClassRaise, nil},
+				"hwBoardMismatchDeassert": {ClassClear, []string{"hwBoardMismatchAssert"}},
+			},
+		},
+		{
+			// Story 3.1 AC3: roots differ (the clear keeps "fault" in its
+			// root), so this pairs on the shared varbind signature alone —
+			// and therefore caps at Likely (AC5), still correct class.
+			name: "Huawei Fault/Deassert (varbind-signature)",
+			syms: []model.Symbol{
+				nt("HUAWEI-SERVER-IBMC-MIB", "hwBMCHeartBeatFault", model.StatusCurrent, "iBMC heartbeat abnormal. (Generated)"),
+				nt("HUAWEI-SERVER-IBMC-MIB", "hwBMCHeartBeatFaultDeassert", model.StatusCurrent, "iBMC heartbeat abnormal. (Cleared)"),
+			},
+			refs: []model.Reference{
+				obj("HUAWEI-SERVER-IBMC-MIB", "hwBMCHeartBeatFault", "hwHeartBeatId"),
+				obj("HUAWEI-SERVER-IBMC-MIB", "hwBMCHeartBeatFaultDeassert", "hwHeartBeatId"),
+			},
+			want: map[string]want{
+				"hwBMCHeartBeatFault":         {ClassRaise, nil},
+				"hwBMCHeartBeatFaultDeassert": {ClassClear, []string{"hwBMCHeartBeatFault"}},
+			},
+		},
+		{
+			// Story 3.1 AC2: "fault" raise token, shared name-root.
+			name: "Polycom AlarmFault/AlarmClear",
+			syms: []model.Symbol{
+				nt("POLYCOM-RMX-MIB", "rmxBadEthernetSettingsAlarmFault", model.StatusCurrent, "bad ethernet settings"),
+				nt("POLYCOM-RMX-MIB", "rmxBadEthernetSettingsAlarmClear", model.StatusCurrent, "bad ethernet settings"),
+			},
+			refs: []model.Reference{
+				obj("POLYCOM-RMX-MIB", "rmxBadEthernetSettingsAlarmFault", "rmxActiveAlarmIndex"),
+				obj("POLYCOM-RMX-MIB", "rmxBadEthernetSettingsAlarmClear", "rmxActiveAlarmIndex"),
+			},
+			want: map[string]want{
+				"rmxBadEthernetSettingsAlarmFault": {ClassRaise, nil},
+				"rmxBadEthernetSettingsAlarmClear": {ClassClear, []string{"rmxBadEthernetSettingsAlarmFault"}},
+			},
+		},
+		{
+			// Story 3.1 AC3 negative: a varbind signature shared by THREE
+			// notifications is NOT a grouping signal — no over-pairing.
+			name: "three-way shared varbind signature stays orphan",
+			syms: []model.Symbol{
+				nt("V3-MIB", "alphaFailEvent", model.StatusCurrent, "the alpha subsystem has failed"),
+				nt("V3-MIB", "betaOkEvent", model.StatusCurrent, "the beta subsystem is restored"),
+				nt("V3-MIB", "gammaFailEvent", model.StatusCurrent, "the gamma subsystem has failed"),
+			},
+			refs: []model.Reference{
+				obj("V3-MIB", "alphaFailEvent", "vCommonIndex"),
+				obj("V3-MIB", "betaOkEvent", "vCommonIndex"),
+				obj("V3-MIB", "gammaFailEvent", "vCommonIndex"),
+			},
+			want: map[string]want{
+				"alphaFailEvent": {ClassOrphan, nil},
+				"betaOkEvent":    {ClassOrphan, nil},
+				"gammaFailEvent": {ClassOrphan, nil},
+			},
+		},
+		{
+			// Genuine orphans (precision realism): a threshold trap with a
+			// raise direction but no clear counterpart, and an
+			// informational trap — both must stay orphan.
+			name: "genuine orphans (threshold, informational)",
+			syms: []model.Symbol{
+				nt("ADSL-LINE-MIB", "adslAtucPerfESsThreshTrap", model.StatusCurrent, "errored second 15-minute interval threshold reached"),
+				nt("ADSL-LINE-MIB", "adslAtucRateChangeTrap", model.StatusCurrent, "the ATUCs transmit rate has changed"),
+			},
+			refs: []model.Reference{
+				obj("ADSL-LINE-MIB", "adslAtucPerfESsThreshTrap", "adslAtucPerfESs"),
+			},
+			want: map[string]want{
+				"adslAtucPerfESsThreshTrap": {ClassOrphan, nil},
+				"adslAtucRateChangeTrap":    {ClassOrphan, nil},
+			},
+		},
 	}
 }
 

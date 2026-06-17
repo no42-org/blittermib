@@ -73,6 +73,11 @@ type Relationship struct {
 // NOTIFICATION-GROUP for it to count as a pairing signal. A 2-member
 // group identifies a pair (linkUp/linkDown, BGP established/transition);
 // larger groups bundle unrelated notifications and are ignored.
+//
+// Story 3.1 deliberately leaves this at 2: the varbind-signature path
+// (vbSig/vbSigCount below) is the precision-safe recall unlock; raising
+// this cap reintroduces the combinatorial over-pairing that
+// TestClassifyLargeGroupNoOverpairing guards.
 const maxPairingGroupMembers = 2
 
 // Classify infers relationships for every NOTIFICATION-TYPE/TRAP-TYPE
@@ -174,6 +179,21 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 		}
 	}
 
+	// A shared correlating-varbind SIGNATURE is a grouping signal only
+	// when exactly two notifications carry it (one problem, one recovery):
+	// a signature carried by 3+ notifications cannot say which pairs with
+	// which (the BIG-MIB common-index case), so it is not a pairing
+	// signal (Story 3.1 AC3).
+	vbSig := make(map[string]string, len(notifs))
+	vbSigCount := make(map[string]int)
+	for _, n := range notifs {
+		sig := varbindSignature(info[n.Name].vb)
+		vbSig[n.Name] = sig
+		if sig != "" {
+			vbSigCount[sig]++
+		}
+	}
+
 	// acc records which signals paired a notification and its partners.
 	type acc struct {
 		class    Classification
@@ -220,7 +240,14 @@ func Classify(syms []model.Symbol, refs []model.Reference) []Relationship {
 			sameRoot := ra.nameDir != dirNone && ca.nameDir != dirNone &&
 				ra.nameRoot != "" && ra.nameRoot == ca.nameRoot
 			grpEx := firstShared(ra.groups, ca.groups)
-			if !sameRoot && grpEx == "" {
+			// Identical correlating-varbind signatures are themselves a
+			// grouping signal: two opposing-direction notifications binding
+			// the exact same objects describe one entity's problem and its
+			// recovery (Huawei *Fault/*FaultDeassert, name-less pairs).
+			// Gated to a signature shared by EXACTLY TWO notifications to
+			// protect precision (Story 3.1 AC3).
+			sameVbSig := vbSig[raise] != "" && vbSig[raise] == vbSig[clear] && vbSigCount[vbSig[raise]] == 2
+			if !sameRoot && grpEx == "" && !sameVbSig {
 				continue // no grouping signal → don't link arbitrary notifications
 			}
 			vbEx := firstShared(ra.vb, ca.vb)

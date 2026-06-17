@@ -32,17 +32,37 @@ var raiseTokens = map[string]string{
 	"lost": "restored", "loss": "restored", "off": "on", "error": "normal",
 	"inactive": "active", "disabled": "enabled", "alarm": "clear", "alert": "clear",
 	"abnormal": "normal",
+	// Story 3.1 (AC2): high-frequency vendor vocabulary the standard
+	// corpus never exercised. Each term is backed by real corpus pairs —
+	// fault/deassert (Polycom *AlarmFault, Huawei *Fault/*FaultDeassert),
+	// raise(d/s) (Cisco cceAlarm*Raised), exceed* (Cisco prefix-threshold),
+	// (un)reachable (Starent AAA server), assert(ed) (Huawei *Assert).
+	"fault": "deassert", "raise": "clear", "raised": "cleared", "raises": "cleared",
+	"exceed": "normal", "exceeded": "normal", "exceeds": "normal",
+	"unreachable": "reachable", "assert": "deassert", "asserted": "deasserted",
+	"degraded": "normal", "blocked": "unblocked",
 }
 
 var clearTokens = map[string]bool{
 	"up": true, "ok": true, "restored": true, "restore": true, "cleared": true,
 	"clear": true, "normal": true, "on": true, "active": true, "enabled": true,
 	"recovered": true, "recover": true,
+	// Story 3.1 (AC2): opposing counterparts to the raise additions above.
+	"deassert": true, "deasserted": true, "reachable": true, "recovery": true,
+	"resolved": true, "unblocked": true, "normalized": true,
 }
 
 // tokenize splits a symbol name into lowercase tokens on camelCase
 // boundaries and the separators `-`, `_`, ` `, `.`. e.g. "linkDown" ->
-// ["link","down"]; "bgpBackwardTrans" -> ["bgp","backward","trans"].
+// ["link","down"]; "bgpBackwardTrans" -> ["bgp","backward","trans"];
+// "HTTPServerError" -> ["http","server","error"].
+//
+// It also splits at the end of an all-caps acronym run that butts
+// against a word ("...OAMFailureTrap" -> [..."oam","failure","trap"]):
+// break before the last capital of an uppercase run when a lowercase
+// letter follows. Without this the directional token stayed glued into
+// one unsplittable lump and the name-token signal never matched it
+// (Story 3.1 AC1).
 func tokenize(name string) []string {
 	var toks []string
 	var cur []rune
@@ -52,21 +72,22 @@ func tokenize(name string) []string {
 			cur = cur[:0]
 		}
 	}
-	prevLower := false
-	for _, r := range name {
+	runes := []rune(name)
+	isUpper := func(r rune) bool { return r >= 'A' && r <= 'Z' }
+	isLower := func(r rune) bool { return r >= 'a' && r <= 'z' }
+	for i, r := range runes {
 		switch {
 		case r == '-' || r == '_' || r == ' ' || r == '.':
 			flush()
-			prevLower = false
-		case r >= 'A' && r <= 'Z':
-			if prevLower {
-				flush()
+		case isUpper(r):
+			if i > 0 && isLower(runes[i-1]) {
+				flush() // camelCase boundary: linkDown -> link|Down
+			} else if i > 0 && isUpper(runes[i-1]) && i+1 < len(runes) && isLower(runes[i+1]) {
+				flush() // end of acronym run: OAMFailure -> OAM|Failure
 			}
 			cur = append(cur, r)
-			prevLower = false
 		default:
 			cur = append(cur, r)
-			prevLower = r >= 'a' && r <= 'z'
 		}
 	}
 	flush()
@@ -114,6 +135,24 @@ func varbindSets(refs []model.Reference) map[string]map[string]bool {
 	return out
 }
 
+// varbindSignature canonicalizes a notification's correlating-varbind
+// set into a stable key (sorted "module::name" keys joined). Two
+// notifications with the same signature bind exactly the same objects.
+// Used as a precision-gated grouping signal in Classify, valid only
+// when a signature is shared by exactly two notifications (Story 3.1
+// AC3). Empty set → "" (never a grouping signal).
+func varbindSignature(set map[string]bool) string {
+	if len(set) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "|")
+}
+
 // firstShared returns the lexically-first key present in both sets, or
 // "" if they share none. Deterministic by construction; used for both
 // the varbind-signature and group-membership signals.
@@ -146,6 +185,11 @@ var clearPhrases = []string{
 	"is restored", "restored", "cleared", "no longer", "recovered",
 	"enters the established state", "established state", "established",
 	"normal operation", "transitioned into some other state",
+	// Story 3.1 (AC2). "(cleared)"/"(generated)" are the explicit
+	// machine-readable raise/clear tags several vendors (Huawei) embed
+	// verbatim in the DESCRIPTION. Matched FIRST (clear-before-raise) so a
+	// recovery worded around the fault state is not misread as a raise.
+	"(cleared)", "deasserted", "back to normal", "has recovered",
 }
 
 var raisePhrases = []string{
@@ -153,6 +197,9 @@ var raisePhrases = []string{
 	"has failed", "failure", "failed", "loss of", "is lost", "lost",
 	"lower numbered state", "higher numbered state to a lower", "backward",
 	"unreachable", "not responding", "abnormal", "degraded",
+	// Story 3.1 (AC2).
+	"(generated)", "has exceeded", "exceeded", "exceeds", "fault", "faulty",
+	"cannot be reached", "asserted",
 }
 
 // descriptionDirection scans a notification's DESCRIPTION (and

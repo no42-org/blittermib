@@ -340,6 +340,57 @@ func TestConfidenceFanoutCap(t *testing.T) {
 	}
 }
 
+// TestClassifyVarbindSignaturePairing exercises Story 3.1 AC3: two
+// opposing-direction notifications with NO shared name-root and NO
+// shared group, but the EXACT same correlating-varbind signature (and
+// that signature carried by exactly two notifications), pair on the
+// varbind signature alone. Direction comes only from the description.
+// Such a varbind-only pairing must cap at Likely, never High (AC5), so
+// it is surfaced in-UI but never exported as auto-clearing alarm-data.
+func TestClassifyVarbindSignaturePairing(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "V-MIB", Name: "alphaPipelineEvent", Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: "the data pipeline has failed"},
+		{ModuleName: "V-MIB", Name: "betaChannelEvent", Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: "the data channel is restored"},
+	}
+	refs := []model.Reference{
+		{SourceModule: "V-MIB", SourceName: "alphaPipelineEvent", TargetModule: "V-MIB", TargetName: "vIndex", Kind: model.RefNotificationObject},
+		{SourceModule: "V-MIB", SourceName: "betaChannelEvent", TargetModule: "V-MIB", TargetName: "vIndex", Kind: model.RefNotificationObject},
+	}
+	m := byName(Classify(syms, refs))
+	if m["alphaPipelineEvent"].Class != ClassRaise {
+		t.Errorf("alphaPipelineEvent = %q, want raise", m["alphaPipelineEvent"].Class)
+	}
+	got := m["betaChannelEvent"]
+	if got.Class != ClassClear || !contains(got.Clears, "alphaPipelineEvent") {
+		t.Errorf("betaChannelEvent = {class:%q clears:%v}, want clear of alphaPipelineEvent", got.Class, got.Clears)
+	}
+	if got.Confidence == ConfHigh {
+		t.Errorf("varbind-signature-only pairing must cap at likely, got high (AC5 violated)")
+	}
+}
+
+// TestClassifyVarbindSignatureGateThreeway is the precision guard for
+// AC3: a varbind signature shared by THREE notifications cannot say
+// which pairs with which, so it is NOT a grouping signal. With no
+// name-root and no group, all three stay orphan (cf. the BIG-MIB
+// common-index case in TestClassifyLargeGroupNoOverpairing).
+func TestClassifyVarbindSignatureGateThreeway(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "V3-MIB", Name: "alphaPipelineEvent", Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: "the data pipeline has failed"},
+		{ModuleName: "V3-MIB", Name: "betaChannelEvent", Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: "the data channel is restored"},
+		{ModuleName: "V3-MIB", Name: "gammaLinkEvent", Kind: model.KindNotificationType, Status: model.StatusCurrent, Description: "the uplink has failed"},
+	}
+	var refs []model.Reference
+	for _, n := range []string{"alphaPipelineEvent", "betaChannelEvent", "gammaLinkEvent"} {
+		refs = append(refs, model.Reference{SourceModule: "V3-MIB", SourceName: n, TargetModule: "V3-MIB", TargetName: "vIndex", Kind: model.RefNotificationObject})
+	}
+	for _, r := range Classify(syms, refs) {
+		if r.Class != ClassOrphan {
+			t.Errorf("%s = %q, want orphan — a 3-way shared varbind signature must not pair", r.Notification, r.Class)
+		}
+	}
+}
+
 // TestEvidenceJSONShape locks the serialized contract shared by the UI
 // popover and the export provenance comment: lowercase keys
 // signals/kind/detail/summary.
