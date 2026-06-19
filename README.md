@@ -243,6 +243,7 @@ URL surfaces:
 
 ```
    cmd/blittermib       entry point, signal handling, orchestration
+   cmd/blittermib-mcp   read-only MCP (Model Context Protocol) server over the index
    cmd/mib-migrate      one-shot tool: flat MIB collection → PEN-vendor layout
    cmd/mib-index        regenerate mibs/INDEX.yaml metadata catalog
    internal/compile     libsmi subprocess wrappers + XML → model
@@ -256,6 +257,38 @@ URL surfaces:
    prototype/           static HTML/CSS source-of-truth for the visuals
 ```
 
+## MCP server
+
+`cmd/blittermib-mcp` exposes the MIB archive to LLM agents over the
+[Model Context Protocol](https://modelcontextprotocol.io) (stdio transport). It
+opens the same SQLite index the web server reads — **read-only**, never writing
+to or ingesting into the corpus — and advertises five tools: `search_mibs`,
+`lookup_oid`, `lookup_symbol`, `decode_walk`, and `classify_notification`.
+
+It is a locally-launched binary, not part of the Docker image or release
+archives. Build it from source:
+
+```
+make build-mcp        # produces ./blittermib-mcp
+```
+
+Then point an MCP client at it. For Claude Desktop / Claude Code, add to the
+client's MCP server config (adjust the paths):
+
+```json
+{
+  "mcpServers": {
+    "blittermib": {
+      "command": "/path/to/blittermib-mcp",
+      "args": ["--data", "/path/to/data"]
+    }
+  }
+}
+```
+
+`--data` is the directory holding `blittermib.db` (default `./data`); the
+server exits with an error if no database is found there.
+
 ## Documentation
 
 - [mibs/README.md](mibs/README.md) — corpus directory layout
@@ -267,6 +300,7 @@ URL surfaces:
 ```
 make verify         gofmt-check + vet + race tests
 make build          ./blittermib
+make build-mcp      ./blittermib-mcp (read-only MCP server)
 make generate       regenerate templ-generated files (after editing .templ)
 make index          regenerate mibs/INDEX.yaml from the corpus
 make verify-mibs    local MIB-corpus checks (lexical + naming + parse)
