@@ -186,6 +186,12 @@ hooks:
 build: prepare-assets
 	$(GO) build -ldflags='$(LDFLAGS)' -o $(BIN) ./cmd/blittermib
 
+# Read-only MCP (Model Context Protocol) server over the MIB archive.
+# CI compiles this binary via `make verify` (go vet/test over ./...);
+# this target is the explicit local/dev build path.
+build-mcp:
+	$(GO) build -ldflags='$(LDFLAGS)' -o $(BIN)-mcp ./cmd/blittermib-mcp
+
 test: prepare-assets
 	$(GO) test -race -count=1 $(PKG)
 
