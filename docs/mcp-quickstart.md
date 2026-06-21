@@ -119,7 +119,7 @@ present at `/usr/local/bin/blittermib-mcp` and the data directory at
   "mcpServers": {
     "blittermib": {
       "command": "docker",
-      "args": ["exec", "-i", "blittermib",
+      "args": ["exec", "-i", "-u", "1000", "blittermib",
                "/usr/local/bin/blittermib-mcp",
                "--data", "/var/lib/blittermib/data"]
     }
@@ -128,11 +128,13 @@ present at `/usr/local/bin/blittermib-mcp` and the data directory at
 ```
 
 `-i` keeps stdin open for the stdio stream; `blittermib` is the running
-container's name.
-
-> **Note:** the published image does not yet include `blittermib-mcp` (it builds
-> only the web binary). To use the `docker exec` path, add the MCP binary to the
-> `Dockerfile` build/copy steps first.
+container's name. **`-u 1000` matters**: `docker exec` bypasses the entrypoint
+and would otherwise run as root, and opening the database in WAL mode creates
+`*.db-wal`/`*.db-shm` files — running as uid 1000 (the user the web server runs
+as, which owns the data volume) keeps those files owned by the right user so the
+web server can still write them. The image ships `blittermib-mcp` at
+`/usr/local/bin/blittermib-mcp` alongside the web binary, so no extra setup is
+needed — the running container already has everything.
 
 The same SQLite file is safe to share between the web server and an MCP session:
 WAL mode + `busy_timeout` coordinate the readers and the brief writes each

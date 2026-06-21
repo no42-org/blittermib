@@ -42,13 +42,17 @@ COPY . .
 # Generate templ output and embed assets, then build the static
 # server binary. The ingest CLI no longer ships in the image — the
 # always-on import pipeline (drop files into the corpus root's
-# import/ directory) replaced the in-container runbook.
+# import/ directory) replaced the in-container runbook. The read-only
+# MCP server (blittermib-mcp) ships alongside it for the `docker exec`
+# stdio workflow; it needs no assets, so it's a plain go build.
 ARG VERSION=docker
 ENV CGO_ENABLED=0
 RUN make generate \
     && make prepare-assets \
     && go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
-        -o /out/blittermib ./cmd/blittermib
+        -o /out/blittermib ./cmd/blittermib \
+    && go build -trimpath -ldflags="-s -w" \
+        -o /out/blittermib-mcp ./cmd/blittermib-mcp
 
 # --- runtime stage --------------------------------------------------
 
@@ -70,6 +74,7 @@ RUN apk add --no-cache libsmi ca-certificates tzdata su-exec \
 WORKDIR /home/blittermib
 
 COPY --from=build /out/blittermib /usr/local/bin/blittermib
+COPY --from=build /out/blittermib-mcp /usr/local/bin/blittermib-mcp
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Standard corpus only (IETF + IANA + corpus metadata), at a

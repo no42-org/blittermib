@@ -24,6 +24,7 @@ openspec
 # Build artifacts (regenerated inside the container)
 /blittermib
 /blittermib.exe
+/blittermib-mcp
 /dist
 *.test
 *.out
