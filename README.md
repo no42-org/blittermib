@@ -291,6 +291,7 @@ server exits with an error if no database is found there.
 
 ## Documentation
 
+- [docs/mcp-quickstart.md](docs/mcp-quickstart.md) — using the MCP server over stdio with Claude Code / Claude Desktop
 - [mibs/README.md](mibs/README.md) — corpus directory layout
 - [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md) — adding a MIB: 4-step workflow, license-tag matrix, 4-tier CI expectations
 - [prototype/](prototype/) — static HTML reference for the design system (open `prototype/index.html` directly)
