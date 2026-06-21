@@ -33,15 +33,21 @@ A push of any tag matching `v*.*.*` triggers
 which runs three jobs — `artifacts` (→ `sign-checksums`) and
 `docker`:
 
-1. **artifacts** — `make dist` cross-builds two archives:
+1. **artifacts** — `make dist` cross-builds the release archives:
    - `blittermib-vX.Y.Z-linux-amd64.tar.gz`
    - `blittermib-vX.Y.Z-linux-arm64.tar.gz`
+   - `blittermib-mcp-vX.Y.Z-darwin-amd64.tar.gz`
+   - `blittermib-mcp-vX.Y.Z-darwin-arm64.tar.gz`
+   - `blittermib-mcp-vX.Y.Z-windows-amd64.zip`
 
-   Each archive contains both binaries — `blittermib` and the read-only
-   `blittermib-mcp` — plus `README.md` and `LICENSE`.
-   `SHA256SUMS` is generated alongside. All three files are attached
-   to the GitHub Release with auto-generated release notes (commits
-   since the previous tag, grouped by Conventional Commit type).
+   The `linux` archives contain both binaries — `blittermib` and the
+   read-only `blittermib-mcp` — plus `README.md` and `LICENSE`. The
+   `blittermib-mcp-*` archives are the standalone MCP server for the
+   desktop clients (macOS/Windows) where Claude Desktop/Code runs.
+   `SHA256SUMS` is generated alongside, and every archive plus the sums
+   file is attached to the GitHub Release with auto-generated release
+   notes (commits since the previous tag, grouped by Conventional Commit
+   type).
 
 2. **docker** — Multi-arch Docker image built for `linux/amd64` and
    `linux/arm64`, pushed to GHCR with two tags:
@@ -119,7 +125,8 @@ gh release download vX.Y.Z --repo no42-org/blittermib \
 sha256sum -c SHA256SUMS --ignore-missing
 tar -xzf blittermib-vX.Y.Z-linux-amd64.tar.gz
 ./blittermib-vX.Y.Z-linux-amd64/blittermib -version
-# the archive also bundles blittermib-mcp (read-only MCP server, linux only)
+# the linux archive also bundles blittermib-mcp; macOS/Windows ship it
+# as a standalone blittermib-mcp-<os>-<arch> archive
 
 # Docker (note: image tag drops the leading `v`)
 docker pull ghcr.io/no42-org/blittermib:X.Y.Z

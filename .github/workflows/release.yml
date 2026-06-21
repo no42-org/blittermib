@@ -38,6 +38,7 @@ jobs:
         with:
           files: |
             dist/*.tar.gz
+            dist/*.zip
             dist/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true

@@ -19,8 +19,9 @@ source files are never touched.) It advertises five tools: `search_mibs`,
 
 ## 1. Prerequisites
 
-- The `blittermib-mcp` binary — build it below, or on Linux grab the prebuilt
-  one bundled in a release tarball (`blittermib-*-linux-*.tar.gz`).
+- The `blittermib-mcp` binary — build it below, or download a prebuilt one from
+  a release (Linux: bundled in `blittermib-*-linux-*.tar.gz`; macOS/Windows: the
+  standalone `blittermib-mcp-*` archive).
 - A populated `blittermib.db`. The server **exits with an error if no database
   is found** at `<data-dir>/blittermib.db`.
 
@@ -32,10 +33,11 @@ make build-mcp        # produces ./blittermib-mcp
 go build -o blittermib-mcp ./cmd/blittermib-mcp
 ```
 
-Linux release tarballs bundle a prebuilt `blittermib-mcp` next to the web
-binary, so on Linux you can skip this step. The release archives are
-**Linux-only** — on macOS or Windows (where Claude Desktop usually runs), build
-from source as above.
+Prebuilt binaries ship in every release, so you can skip this step. On Linux,
+`blittermib-mcp` is bundled in the `blittermib-*-linux-*.tar.gz` archive. On
+macOS and Windows (where Claude Desktop usually runs) it ships as a standalone
+`blittermib-mcp-<os>-<arch>` archive — `.tar.gz` for macOS, `.zip` (with
+`blittermib-mcp.exe`) for Windows.
 
 ## 3. Get a database
 
