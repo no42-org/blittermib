@@ -37,7 +37,8 @@ which runs three jobs — `artifacts` (→ `sign-checksums`) and
    - `blittermib-vX.Y.Z-linux-amd64.tar.gz`
    - `blittermib-vX.Y.Z-linux-arm64.tar.gz`
 
-   Each archive contains the binary plus `README.md` and `LICENSE`.
+   Each archive contains both binaries — `blittermib` and the read-only
+   `blittermib-mcp` — plus `README.md` and `LICENSE`.
    `SHA256SUMS` is generated alongside. All three files are attached
    to the GitHub Release with auto-generated release notes (commits
    since the previous tag, grouped by Conventional Commit type).
@@ -118,6 +119,7 @@ gh release download vX.Y.Z --repo no42-org/blittermib \
 sha256sum -c SHA256SUMS --ignore-missing
 tar -xzf blittermib-vX.Y.Z-linux-amd64.tar.gz
 ./blittermib-vX.Y.Z-linux-amd64/blittermib -version
+# the archive also bundles blittermib-mcp (read-only MCP server, linux only)
 
 # Docker (note: image tag drops the leading `v`)
 docker pull ghcr.io/no42-org/blittermib:X.Y.Z

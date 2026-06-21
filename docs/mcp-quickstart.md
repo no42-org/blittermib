@@ -19,7 +19,8 @@ source files are never touched.) It advertises five tools: `search_mibs`,
 
 ## 1. Prerequisites
 
-- The `blittermib-mcp` binary (build below, or `go build`).
+- The `blittermib-mcp` binary — build it below, or on Linux grab the prebuilt
+  one bundled in a release tarball (`blittermib-*-linux-*.tar.gz`).
 - A populated `blittermib.db`. The server **exits with an error if no database
   is found** at `<data-dir>/blittermib.db`.
 
@@ -30,6 +31,11 @@ make build-mcp        # produces ./blittermib-mcp
 # or:
 go build -o blittermib-mcp ./cmd/blittermib-mcp
 ```
+
+Linux release tarballs bundle a prebuilt `blittermib-mcp` next to the web
+binary, so on Linux you can skip this step. The release archives are
+**Linux-only** — on macOS or Windows (where Claude Desktop usually runs), build
+from source as above.
 
 ## 3. Get a database
 

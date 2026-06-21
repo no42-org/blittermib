@@ -40,6 +40,13 @@ for plat in "${PLATFORMS[@]}"; do
         go build -trimpath -ldflags="$LDFLAGS" \
             -o "$workdir/$bin" ./cmd/blittermib
 
+    # The read-only MCP server ships alongside the web binary. It has no
+    # version var, so it omits the -X main.version ldflag.
+    echo ">> building $os/$arch -> $workdir/${bin}-mcp"
+    GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+        go build -trimpath -ldflags="-s -w" \
+            -o "$workdir/${bin}-mcp" ./cmd/blittermib-mcp
+
     # Bundle docs alongside the binary if present.
     for f in README.md LICENSE; do
         [[ -f "$f" ]] && cp "$f" "$workdir/" || true
