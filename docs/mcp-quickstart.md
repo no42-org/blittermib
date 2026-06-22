@@ -1,12 +1,19 @@
-# MCP server quickstart (stdio)
+# MCP server quickstart
 
-`blittermib-mcp` exposes the MIB archive to LLM agents over the
-[Model Context Protocol](https://modelcontextprotocol.io) using the **stdio**
-transport. It opens the same SQLite index the web server reads. Its tools are
-**read-only** — they never ingest or mutate the MIB corpus. (Opening the
-database applies any pending schema migrations and a one-time
-notification-relationship backfill, exactly as the web server does; the MIB
-source files are never touched.) It advertises five tools: `search_mibs`,
+blittermib serves the same five **read-only** MIB tools over the
+[Model Context Protocol](https://modelcontextprotocol.io) through two transports:
+
+- **stdio** — the `blittermib-mcp` binary, which a client launches as a
+  subprocess. Best for desktop clients on your own machine (Claude Desktop /
+  Claude Code). Covered by sections **1–6** below.
+- **network (HTTP)** — the web server serves the same tools at `/mcp` for
+  remote or shared access, behind a bearer token. See
+  [§7 Network transport](#7-network-transport-http).
+
+Either way the tools are **read-only** — they never ingest or mutate the MIB
+corpus. (Opening the database applies any pending schema migrations and a
+one-time notification-relationship backfill, exactly as the web server does; the
+MIB source files are never touched.) The five tools are `search_mibs`,
 `lookup_oid`, `lookup_symbol`, `decode_walk`, and `classify_notification`.
 
 > **How stdio works.** A stdio MCP server is not a long-running network
@@ -153,7 +160,93 @@ process makes when it opens the database (migrations/backfill). This holds only
 on a **local** filesystem — never an NFS/networked volume, where SQLite's file
 locking is unreliable.
 
-## 7. The tools
+## 7. Network transport (HTTP)
+
+When you want remote or shared access — several people or agents reaching one
+running blittermib instead of each spawning a local binary — enable the
+**network transport**. The web server then serves the same five tools at `/mcp`
+over the MCP **Streamable HTTP** transport (stateless, JSON responses). No
+separate binary, no per-client database path: the server already holds the open
+index.
+
+It is **off by default** and protected by a bearer token. Enable it with two
+environment variables:
+
+| Variable | Effect |
+|----------|--------|
+| `BLITTERMIB_MCP_ENABLED` | `true` registers the `/mcp` route |
+| `BLITTERMIB_MCP_TOKEN`   | bearer token required on every `/mcp` request |
+
+```sh
+BLITTERMIB_MCP_ENABLED=true BLITTERMIB_MCP_TOKEN=s3cret \
+  ./blittermib -mibs ./mibs -data ./data
+```
+
+It **fails closed**: if `BLITTERMIB_MCP_ENABLED` is true but the token is empty
+or whitespace-only, the route stays unregistered (404) and the server logs a
+warning — it never comes up unauthenticated. `/mcp` also sits behind the
+readiness gate, returning 503 while the corpus is still loading.
+
+> **The token authenticates; it does not encrypt.** A bearer token sent over
+> plain HTTP can be read in transit. Terminate TLS at a reverse proxy, or keep
+> the endpoint on a trusted network. For Kubernetes, supply the token as a
+> Secret (see the [chart repo](https://github.com/no42-org/blittermib-chart)).
+
+### Smoke-test it
+
+A single `initialize` call confirms auth and transport. Streamable HTTP requires
+an `application/json` content type and an `Accept` that lists both
+`application/json` and `text/event-stream`:
+
+```sh
+TOKEN=s3cret
+curl -sS http://localhost:8080/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
+```
+
+A JSON `initialize` result means you're in. Quick negative checks: a missing or
+wrong token returns **401**, and a `GET`/`DELETE` to `/mcp` returns **405** (the
+stateless JSON server accepts only `POST`).
+
+### Connect a client
+
+**Claude Code (CLI)** — add the server with the HTTP transport and an auth
+header:
+
+```sh
+claude mcp add --transport http blittermib http://localhost:8080/mcp \
+  --header "Authorization: Bearer s3cret"
+```
+
+`/mcp` inside Claude Code then lists the blittermib tools, exactly as for the
+stdio binary.
+
+**MCP Inspector** — choose the *Streamable HTTP* transport, enter the `/mcp`
+URL, and add an `Authorization: Bearer <token>` header.
+
+**Any HTTP MCP client** — point it at `http://<host>:<port>/mcp` and send the
+bearer header on every request.
+
+### In Docker
+
+Publish the port and pass the env vars; nothing else changes (the web server and
+`/mcp` share one process and one database):
+
+```sh
+docker run --rm -p 8080:8080 \
+    -e BLITTERMIB_MCP_ENABLED=true \
+    -e BLITTERMIB_MCP_TOKEN=s3cret \
+    -v blittermib-data:/var/lib/blittermib/data \
+    ghcr.io/no42-org/blittermib:latest
+```
+
+Unlike the stdio-in-Docker recipe (§6), there is no `docker exec` and no uid
+juggling — the running web server owns the database and answers `/mcp` itself.
+
+## 8. The tools
 
 | Tool | Input | What it does |
 |------|-------|--------------|
@@ -169,7 +262,9 @@ Example prompts once connected:
 - "What symbol is OID `1.3.6.1.2.1.2.2.1.10`?"
 - "Is `linkDown` in IF-MIB a raise or a clear trap?"
 
-## 8. Troubleshooting
+## 9. Troubleshooting
+
+Stdio transport:
 
 - **`database not found at <path>`** — the `--data` directory has no
   `blittermib.db`. Point `--data` at the directory holding the database (see
@@ -177,6 +272,21 @@ Example prompts once connected:
 - **Client shows no tools / fails to connect** — confirm the binary path is
   absolute and executable, and that `--data` resolves from the client's working
   directory. Re-run the step 4 smoke test to isolate the binary from the client.
+
+Network transport:
+
+- **`/mcp` returns 404** — the transport is off. Set `BLITTERMIB_MCP_ENABLED=true`
+  **and** a non-empty `BLITTERMIB_MCP_TOKEN`; a missing or blank token fails
+  closed (look for the warning in the server log).
+- **`/mcp` returns 401** — missing or wrong bearer token. Send
+  `Authorization: Bearer <token>` matching `BLITTERMIB_MCP_TOKEN`.
+- **`/mcp` returns 503** — the corpus is still loading. Retry once `/readyz`
+  returns 200.
+- **`/mcp` returns 405** — you sent a `GET` or `DELETE`; the stateless JSON
+  transport accepts only `POST`.
+
+Both transports:
+
 - **Stale results** — the MCP server reads whatever `blittermib.db` currently
   holds; it does not watch for changes within a session. Re-ingest with the web
   app/ingest pipeline, then start a new session.
