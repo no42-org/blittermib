@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-package main
+package mcptools
 
 import (
 	"github.com/no42-org/blittermib/internal/correlate"

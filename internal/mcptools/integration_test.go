@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-package main
+package mcptools
 
 import (
 	"context"
@@ -173,8 +173,9 @@ func TestServerAdvertisesFiveReadOnlyTools(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	const testVersion = "v-test"
 	h := seededHandlers(t)
-	srv := newServer(h.st)
+	srv := NewServer(h.st, testVersion)
 
 	serverT, clientT := mcp.NewInMemoryTransports()
 	go func() { _ = srv.Run(ctx, serverT) }()
@@ -205,9 +206,9 @@ func TestServerAdvertisesFiveReadOnlyTools(t *testing.T) {
 		}
 	}
 
-	// The server advertises the linker-stamped build version, not a hardcoded
-	// string — guards against regressing to a fixed value.
-	if v := session.InitializeResult().ServerInfo.Version; v != version {
-		t.Errorf("advertised server version = %q, want %q", v, version)
+	// The server advertises the version it was constructed with, not a
+	// hardcoded string — guards against regressing to a fixed value.
+	if v := session.InitializeResult().ServerInfo.Version; v != testVersion {
+		t.Errorf("advertised server version = %q, want %q", v, testVersion)
 	}
 }

@@ -289,6 +289,39 @@ client's MCP server config (adjust the paths):
 `--data` is the directory holding `blittermib.db` (default `./data`); the
 server exits with an error if no database is found there.
 
+### Network transport (HTTP)
+
+The same five tools can also be served over the network by the **web server**
+at `/mcp`, using the MCP Streamable HTTP transport (stateless, JSON responses).
+This lets remote or shared clients reach one running blittermib instead of each
+spawning a local stdio process. It is **off by default** and gated by two
+environment variables:
+
+| Variable | Effect |
+| --- | --- |
+| `BLITTERMIB_MCP_ENABLED` | `true` to register the `/mcp` route. |
+| `BLITTERMIB_MCP_TOKEN` | Bearer token required on every `/mcp` request. |
+
+The transport **fails closed**: if `BLITTERMIB_MCP_ENABLED` is true but the
+token is empty (or whitespace-only), the route stays unregistered and a warning
+is logged — it never comes up unauthenticated. Every request must carry
+`Authorization: Bearer <token>`; the route sits behind the server's readiness
+gate (503 while the corpus is still loading) and the existing `/healthz` +
+`/readyz` probes cover it.
+
+```
+BLITTERMIB_MCP_ENABLED=true BLITTERMIB_MCP_TOKEN=s3cret blittermib
+```
+
+Point an HTTP MCP client at `http://<host>:<port>/mcp` with the bearer token.
+
+> **Security:** the bearer token is *access control, not confidentiality* — it
+> authenticates the caller but does not encrypt the connection. Terminate TLS at
+> a reverse proxy (or keep the endpoint on a trusted network); a token sent over
+> plaintext HTTP can be observed in transit. For the Helm deployment, supply the
+> token as a Kubernetes secret (chart support tracked in
+> [blittermib-chart](https://github.com/no42-org/blittermib-chart)).
+
 ## Documentation
 
 - [docs/mcp-quickstart.md](docs/mcp-quickstart.md) — using the MCP server over stdio with Claude Code / Claude Desktop

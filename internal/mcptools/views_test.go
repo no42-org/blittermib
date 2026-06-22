@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-package main
+package mcptools
 
 import (
 	"encoding/json"

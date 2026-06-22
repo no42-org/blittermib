@@ -247,6 +247,10 @@ func run(parent context.Context, cfg config) error {
 	}
 	srv.EnableWalk()
 	web.SetWalkEnabled(srv.WalkEnabled())
+	// Network MCP transport: off unless BLITTERMIB_MCP_ENABLED is truthy
+	// AND BLITTERMIB_MCP_TOKEN is set. The token is read here and passed
+	// in so EnableMCP can fail closed (WARN, no route) if it is missing.
+	srv.EnableMCP(os.Getenv("BLITTERMIB_MCP_TOKEN"))
 
 	var wg sync.WaitGroup
 

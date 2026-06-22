@@ -36,6 +36,14 @@ type Server struct {
 	// nothing to fail closed on.
 	walkEnabled bool
 
+	// Network MCP surface — wired by EnableMCP when
+	// BLITTERMIB_MCP_ENABLED is true AND a non-empty token is set. Off
+	// by default; when off the /mcp route stays unregistered (404 via
+	// the catch-all). mcpToken is the bearer secret the /mcp auth
+	// middleware checks; it is never logged.
+	mcpEnabled bool
+	mcpToken   string
+
 	// ready is the readiness gate: false until the initial corpus load
 	// (SyncCorpus + boot rescan) completes. Binary and one-way — opened
 	// once by SetReady, never re-closed. A transient store error after

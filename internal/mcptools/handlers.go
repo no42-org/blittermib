@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-package main
+package mcptools
 
 import (
 	"context"
@@ -20,10 +20,17 @@ type handlers struct{ st *store.Store }
 
 const (
 	defaultSearchLimit = 20
-	prefixHitLimit     = 5
+	// maxSearchLimit is the upper bound on search_mibs `limit`. A
+	// too-large limit is a benign convenience overshoot (not a safety
+	// boundary), so it clamps to this ceiling rather than erroring —
+	// the bound matters most for the network transport, where an
+	// untrusted caller could otherwise request an unbounded result set.
+	maxSearchLimit = 100
+	prefixHitLimit = 5
 	// walkMaxBytes caps decode_walk input, mirroring the web /walk
 	// size limit (internal/server walkMaxBytes) so a giant paste can't
-	// drive unbounded parse/lookup work.
+	// drive unbounded parse/lookup work. This is a hard safety cap, so
+	// oversize input is rejected, not truncated.
 	walkMaxBytes = 10 << 20 // 10 MB
 )
 
@@ -41,7 +48,14 @@ type searchOut struct {
 func (h *handlers) searchMIBs(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, searchOut, error) {
 	limit := in.Limit
 	if limit <= 0 {
+		// Unset, zero, or a negative value sent over the wire all fall
+		// back to the default rather than erroring.
 		limit = defaultSearchLimit
+	}
+	if limit > maxSearchLimit {
+		// Clamp an over-large request down to the ceiling instead of
+		// rejecting it — the caller still gets a useful (bounded) page.
+		limit = maxSearchLimit
 	}
 	hits, err := h.st.Search(ctx, in.Query, limit)
 	if err != nil {
