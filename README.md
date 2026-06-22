@@ -1,11 +1,29 @@
 # blittermib
 
+[![CI](https://github.com/no42-org/blittermib/actions/workflows/ci.yml/badge.svg)](https://github.com/no42-org/blittermib/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/no42-org/blittermib?sort=semver)](https://github.com/no42-org/blittermib/releases/latest)
+[![Go](https://img.shields.io/github/go-mod/go-version/no42-org/blittermib)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Pixelperfect MIB browser** — browse SNMP MIBs, beautifully.
 
 A self-hostable, browser-based reference tool for SNMP MIB files. Drop
 a directory of MIBs and get a typographically-disciplined web UI that
 lets you search, navigate, and understand them — without sending
 anything to a third party.
+
+## Contents
+
+- [Features](#features)
+- [Quickstart](#quickstart) — [Docker](#docker) · [Bare metal](#bare-metal) · [Kubernetes (Helm)](#kubernetes-helm) · [Verifying releases](#verifying-releases)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [MCP server](#mcp-server) — [Network transport (HTTP)](#network-transport-http)
+- [Documentation](#documentation)
+- [Build from source](#build-from-source)
+- [Project conventions](#project-conventions)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -15,6 +33,10 @@ anything to a third party.
   with `INDEX` columns flagged
 - **Cross-references** — every symbol page lists what indexes,
   augments, groups, or notifications reference it
+- **Notification intelligence** — infers each notification's
+  raise / clear / orphan relationship with a confidence level and the
+  evidence behind it (varbind signatures, naming, paired traps),
+  surfaced in the UI and via the MCP `classify_notification` tool
 - **OpenNMS event export** — modules with notifications offer a
   `↓ events.xml` download (`/m/{name}/events.xml`): an OpenNMS
   eventconf document, one `<event>` per `NOTIFICATION-TYPE`/`TRAP-TYPE`.
@@ -202,6 +224,17 @@ Environment variables:
        the loaded MIBs. Off by default. Walks are parsed in memory and
        never written to disk, logged, or stored; when disabled the
        routes 404 and the walk-overlay client asset is omitted.
+
+  BLITTERMIB_MCP_ENABLED=true
+       Serve the read-only MCP tools over HTTP at /mcp (see "MCP
+       server" below). Off by default. Requires BLITTERMIB_MCP_TOKEN;
+       if that is unset or empty the route stays unregistered (fails
+       closed) and a warning is logged.
+
+  BLITTERMIB_MCP_TOKEN=<secret>
+       Bearer token required on every /mcp request. Access control, not
+       confidentiality — terminate TLS at a reverse proxy or keep the
+       endpoint on a trusted network.
 ```
 
 URL surfaces:
@@ -209,19 +242,24 @@ URL surfaces:
 ```
    /                       landing
    /m, /m/{module}         module index + detail
+   /m/{module}/events.xml  OpenNMS eventconf download (modules with notifications)
    /s/{module}::{name}     canonical symbol page
    /o/{oid}                OID lookup → 302 to /s/...
    /search?q=…             search results
+   /tree, /tree/{oid}      OID tree browser
    /diagnostics            parse warnings + errors
+   /imprint, /privacy      operator disclosure + data-handling notice
    /api/v1/search?q=…      JSON for the ⌘K palette
    /api/v1/symbol/{m}/{n}  symbol JSON
+   /api/v1/tree            OID tree JSON (+ /api/v1/tree/fragment)
    /static/*               embedded design system + JS islands
    /healthz                liveness (200 once the process serves)
    /readyz                 readiness (corpus loaded + store usable)
    /version                build info
 
    When BLITTERMIB_UPLOAD_ENABLED=true (off by default):
-   /upload                 management page: drop zone + file list
+   /import                 management page: drop zone + file list
+   /upload                 301 → /import (legacy path)
    /api/v1/upload          multi-file POST → mibs/import/, sync compile
    /api/v1/upload/{name}   DELETE single file from mibs/import/
 
@@ -229,6 +267,9 @@ URL surfaces:
    /walk                   capture intake: paste or upload an snmpwalk
    /walk/decode            resolve a walk against the loaded MIBs (POST)
    /walk/bundle            offline decode ZIP bundle (POST)
+
+   When BLITTERMIB_MCP_ENABLED=true with a token (off by default):
+   /mcp                    MCP Streamable HTTP endpoint (bearer auth)
 ```
 
 ## Architecture
@@ -242,26 +283,34 @@ URL surfaces:
 ```
 
 ```
-   cmd/blittermib       entry point, signal handling, orchestration
-   cmd/blittermib-mcp   read-only MCP (Model Context Protocol) server over the index
-   cmd/mib-migrate      one-shot tool: flat MIB collection → PEN-vendor layout
-   cmd/mib-index        regenerate mibs/INDEX.yaml metadata catalog
-   internal/compile     libsmi subprocess wrappers + XML → model
-   internal/iana        embedded IANA Private Enterprise Number registry
-   internal/model       normalised in-memory types
-   internal/store       SQLite schema, FTS5, transactional reload
-   internal/server      HTTP, routes, templ, JSON API, embedded assets
-   internal/web         templ templates and the design system CSS
-   internal/watch       fsnotify hot-reload with debounce + recover
-   mibs/                curated corpus — vendors/, ietf/, iana/, experimental/, unsorted/
-   prototype/           static HTML/CSS source-of-truth for the visuals
+   cmd/blittermib            entry point, signal handling, orchestration
+   cmd/blittermib-mcp        read-only MCP (Model Context Protocol) server over the index
+   cmd/mib-ingest            contributor drop-folder ingest into the corpus (make ingest)
+   cmd/mib-migrate           one-shot tool: flat MIB collection → PEN-vendor layout
+   cmd/mib-index             regenerate mibs/INDEX.yaml metadata catalog
+   cmd/mib-correlate-report  notification raise/clear/orphan inference-coverage report
+   internal/compile          libsmi subprocess wrappers + XML → model
+   internal/correlate        notification raise/clear/orphan inference
+   internal/eventconf        OpenNMS eventconf export from notifications
+   internal/iana             embedded IANA Private Enterprise Number registry
+   internal/mcptools         shared read-only MCP tool set (stdio + HTTP)
+   internal/mibimport        custom-MIB intake pipeline (compile, route, quarantine)
+   internal/model            normalised in-memory types
+   internal/server           HTTP, routes, templ, JSON API, embedded assets
+   internal/store            SQLite schema, FTS5, transactional reload
+   internal/walk             snmpwalk/bulkwalk capture decoder
+   internal/watch            fsnotify hot-reload with debounce + recover
+   internal/web              templ templates and the design system CSS
+   mibs/                     curated corpus — vendors/, ietf/, iana/, experimental/, unsorted/
+   prototype/                static HTML/CSS source-of-truth for the visuals
 ```
 
 ## MCP server
 
 `cmd/blittermib-mcp` exposes the MIB archive to LLM agents over the
-[Model Context Protocol](https://modelcontextprotocol.io) (stdio transport). It
-opens the same SQLite index the web server reads — **read-only**, never writing
+[Model Context Protocol](https://modelcontextprotocol.io) via **stdio**; the web
+server can serve the same tools over **HTTP** ([Network transport](#network-transport-http)
+below). It opens the same SQLite index the web server reads — **read-only**, never writing
 to or ingesting into the corpus — and advertises five tools: `search_mibs`,
 `lookup_oid`, `lookup_symbol`, `decode_walk`, and `classify_notification`.
 
@@ -352,6 +401,19 @@ make check-tools    verify libsmi (smidump/smilint) is installed
 
 - **Conventional Commits** for every commit
 - **AI-assisted, human-reviewed** — every commit carries an `Assisted-by` trailer; the human submitter is responsible for reviewing AI-generated code
+
+## Contributing
+
+Code contributions follow the conventions above. A typical loop:
+
+```bash
+make hooks      # install the pre-commit git hooks (once)
+make verify     # gofmt-check + vet + race tests — must pass before a PR
+make generate   # if you edited .templ files
+```
+
+Adding or correcting a MIB in the bundled corpus has its own workflow —
+see [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md).
 
 ## License
 
