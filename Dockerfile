@@ -44,14 +44,15 @@ COPY . .
 # always-on import pipeline (drop files into the corpus root's
 # import/ directory) replaced the in-container runbook. The read-only
 # MCP server (blittermib-mcp) ships alongside it for the `docker exec`
-# stdio workflow; it needs no assets, so it's a plain go build.
+# stdio workflow; it needs no templ/assets and is version-stamped like
+# the web binary.
 ARG VERSION=docker
 ENV CGO_ENABLED=0
 RUN make generate \
     && make prepare-assets \
     && go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
         -o /out/blittermib ./cmd/blittermib \
-    && go build -trimpath -ldflags="-s -w" \
+    && go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
         -o /out/blittermib-mcp ./cmd/blittermib-mcp
 
 # --- runtime stage --------------------------------------------------

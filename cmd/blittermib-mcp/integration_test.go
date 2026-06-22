@@ -204,4 +204,10 @@ func TestServerAdvertisesFiveReadOnlyTools(t *testing.T) {
 			t.Errorf("missing advertised tool %q", name)
 		}
 	}
+
+	// The server advertises the linker-stamped build version, not a hardcoded
+	// string — guards against regressing to a fixed value.
+	if v := session.InitializeResult().ServerInfo.Version; v != version {
+		t.Errorf("advertised server version = %q, want %q", v, version)
+	}
 }

@@ -33,6 +33,9 @@ make build-mcp        # produces ./blittermib-mcp
 go build -o blittermib-mcp ./cmd/blittermib-mcp
 ```
 
+`blittermib-mcp --version` prints the build version (`dev` for local builds; the
+release tag for binaries from a release or the Docker image).
+
 Prebuilt binaries ship in every release, so you can skip this step. On Linux,
 `blittermib-mcp` is bundled in the `blittermib-*-linux-*.tar.gz` archive. On
 macOS and Windows (where Claude Desktop usually runs) it ships as a standalone

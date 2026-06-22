@@ -22,9 +22,18 @@ import (
 	"github.com/no42-org/blittermib/internal/store"
 )
 
+// version is set by the linker at release time via -ldflags.
+var version = "dev"
+
 func main() {
 	dataDir := flag.String("data", "./data", "blittermib data directory containing blittermib.db")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Fprintln(os.Stderr, version)
+		return
+	}
 
 	if err := run(*dataDir); err != nil {
 		log.Fatalf("blittermib-mcp: %v", err)
@@ -59,7 +68,7 @@ func newServer(st *store.Store) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "blittermib",
 		Title:   "Blittermib MIB archive",
-		Version: "v1",
+		Version: version,
 	}, nil)
 
 	mcp.AddTool(srv, &mcp.Tool{
