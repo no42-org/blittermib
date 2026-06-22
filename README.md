@@ -265,8 +265,11 @@ opens the same SQLite index the web server reads — **read-only**, never writin
 to or ingesting into the corpus — and advertises five tools: `search_mibs`,
 `lookup_oid`, `lookup_symbol`, `decode_walk`, and `classify_notification`.
 
-It is a locally-launched binary, not part of the Docker image or release
-archives. Build it from source:
+It ships in the Linux release tarballs and the Docker image (alongside the web
+server `blittermib`), with standalone `blittermib-mcp` archives for macOS and
+Windows — grab one from the
+[latest release](https://github.com/no42-org/blittermib/releases/latest). You
+can also build it from source:
 
 ```
 make build-mcp        # produces ./blittermib-mcp
