@@ -422,7 +422,42 @@ func (e *Engine) run(ctx context.Context, paths []string, replace bool) []Outcom
 		slog.Info("imported MIB", "module", r.Module.Name, "dest", destRel)
 		outcomes = append(outcomes, oc)
 	}
+
+	// A successful import mutated `symbol`; refresh the materialised OID
+	// trie so the browser reflects the new modules. All-quarantine
+	// batches leave `symbol` untouched and skip the rebuild.
+	imported := 0
+	for _, oc := range outcomes {
+		if oc.Status == StatusImported {
+			imported++
+		}
+	}
+	e.refreshOIDTree(ctx, imported > 0)
 	return outcomes
+}
+
+// refreshOIDTree rebuilds the materialised OID trie (oid_node) after a
+// corpus change, or when it is version-stale (a DB that predates the
+// feature). The trie is a GLOBAL projection of `symbol` — synthetic
+// bridge nodes span modules — so it cannot be maintained per-module in
+// ReplaceModule the way the relationship tables are. The engine is the
+// only writer of corpus data, so it owns the rebuild: every import path
+// (Import / ImportReplace / ImportReplacing, all via run) and the boot
+// SyncCorpus refresh the tree consistently, with no caller obligation.
+func (e *Engine) refreshOIDTree(ctx context.Context, changed bool) {
+	if ctx.Err() != nil {
+		return
+	}
+	if !changed {
+		// Nothing changed — only rebuild to heal a stale/absent trie
+		// (e.g. first boot after the feature ships on an existing DB).
+		if stale, err := e.Store.OIDTreeStale(ctx); err != nil || !stale {
+			return
+		}
+	}
+	if err := e.Store.RebuildOIDTree(ctx); err != nil {
+		slog.Warn("oid tree rebuild failed", "err", err)
+	}
 }
 
 // quarantine moves a file into the matching outcome dir, writes its

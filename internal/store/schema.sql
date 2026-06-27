@@ -188,6 +188,45 @@ CREATE TABLE IF NOT EXISTS source_file (
 CREATE INDEX IF NOT EXISTS source_file_sha_idx    ON source_file(sha256);
 CREATE INDEX IF NOT EXISTS source_file_module_idx ON source_file(module_name);
 
+-- oid_node is the materialised OID trie: one row per DISTINCT OID
+-- prefix across all modules, including SYNTHETIC bridge nodes for
+-- intermediate prefixes that have no symbol of their own (has_symbol=0).
+-- DERIVED data, a projection of `symbol` rebuilt by Store.RebuildOIDTree
+-- (like symbol_fts / notification_relationship; never authored by hand).
+-- It powers the full OID-tree browse: level navigation is one indexed
+-- lookup on parent_oid, has_children is the child_count column (no
+-- per-child probe), shared OIDs are deduped to one row, and holes are
+-- bridged so no subtree is orphaned from the root.
+--
+-- `seg` is the node's last OID segment as an integer; the
+-- (parent_oid, seg) index makes sibling listing index-ordered and
+-- numeric (1,2,…,10, not the lexical 1,10,2), and powers keyset
+-- pagination (`WHERE parent_oid=? AND seg>? ORDER BY seg LIMIT n`).
+-- `name`/`module_name`/`kind` carry the dedup winner — the
+-- (module_name, name)-first symbol at that OID; they are empty for
+-- synthetic nodes, whose display name is resolved at read time via
+-- the IANA canonical registry.
+CREATE TABLE IF NOT EXISTS oid_node (
+    oid          TEXT    PRIMARY KEY,
+    parent_oid   TEXT    NOT NULL DEFAULT '',
+    label        TEXT    NOT NULL DEFAULT '',
+    seg          INTEGER NOT NULL DEFAULT 0,
+    name         TEXT    NOT NULL DEFAULT '',
+    module_name  TEXT    NOT NULL DEFAULT '',
+    kind         TEXT    NOT NULL DEFAULT '',
+    has_symbol   INTEGER NOT NULL DEFAULT 0,
+    child_count  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS oid_node_children_idx ON oid_node(parent_oid, seg);
+
+-- schema_meta carries small monotonic markers gating one-time derived
+-- rebuilds (e.g. 'oid_tree_version'), independent of the single
+-- PRAGMA user_version already owned by the relationship backfill.
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key   TEXT    PRIMARY KEY,
+    value INTEGER NOT NULL
+);
+
 -- import_outcome records recent import-pipeline results for the
 -- management UI. The filesystem (quarantine dirs + sidecars) is the
 -- source of truth; these rows are display state, pruned on insert.

@@ -192,6 +192,50 @@ func TestImportValidVendorMIB(t *testing.T) {
 	}
 }
 
+// TestImportRefreshesOIDTree pins the engine-owned trie refresh: a
+// successful import rebuilds oid_node with no caller obligation, so the
+// imported module is immediately navigable in the OID tree. (store.Open
+// no longer builds the trie, so it starts empty here.)
+func TestImportRefreshesOIDTree(t *testing.T) {
+	e := newEngine(t)
+	ctx := context.Background()
+
+	before, err := e.Store.ListNodeChildren(ctx, "1.3.6.1.4.1", -1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("oid_node should be empty before any import, got %d children", len(before))
+	}
+
+	p := drop(t, e, "BLITTERMIB-PROBE-MIB", probeMIB)
+	if outs := e.Import(ctx, []string{p}); len(outs) != 1 || outs[0].Status != StatusImported {
+		t.Fatalf("import outcomes = %+v", outs)
+	}
+
+	// The engine refreshed the trie itself: probeRoot (enterprises 99999)
+	// is now a navigable child of enterprises, with its scalar beneath it.
+	kids, err := e.Store.ListNodeChildren(ctx, "1.3.6.1.4.1", -1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var probe *store.NodeRow
+	for i := range kids {
+		if kids[i].OID == "1.3.6.1.4.1.99999" {
+			probe = &kids[i]
+		}
+	}
+	if probe == nil {
+		t.Fatalf("imported probe OID not in trie after import; enterprises children = %+v", kids)
+	}
+	if !probe.HasSymbol || probe.Name != "probeRoot" {
+		t.Errorf("probeRoot node = %+v, want hasSymbol with name probeRoot", *probe)
+	}
+	if !probe.HasChildren {
+		t.Error("probeRoot should report HasChildren (probeScalar sits beneath it)")
+	}
+}
+
 // TestImportBrokenMIB: a file with the DEFINITIONS marker but garbage
 // content that yields no module identity fails and quarantines in
 // import/failed/ with a reason sidecar.

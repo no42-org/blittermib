@@ -59,7 +59,9 @@ anything to a third party.
   `sessionStorage` overlay
 - **Hot reload** — drop a MIB anywhere under the watched directory and
   it appears in seconds (recursive `fsnotify` + 250 ms debounce +
-  transactional ingest)
+  transactional ingest). Symbol, search, and module views are
+  immediately fresh; the `/tree` OID browser is rebuilt from the new
+  corpus right after the ingest, so it catches up a moment later
 - **Self-hosted** — single binary, no telemetry, no phone-home
 - **Standard MIBs included** — IETF/IANA core MIBs ship in the corpus
   alongside vendor MIBs; refresh via `make fetch-standard-mibs && make ingest`

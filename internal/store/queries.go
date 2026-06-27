@@ -560,20 +560,6 @@ func (s *Store) LookupByName(ctx context.Context, name string) ([]model.Symbol, 
 	return scanSymbolRows(rows)
 }
 
-// HasChildren reports whether the given OID has at least one direct child
-// in the symbol table. Used by the tree API to decide whether to surface
-// an expand chevron without paying for a full children list.
-func (s *Store) HasChildren(ctx context.Context, parentOID string) (bool, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM symbol WHERE parent_oid = ? LIMIT 1`,
-		parentOID).Scan(&n)
-	if err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
 // HasChildrenBatch returns a map keyed by OID indicating whether
 // each parent has at least one direct child in the symbol table.
 // One DB query total instead of len(parents) round-trips — the

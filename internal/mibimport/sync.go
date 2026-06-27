@@ -139,6 +139,11 @@ func (e *Engine) SyncCorpus(ctx context.Context) (compiled, removed int, err err
 		slog.Info("corpus cache validated",
 			"files", len(onDisk), "compiled", 0, "removed", removed,
 			"duration", time.Since(start))
+		// Rebuild the OID trie if a module vanished, or if it is
+		// version-stale (boot on a DB that predates the feature, with no
+		// corpus drift). This runs in the background corpus loader, after
+		// the listener is already bound.
+		e.refreshOIDTree(ctx, removed > 0)
 		return 0, removed, nil
 	}
 
@@ -198,6 +203,9 @@ func (e *Engine) SyncCorpus(ctx context.Context) (compiled, removed int, err err
 	slog.Info("corpus cache validated",
 		"files", len(onDisk), "compiled", compiled, "removed", removed,
 		"duration", time.Since(start))
+	// Corpus changed (or the trie is version-stale) — refresh the OID
+	// tree once for the whole batch.
+	e.refreshOIDTree(ctx, compiled > 0 || removed > 0)
 	return compiled, removed, nil
 }
 

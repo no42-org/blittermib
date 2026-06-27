@@ -47,7 +47,9 @@ services:
       # process serves), /readyz means "initial corpus load completed
       # and the store answers", which is what this healthcheck
       # originally asserted. start_period covers typical cold-volume
-      # loads; a very large corpus can take longer, in which case the
+      # loads — including the one-time OID-tree (oid_node) build, ~14s at
+      # full corpus scale, on a fresh or version-upgraded DB; a very
+      # large corpus can still take longer, in which case the
       # container shows `unhealthy` until the first load completes —
       # cosmetic only (Docker does not restart unhealthy containers,
       # and the load keeps making progress).

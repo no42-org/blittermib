@@ -77,6 +77,12 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("backfill relationships: %w", err)
 	}
+	// The OID trie (oid_node) is NOT built here. It is a server-only
+	// projection owned by the import engine, which rebuilds it from the
+	// background corpus loader (engine.SyncCorpus) once the listener is
+	// bound — so a one-time upgrade rebuild never blocks startup, and a
+	// store consumer that doesn't serve the tree (e.g. blittermib-mcp)
+	// never pays to build it.
 	return s, nil
 }
 

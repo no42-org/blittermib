@@ -75,6 +75,12 @@ func newTestServer(t *testing.T) *httptest.Server {
 	); err != nil {
 		t.Fatalf("seed store: %v", err)
 	}
+	// The OID-tree handlers read the materialised oid_node trie, which
+	// the import pipeline rebuilds after each ingest. Tests seed via
+	// ReplaceModule directly, so build the trie explicitly here.
+	if err := st.RebuildOIDTree(context.Background()); err != nil {
+		t.Fatalf("rebuild oid tree: %v", err)
+	}
 
 	s := New(st, "", "test", "/var/lib/blittermib/mibs")
 	// The walk decoder is opt-in (BLITTERMIB_WALK_DECODER_ENABLED); enable it so
@@ -1507,6 +1513,155 @@ func TestAPITree(t *testing.T) {
 	}
 	if entry.Position != "1" {
 		t.Errorf("ifEntry position = %q, want 1", entry.Position)
+	}
+}
+
+// treeAPIResp mirrors the /api/v1/tree JSON shape for decoding in tests.
+type treeAPIResp struct {
+	Parent    string
+	NextAfter *string
+	Children  []struct {
+		OID         string
+		Name        string
+		Module      string
+		Kind        string
+		HasChildren bool
+		HasSymbol   bool
+		Position    string
+	}
+}
+
+func getTree(t *testing.T, ts *httptest.Server, query string) treeAPIResp {
+	t.Helper()
+	resp, err := http.Get(ts.URL + "/api/v1/tree?" + query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d for %q", resp.StatusCode, query)
+	}
+	var got treeAPIResp
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return got
+}
+
+// treeServerWith builds a server seeded with the given symbols and a
+// rebuilt OID trie — for tree tests needing controlled fan-out.
+func treeServerWith(t *testing.T, syms []model.Symbol) *httptest.Server {
+	t.Helper()
+	st, err := store.OpenInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.ReplaceModule(context.Background(),
+		&model.Module{Name: "M", ParseStatus: model.ParseStatusClean}, syms, nil, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := st.RebuildOIDTree(context.Background()); err != nil {
+		t.Fatalf("rebuild oid tree: %v", err)
+	}
+	ts := httptest.NewServer(New(st, "", "test", t.TempDir()).Handler())
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// TestAPITreeNumericOrder pins numeric (not lexical) sibling ordering.
+func TestAPITreeNumericOrder(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		{ModuleName: "M", Name: "a", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "b", OID: "1.3.6.1.4.1.99.2", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "c", OID: "1.3.6.1.4.1.99.10", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "d", OID: "1.3.6.1.4.1.99.100", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+	got := getTree(t, ts, "parent=1.3.6.1.4.1.99")
+	var positions []string
+	for _, c := range got.Children {
+		positions = append(positions, c.Position)
+	}
+	want := []string{"1", "2", "10", "100"}
+	if len(positions) != len(want) {
+		t.Fatalf("positions = %v, want %v", positions, want)
+	}
+	for i := range want {
+		if positions[i] != want[i] {
+			t.Fatalf("positions = %v, want %v (numeric)", positions, want)
+		}
+	}
+}
+
+// TestAPITreeKeyset walks two pages and asserts no overlap and a null
+// terminal cursor.
+func TestAPITreeKeyset(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		{ModuleName: "M", Name: "a", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "b", OID: "1.3.6.1.4.1.99.2", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "c", OID: "1.3.6.1.4.1.99.3", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+	page1 := getTree(t, ts, "parent=1.3.6.1.4.1.99&limit=2")
+	if len(page1.Children) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1.Children))
+	}
+	if page1.NextAfter == nil {
+		t.Fatal("page1 should carry a next cursor")
+	}
+	page2 := getTree(t, ts, "parent=1.3.6.1.4.1.99&limit=2&after="+*page1.NextAfter)
+	if len(page2.Children) != 1 {
+		t.Fatalf("page2 len = %d, want 1", len(page2.Children))
+	}
+	if page2.NextAfter != nil {
+		t.Errorf("page2 should be terminal (nil cursor), got %v", *page2.NextAfter)
+	}
+	// No overlap.
+	seen := map[string]bool{}
+	for _, c := range page1.Children {
+		seen[c.OID] = true
+	}
+	for _, c := range page2.Children {
+		if seen[c.OID] {
+			t.Errorf("OID %s appeared on both pages", c.OID)
+		}
+	}
+}
+
+// TestAPITreeSyntheticNode checks that an intermediate prefix with no
+// symbol is surfaced as a navigable, non-symbol node.
+func TestAPITreeSyntheticNode(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		{ModuleName: "M", Name: "leaf", OID: "1.3.6.1.4.1.99.5.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+	// 1.3.6.1.4.1.99.5 has no symbol but bridges to the .5.1 leaf.
+	got := getTree(t, ts, "parent=1.3.6.1.4.1.99")
+	if len(got.Children) != 1 {
+		t.Fatalf("want one child (the .5 bridge), got %d", len(got.Children))
+	}
+	c := got.Children[0]
+	if c.HasSymbol {
+		t.Error("bridge node should report hasSymbol=false")
+	}
+	if !c.HasChildren {
+		t.Error("bridge node should report hasChildren=true")
+	}
+	if c.OID != "1.3.6.1.4.1.99.5" {
+		t.Errorf("bridge OID = %q", c.OID)
+	}
+}
+
+// TestAPITreeInvalidCursor degrades a malformed cursor to the first page.
+func TestAPITreeInvalidCursor(t *testing.T) {
+	ts := newTestServer(t)
+	first := getTree(t, ts, "parent=1.3.6.1.2.1.2.2.1")
+	bad := getTree(t, ts, "parent=1.3.6.1.2.1.2.2.1&after=not-an-oid")
+	if len(bad.Children) != len(first.Children) || len(first.Children) == 0 {
+		t.Fatalf("invalid cursor should yield the first page: got %d, first %d",
+			len(bad.Children), len(first.Children))
+	}
+	if bad.Children[0].OID != first.Children[0].OID {
+		t.Errorf("invalid cursor first child = %q, want %q",
+			bad.Children[0].OID, first.Children[0].OID)
 	}
 }
 

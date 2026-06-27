@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/no42-org/blittermib/internal/correlate"
 	"github.com/no42-org/blittermib/internal/eventconf"
+	"github.com/no42-org/blittermib/internal/iana"
 	"github.com/no42-org/blittermib/internal/model"
 	"github.com/no42-org/blittermib/internal/source"
 	"github.com/no42-org/blittermib/internal/store"
@@ -1649,14 +1651,58 @@ func (s *Server) handleAPITreeFragment(w http.ResponseWriter, r *http.Request) {
 // The default parent is "1" (the root of the OID space). For each
 // child we report whether it has further descendants so the client
 // can decide whether to render an expand chevron.
+// apiTreeMaxLimit caps the page size a caller can request; apiTreeDefaultLimit
+// is used when none is given. Bounds keep a single wide node (e.g.
+// `enterprises`, ~3k children) from serialising thousands of rows at once.
+const (
+	apiTreeDefaultLimit = 200
+	apiTreeMaxLimit     = 500
+)
+
+// handleAPITree serves the children of an OID from the materialised
+// oid_node trie as JSON, paginated by a keyset cursor.
+//
+//	GET /api/v1/tree?parent={oid}&after={oid}&limit={n}
+//
+// `parent` defaults to the OID apex ("1"). `after` is the last OID from
+// the previous page; the server derives its segment for the keyset bound
+// (an invalid value degrades to the first page). Each child reports
+// `hasChildren` from the stored child_count (no per-child probe) and
+// `hasSymbol` — false for synthetic bridge nodes, whose display name
+// falls back to the IANA canonical registry and which carry no /s/ link.
+// `nextAfter` is the cursor for the next page, or null when exhausted.
 func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
 	if parent == "" {
 		parent = "1"
 	}
-	ctx := r.Context()
+	if !web.SelectorLooksLikeOID(parent) {
+		s.apiError(w, r, http.StatusBadRequest, "parent must be an OID", nil)
+		return
+	}
 
-	children, err := s.store.ListChildren(ctx, parent)
+	// Cursor: the last OID of the prior page. Invalid → first page.
+	afterSeg := int64(-1)
+	if after := strings.TrimSpace(r.URL.Query().Get("after")); after != "" {
+		if web.SelectorLooksLikeOID(after) {
+			if seg, err := strconv.ParseInt(lastOIDSegment(after), 10, 64); err == nil {
+				afterSeg = seg
+			}
+		}
+	}
+
+	limit := apiTreeDefaultLimit
+	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > apiTreeMaxLimit {
+		limit = apiTreeMaxLimit
+	}
+
+	ctx := r.Context()
+	children, err := s.store.ListNodeChildren(ctx, parent, afterSeg, limit)
 	if err != nil {
 		s.apiError(w, r, http.StatusInternalServerError, "internal error", err)
 		return
@@ -1668,23 +1714,43 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 		Module      string `json:"module"`
 		Kind        string `json:"kind"`
 		HasChildren bool   `json:"hasChildren"`
+		HasSymbol   bool   `json:"hasSymbol"`
 		Position    string `json:"position"`
 	}
 	out := make([]item, 0, len(children))
 	for _, c := range children {
-		hc, _ := s.store.HasChildren(ctx, c.OID)
+		name := c.Name
+		if !c.HasSymbol {
+			// Synthetic bridge: no symbol, so name the node from the
+			// IANA canonical registry when known (else the client falls
+			// back to the numeric segment).
+			if canon, ok := iana.LookupCanonical(c.OID); ok {
+				name = canon
+			}
+		}
 		out = append(out, item{
 			OID:         c.OID,
-			Name:        c.Name,
+			Name:        name,
 			Module:      c.ModuleName,
 			Kind:        string(c.Kind),
-			HasChildren: hc,
-			Position:    lastOIDSegment(c.OID),
+			HasChildren: c.HasChildren,
+			HasSymbol:   c.HasSymbol,
+			Position:    c.Label,
 		})
 	}
+
+	// A full page implies there may be more; hand back the last OID as
+	// the next cursor. A short page is the end (a final exact-fit page
+	// costs one extra empty fetch — acceptable).
+	var nextAfter any
+	if len(children) == limit {
+		nextAfter = children[len(children)-1].OID
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"parent":   parent,
-		"children": out,
+		"parent":    parent,
+		"children":  out,
+		"nextAfter": nextAfter,
 	})
 }
 

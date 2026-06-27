@@ -320,6 +320,9 @@ func corpusLoader(ctx context.Context, engine *mibimport.Engine, srv *server.Ser
 	if hook := testHookBeforeCorpusLoad; hook != nil {
 		hook()
 	}
+	// SyncCorpus refreshes the OID trie itself (on drift or when the
+	// trie is version-stale) — running here, in the background loader,
+	// keeps the heavy one-time rebuild off the listener-bind path.
 	if _, _, err := engine.SyncCorpus(ctx); err != nil {
 		slog.Warn("corpus cache validation encountered errors", "err", err)
 	}
@@ -336,6 +339,8 @@ func corpusLoader(ctx context.Context, engine *mibimport.Engine, srv *server.Ser
 		rescan(ctx)
 
 		watcher := watch.NewSingle(engine.Dir(), 250*time.Millisecond, func(ctx context.Context, files []string) {
+			// engine.Import refreshes the OID trie itself when a file
+			// actually imports (all-quarantine batches skip the rebuild).
 			engine.Import(ctx, files)
 		})
 

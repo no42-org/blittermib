@@ -20,12 +20,16 @@
 		return d.innerHTML;
 	}
 
-	async function fetchChildren(parent) {
-		const url = TREE_API + '?parent=' + encodeURIComponent(parent || ROOT_OID);
+	// fetchPage returns one keyset page of children plus the cursor for
+	// the next page (null when the level is exhausted). `after` is the
+	// last OID of the previous page.
+	async function fetchPage(parent, after) {
+		let url = TREE_API + '?parent=' + encodeURIComponent(parent || ROOT_OID);
+		if (after) url += '&after=' + encodeURIComponent(after);
 		const res = await fetch(url);
 		if (!res.ok) throw new Error('tree fetch ' + res.status);
 		const data = await res.json();
-		return data.children || [];
+		return { items: data.children || [], nextAfter: data.nextAfter || null };
 	}
 
 	function makeNode(item, level) {
@@ -64,21 +68,82 @@
 		num.textContent = '.' + (item.position || '');
 		row.appendChild(num);
 
-		const link = document.createElement('a');
-		link.className = 'tree-name';
-		link.href = '/s/' + encodeURIComponent(item.module + '::' + item.name);
-		link.textContent = item.name;
+		// Symbol-backed nodes link to /s/{module}::{name}. Synthetic
+		// bridge nodes (item.hasSymbol === false) have no symbol page —
+		// render their name (IANA canonical when known, else the numeric
+		// segment) as plain text so the subtree is still navigable.
+		let nameEl;
+		if (item.hasSymbol) {
+			nameEl = document.createElement('a');
+			nameEl.href = '/s/' + encodeURIComponent(item.module + '::' + item.name);
+			nameEl.textContent = item.name;
+		} else {
+			nameEl = document.createElement('span');
+			nameEl.textContent = item.name || ('.' + (item.position || ''));
+			nameEl.classList.add('tree-name-synthetic');
+		}
+		nameEl.classList.add('tree-name');
 		// Not a separate tab stop; Enter on the treeitem follows it.
-		link.tabIndex = -1;
-		row.appendChild(link);
+		nameEl.tabIndex = -1;
+		row.appendChild(nameEl);
 
 		const meta = document.createElement('span');
 		meta.className = 'tree-meta';
-		meta.textContent = item.module + ' · ' + item.kind;
+		// Synthetic nodes carry no module/kind; leave the meta empty.
+		meta.textContent = item.hasSymbol ? (item.module + ' · ' + item.kind) : '';
 		row.appendChild(meta);
 
 		li.appendChild(row);
 		return li;
+	}
+
+	// makeMore builds the "show more" sentinel appended after a partial
+	// level. Clicking it fetches the next keyset page (carried in its
+	// data-* attributes) and inserts those nodes ahead of itself.
+	function makeMore(parent, after, level) {
+		const li = document.createElement('li');
+		li.className = 'tree-more';
+		const btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'tree-more-btn';
+		btn.dataset.parent = parent;
+		btn.dataset.after = after;
+		btn.dataset.level = String(level);
+		btn.textContent = 'Show more…';
+		li.appendChild(btn);
+		return li;
+	}
+
+	// appendPage appends a page of children to `ul`, then a load-more
+	// sentinel when the server reported a next cursor.
+	function appendPage(ul, parent, page, level) {
+		page.items.forEach((item) => ul.appendChild(makeNode(item, level)));
+		if (page.nextAfter) ul.appendChild(makeMore(parent, page.nextAfter, level));
+	}
+
+	async function loadMore(btn) {
+		const ul = btn.closest('ul');
+		const li = btn.closest('.tree-more');
+		if (!ul || !li) return;
+		const parent = btn.dataset.parent;
+		const level = parseInt(btn.dataset.level || '1', 10);
+		btn.disabled = true;
+		btn.textContent = 'Loading…';
+		try {
+			const page = await fetchPage(parent, btn.dataset.after);
+			page.items.forEach((item) => ul.insertBefore(makeNode(item, level), li));
+			if (page.nextAfter) {
+				btn.dataset.after = page.nextAfter;
+				btn.disabled = false;
+				btn.textContent = 'Show more…';
+			} else {
+				ul.removeChild(li);
+			}
+		} catch (err) {
+			btn.disabled = false;
+			btn.textContent = 'Show more (retry)…';
+			console.warn('tree load-more failed', err);
+		}
 	}
 
 	// childLevel reads a node's aria-level to assign its children the
@@ -113,9 +178,9 @@
 		node.appendChild(children);
 
 		try {
-			const items = await fetchChildren(node.dataset.oid);
+			const page = await fetchPage(node.dataset.oid);
 			children.removeChild(placeholder);
-			if (items.length === 0) {
+			if (page.items.length === 0) {
 				// The node turned out to be a leaf. Reset the full
 				// expanded/hasChildren/aria-expanded triad so it stays
 				// consistent — otherwise dataset.expanded lingers at
@@ -128,8 +193,7 @@
 				if (btn) btn.disabled = true;
 				return;
 			}
-			const lvl = childLevel(node);
-			items.forEach((item) => children.appendChild(makeNode(item, lvl)));
+			appendPage(children, node.dataset.oid, page, childLevel(node));
 		} catch (err) {
 			placeholder.textContent = 'Failed to load.';
 			placeholder.classList.add('tree-error');
@@ -148,6 +212,12 @@
 	}
 
 	function onClick(e) {
+		const more = e.target.closest('.tree-more-btn');
+		if (more) {
+			e.preventDefault();
+			loadMore(more);
+			return;
+		}
 		const btn = e.target.closest('.tree-expand');
 		if (!btn) return;
 		const node = btn.closest('.tree-node');
@@ -275,12 +345,12 @@
 		container.appendChild(ul);
 
 		try {
-			const items = await fetchChildren(parent);
-			if (items.length === 0) {
+			const page = await fetchPage(parent);
+			if (page.items.length === 0) {
 				ul.innerHTML = '<li class="tree-empty">No OIDs under <code>' + escape(parent) + '</code>.</li>';
 				return;
 			}
-			items.forEach((item) => ul.appendChild(makeNode(item, 1)));
+			appendPage(ul, parent, page, 1);
 			// Seed the roving tabindex on the first node so the tree is
 			// reachable with a single Tab.
 			const first = ul.querySelector(':scope > .tree-node');
