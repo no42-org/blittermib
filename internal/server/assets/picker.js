@@ -70,6 +70,12 @@ window.picker = (function () {
 				this.$watch('open', (isOpen) => {
 					if (isOpen) {
 						this.$nextTick(() => {
+							// Guard the deferred install: if the picker was
+							// closed before this tick ran, the else branch
+							// already fired with trapOff still null, so
+							// installing now would leak a keydown listener on
+							// the hidden card that nothing ever tears down.
+							if (!this.open) return;
 							var card = this.$el.querySelector('.module-picker-card');
 							if (card && window.blitterA11y) {
 								this.trapOff = window.blitterA11y.focusTrap(card);

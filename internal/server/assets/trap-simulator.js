@@ -167,6 +167,11 @@ window.trapSimulator = (function () {
 				this.$watch('isOpen', (open) => {
 					if (open) {
 						this.$nextTick(() => {
+							// Closed before this tick ran (e.g. Escape right
+							// after open): the else branch already fired with
+							// trapOff null, so bail rather than install a trap
+							// on the hidden modal and leak its keydown listener.
+							if (!this.isOpen) return;
 							var modal = this.$el.querySelector('.simulate-modal');
 							if (!modal) return;
 							// focusable() is visibility-filtered, so initial

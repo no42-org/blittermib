@@ -29,6 +29,9 @@
 
 	function open(trigger) {
 		if (!modal) return;
+		// Already open — re-running would overwrite trapOff without tearing
+		// the previous trap down, leaking its keydown listener on the modal.
+		if (modal.dataset.state === 'visible') return;
 		returnFocusTo = trigger || null;
 		if (returnFocusTo) returnFocusTo.setAttribute('aria-expanded', 'true');
 		modal.dataset.state = 'visible';

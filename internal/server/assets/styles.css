@@ -198,21 +198,6 @@ html { scroll-behavior: smooth; }
   }
 }
 
-/* Screen-reader-only utility: removes content from the visual layout
- * while keeping it in the accessibility tree. Used for status/live
- * regions that announce async updates without occupying space. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 /* Skip link (WCAG 2.4.1): visually hidden until it receives keyboard
  * focus, at which point it slides into the top-left so the user can
  * jump straight to <main>. */
