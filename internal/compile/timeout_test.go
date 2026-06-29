@@ -57,7 +57,11 @@ func TestScaledTimeout(t *testing.T) {
 		n     int
 		want  time.Duration
 	}{
+		{"default floor, empty batch -> floor", defaultTimeoutFloor, 0, defaultTimeoutFloor},
 		{"default floor, small batch -> floor", defaultTimeoutFloor, 1, defaultTimeoutFloor},
+		{"default floor, just below boundary -> floor", defaultTimeoutFloor, 299, defaultTimeoutFloor},
+		{"default floor, exactly at boundary -> floor", defaultTimeoutFloor, 300, defaultTimeoutFloor},
+		{"default floor, just past boundary -> scaling wins", defaultTimeoutFloor, 301, 301 * time.Second},
 		{"default floor, large batch -> scaling wins", defaultTimeoutFloor, 1000, 1000 * time.Second},
 		{"raised floor wins over smaller scaling", 20 * time.Minute, 1000, 20 * time.Minute},
 		{"raised floor, larger scaling wins", 20 * time.Minute, 2000, 2000 * time.Second},
