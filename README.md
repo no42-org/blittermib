@@ -235,6 +235,14 @@ Environment variables:
        Bearer token required on every /mcp request. Access control, not
        confidentiality — terminate TLS at a reverse proxy or keep the
        endpoint on a trusted network.
+
+  BLITTERMIB_COMPILE_TIMEOUT=20m
+       Raise the compile hang-backstop floor (default 5m) for very large
+       single-file MIBs that legitimately need longer in smidump — e.g.
+       METASWITCH-MIB (~92k objects, ~10min). A Go duration, raise-only:
+       empty, unparseable, non-positive, or sub-default values keep the
+       5m default (a sub-default value is logged and ignored). Applies to
+       both the server import pipeline and the mib-ingest CLI.
 ```
 
 URL surfaces:

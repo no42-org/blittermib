@@ -150,7 +150,7 @@ func (e *Engine) SyncCorpus(ctx context.Context) (compiled, removed int, err err
 	if e.Smilint != "" {
 		comp.Smilint = &compile.Smilint{Path: e.Smilint, Paths: smiPaths}
 	}
-	cctx, cancel := context.WithTimeout(ctx, scaledCompileTimeout(len(toCompile)))
+	cctx, cancel := context.WithTimeout(ctx, compile.ScaledTimeout(len(toCompile)))
 	results := comp.Compile(cctx, toCompile)
 	cancel()
 

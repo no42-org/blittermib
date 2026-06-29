@@ -19,24 +19,6 @@ import (
 	"github.com/no42-org/blittermib/internal/mibcorpus"
 )
 
-func TestScaledCompileTimeout(t *testing.T) {
-	cases := []struct {
-		files int
-		want  time.Duration
-	}{
-		{0, 5 * time.Minute},
-		{1, 5 * time.Minute},
-		{299, 5 * time.Minute},   // 299 s < 5 m floor
-		{301, 301 * time.Second}, // past the floor, scale wins
-		{29000, 29000 * time.Second},
-	}
-	for _, c := range cases {
-		if got := scaledCompileTimeout(c.files); got != c.want {
-			t.Errorf("scaledCompileTimeout(%d) = %v, want %v", c.files, got, c.want)
-		}
-	}
-}
-
 // signalKilledErr produces a REAL *exec.ExitError for a
 // signal-terminated child — the exact shape CommandContext's kill
 // leaves behind (Wait prefers it over the context error, so the

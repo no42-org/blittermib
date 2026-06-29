@@ -310,7 +310,7 @@ func (e *Engine) run(ctx context.Context, paths []string, replace bool) []Outcom
 	if e.Smilint != "" {
 		comp.Smilint = &compile.Smilint{Path: e.Smilint, Paths: smiPaths}
 	}
-	cctx, cancel := context.WithTimeout(ctx, scaledCompileTimeout(len(files)))
+	cctx, cancel := context.WithTimeout(ctx, compile.ScaledTimeout(len(files)))
 	results := comp.Compile(cctx, files)
 	cancel()
 
@@ -684,54 +684,6 @@ func hashFile(path string) (string, int64, error) {
 		return "", 0, err
 	}
 	return hex.EncodeToString(h.Sum(nil)), n, nil
-}
-
-// defaultCompileFloor is the hang-backstop floor when
-// BLITTERMIB_COMPILE_TIMEOUT is unset/invalid — the original value this
-// function has always used.
-const defaultCompileFloor = 5 * time.Minute
-
-// compileFloor is the effective hang-backstop floor, resolved ONCE from
-// BLITTERMIB_COMPILE_TIMEOUT at package init (env config is static for
-// the process lifetime; no need to re-read it per compile pass).
-var compileFloor = parseCompileFloor(os.Getenv("BLITTERMIB_COMPILE_TIMEOUT"))
-
-// parseCompileFloor resolves the compile-timeout floor from a raw
-// BLITTERMIB_COMPILE_TIMEOUT value. The floor defaults to 5 m and is
-// overridable UPWARD (a Go duration like "20m") so very large single-file
-// MIBs — e.g. METASWITCH-MIB, ~92k objects, ~10 min in smidump — can be
-// imported without raising the bound for everyone.
-//
-// Lowering below the default is rejected: it only invites false compile
-// timeouts (and the quarantine churn that follows), with no real use
-// case — a sub-default value is logged and ignored. Empty, unparseable,
-// or non-positive values also keep the default. It reads no environment
-// itself (the caller passes the raw value), so it is directly
-// unit-testable; its only side effect is the warning on a rejected
-// sub-default value.
-func parseCompileFloor(v string) time.Duration {
-	if v == "" {
-		return defaultCompileFloor
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d <= 0 {
-		return defaultCompileFloor
-	}
-	if d < defaultCompileFloor {
-		slog.Warn("import: BLITTERMIB_COMPILE_TIMEOUT is below the default floor; ignoring it to avoid false compile timeouts",
-			"requested", d, "using", defaultCompileFloor)
-		return defaultCompileFloor
-	}
-	return d
-}
-
-// scaledCompileTimeout is a hang backstop (1 s/file, with the configured
-// floor), never a throughput ceiling.
-func scaledCompileTimeout(n int) time.Duration {
-	if d := time.Duration(n) * time.Second; d > compileFloor {
-		return d
-	}
-	return compileFloor
 }
 
 // budgetExhausted mirrors the ingest CLI's two-shape detection:
