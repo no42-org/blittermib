@@ -172,3 +172,46 @@ func TestListNodeChildrenNumericKeyset(t *testing.T) {
 		t.Errorf("node 99 should report HasChildren; got %+v", parents)
 	}
 }
+
+// TestListNodeChildrenBefore checks backward keyset paging (the "show
+// earlier" path): segments strictly below the cursor, in ascending order.
+func TestListNodeChildrenBefore(t *testing.T) {
+	s := newStore(t)
+	seedAndBuild(t, s, "M", []model.Symbol{
+		oidSym("M", "a", "1.3.6.1.4.1.99.1"),
+		oidSym("M", "b", "1.3.6.1.4.1.99.2"),
+		oidSym("M", "c", "1.3.6.1.4.1.99.9"),
+		oidSym("M", "d", "1.3.6.1.4.1.99.10"),
+		oidSym("M", "e", "1.3.6.1.4.1.99.100"),
+	})
+	ctx := context.Background()
+	const parent = "1.3.6.1.4.1.99"
+
+	// Everything below seg 10, ascending.
+	before, err := s.ListNodeChildrenBefore(ctx, parent, 10, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]int64, len(before))
+	for i, n := range before {
+		got[i] = n.Seg
+	}
+	want := []int64{1, 2, 9}
+	if len(got) != len(want) {
+		t.Fatalf("before seg=10 = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("before seg=10 = %v, want %v (ascending)", got, want)
+		}
+	}
+
+	// Closest page below 100 with limit 2 → [9, 10] (the two largest < 100).
+	page, err := s.ListNodeChildrenBefore(ctx, parent, 100, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 2 || page[0].Seg != 9 || page[1].Seg != 10 {
+		t.Errorf("before seg=100 limit=2 = %v, want segs [9 10]", page)
+	}
+}

@@ -243,17 +243,17 @@ URL surfaces:
 
 ```
    /                       landing
-   /m, /m/{module}         module index + detail
+   /m, /m/{module}         module index + detail (left pane = full OID tree, expanded to the selection)
    /m/{module}/events.xml  OpenNMS eventconf download (modules with notifications)
    /s/{module}::{name}     canonical symbol page
    /o/{oid}                OID lookup → 302 to /s/...
    /search?q=…             search results
-   /tree, /tree/{oid}      OID tree browser
+   /tree, /tree/{oid}      OID tree browser (from-root; shares the workspace tree island)
    /diagnostics            parse warnings + errors
    /imprint, /privacy      operator disclosure + data-handling notice
    /api/v1/search?q=…      JSON for the ⌘K palette
    /api/v1/symbol/{m}/{n}  symbol JSON
-   /api/v1/tree            OID tree JSON (+ /api/v1/tree/fragment)
+   /api/v1/tree            OID tree JSON (keyset-paginated; empty parent = apex)
    /static/*               embedded design system + JS islands
    /healthz                liveness (200 once the process serves)
    /readyz                 readiness (corpus loaded + store usable)

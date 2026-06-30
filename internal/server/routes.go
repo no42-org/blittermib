@@ -59,7 +59,6 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/v1/search", chain(http.HandlerFunc(s.handleAPISearch), withLogging, withRecover))
 	s.mux.Handle("/api/v1/symbol/", chain(http.HandlerFunc(s.handleAPISymbol), withLogging, withRecover))
 	s.mux.Handle("/api/v1/tree", chain(http.HandlerFunc(s.handleAPITree), withLogging, withRecover))
-	s.mux.Handle("/api/v1/tree/fragment", chain(http.HandlerFunc(s.handleAPITreeFragment), withLogging, withRecover))
 
 	s.mux.Handle("/", chain(http.HandlerFunc(s.handleIndex), withLogging, withRecover))
 }

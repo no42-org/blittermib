@@ -560,40 +560,6 @@ func (s *Store) LookupByName(ctx context.Context, name string) ([]model.Symbol, 
 	return scanSymbolRows(rows)
 }
 
-// HasChildrenBatch returns a map keyed by OID indicating whether
-// each parent has at least one direct child in the symbol table.
-// One DB query total instead of len(parents) round-trips — the
-// workspace handler and the tree-fragment endpoint both need this
-// for every row at a level, and `MaxOpenConns(1)` makes serial
-// per-row queries measurable on wide modules.
-//
-// OIDs not in the input slice are absent from the result map; OIDs
-// in the input but with no children appear with a `false` value.
-func (s *Store) HasChildrenBatch(ctx context.Context, parents []string) (map[string]bool, error) {
-	out := make(map[string]bool, len(parents))
-	if len(parents) == 0 {
-		return out, nil
-	}
-	for _, p := range parents {
-		out[p] = false
-	}
-	q, args := sqlIn(`SELECT parent_oid FROM symbol WHERE parent_oid IN (`,
-		parents, `) GROUP BY parent_oid`)
-	rows, err := s.db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("has-children batch: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, err
-		}
-		out[p] = true
-	}
-	return out, rows.Err()
-}
-
 // CountSymbols returns the total number of symbols across all modules.
 func (s *Store) CountSymbols(ctx context.Context) (int, error) {
 	var n int

@@ -36,7 +36,24 @@ templ Workspace(view *WorkspaceView) {
 			hx-push-url="true"
 		>
 			<aside class="workspace-tree" id="workspace-tree">
-				@workspaceTree(view, view.TreeRows)
+				<div class="tree-head">
+					<span class="tree-head-title">TREE</span>
+				</div>
+				// The left pane is the shared global OID-tree island
+				// (tree.js). In workspace mode it roots at the apex,
+				// expands the spine down to the selection, and its node
+				// links carry scope-preserving /m/ URLs + data-nav so the
+				// existing delegated listener swaps the detail pane.
+				<div
+					class="tree-root"
+					data-tree
+					data-tree-mode="workspace"
+					data-tree-focus={ view.SelectionOID }
+					data-tree-module={ view.Module.Name }
+					data-tree-scope={ view.ScopeOID }
+				>
+					<div class="tree-loading">Loading tree&hellip;</div>
+				</div>
 			</aside>
 			@workspaceListSection(view, false)
 			@workspaceDetailSection(view)
@@ -657,122 +674,6 @@ templ statusCount(family string, n int, label string) {
 		<strong>{ fmt.Sprintf("%d", n) }</strong>
 		<span class="lbl">{ label }</span>
 	</span>
-}
-
-// workspaceTree renders the top-level OID children of the active
-// module. Rows with descendants get an HTMX-driven chevron that
-// fetches the children fragment from /api/v1/tree/fragment.
-//
-// The "TREE" header band sits above the tree itself with collapse-
-// all / expand-all affordances. Both buttons are wired via
-// `tree:expand-all` / `tree:collapse-all` Alpine events that the
-// row's x-data scope listens to so future expansion work plays
-// nicely with already-rendered subtrees.
-templ workspaceTree(view *WorkspaceView, rows []TreeRow) {
-	<div class="tree-head">
-		<span class="tree-head-title">TREE</span>
-		<button type="button" class="tree-head-btn"
-			x-on:click="$dispatch('tree:expand-all')"
-			aria-label="Expand all">+</button>
-		<button type="button" class="tree-head-btn"
-			x-on:click="$dispatch('tree:collapse-all')"
-			aria-label="Collapse all">−</button>
-	</div>
-	<ul class="tree-list" role="tree">
-		for _, r := range rows {
-			@treeRow(view, r)
-		}
-	</ul>
-}
-
-// WorkspaceTreeFragment renders the children of an OID as a flat
-// run of `<li>` rows. The HTMX chevron in `treeRow` swaps these
-// into the row's pre-rendered
-// `<ul class="tree-children-container">` via `swap: 'beforeend'`
-// so each call appends children to the existing list. No
-// surrounding `<ul>` here — the container element already exists
-// in the DOM.
-//
-// `view` carries the URL scope so leaf clicks emit `?sel=…` URLs
-// that preserve the scope (matching list-row behavior). Fragment
-// requests carry the scope as a `?scope=…` query param so the
-// server can rebuild a synthetic view for URL generation.
-templ WorkspaceTreeFragment(view *WorkspaceView, rows []TreeRow) {
-	for _, r := range rows {
-		@treeRow(view, r)
-	}
-}
-
-// treeRow renders one node in the workspace tree.
-//
-// Rows with descendants carry an Alpine `{ expanded, loaded }`
-// scope. Clicking the chevron toggles `expanded` (which drives
-// `aria-expanded` and the chevron glyph between `▸` (collapsed)
-// and `▾` (expanded)) and, on the first expand only, fires an
-// HTMX GET for the children fragment into the empty
-// `<ul class="tree-children-container">` already rendered inside
-// the row. Subsequent toggles just show/hide the loaded children
-// — no re-fetch. Leaf rows render a `·` glyph in place of the
-// chevron so every row's leading column stays aligned.
-//
-// The symbol name is split into a dimmed lowercase camelCase
-// prefix (e.g. `ax`) and a brighter PascalCase tail (`SysCpu`) so
-// the eye lands on the distinguishing portion of long, prefix-
-// heavy SMI names.
-templ treeRow(view *WorkspaceView, r TreeRow) {
-	if r.HasChildren {
-		<li class={ "tree-row " + familyClass(&r.Symbol), statusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
-			data-name={ r.Symbol.Name }
-			data-oid={ r.Symbol.OID }
-			x-data={ TreeRowAlpineState(r.Expanded) }
-			x-on:tree:expand-all.window="if (!loaded && !fetching) { fetching = true; expanded = true; htmx.ajax('GET', $el.dataset.fragmentUrl || $el.querySelector('.tree-chevron').dataset.fragmentUrl, { target: $el.querySelector(':scope > .tree-children-container'), swap: 'beforeend' }).then(() => { loaded = true; fetching = false; }, () => { fetching = false; expanded = false; }); } else if (loaded) { expanded = true; }"
-			x-on:tree:collapse-all.window="expanded = false">
-			<div class="tree-row-head">
-				<button type="button"
-					class={ "tree-chevron", templ.KV("expanded", r.Expanded) }
-					x-bind:class="{ expanded: expanded }"
-					x-bind:aria-expanded="expanded"
-					aria-expanded={ fmt.Sprintf("%t", r.Expanded) }
-					data-fragment-url={ string(treeFragmentURL(viewModuleName(view), viewScopeOID(view), r.Symbol.OID)) }
-					x-on:click.stop="if (loaded) { expanded = !expanded; } else if (!fetching) { fetching = true; expanded = true; htmx.ajax('GET', $el.dataset.fragmentUrl, { target: $el.closest('.tree-row').querySelector(':scope > .tree-children-container'), swap: 'beforeend' }).then(() => { loaded = true; fetching = false; }, () => { fetching = false; expanded = false; }); }"
-					aria-label="Expand">▸</button>
-				{{ rowURL := WorkspaceRowURL(view, &r.Symbol) }}
-				<a
-					class="tree-row-link"
-					href={ rowURL }
-					data-nav
-				>
-					<code class="tree-row-name">
-						@templ.Raw(splitNameHTML(r.Symbol.Name))
-					</code>
-				</a>
-			</div>
-			<ul class="tree-children-container" role="group" x-show="expanded" x-cloak>
-				<li class="tree-loading" x-show="fetching" x-cloak>loading…</li>
-				for _, kid := range r.PreloadedKids {
-					@treeRow(view, kid)
-				}
-			</ul>
-		</li>
-	} else {
-		<li class={ "tree-row " + familyClass(&r.Symbol), statusModifier(r.Symbol.Status), templ.KV("selected", r.Selected) } role="treeitem"
-			data-name={ r.Symbol.Name }
-			data-oid={ r.Symbol.OID }>
-			<div class="tree-row-head">
-				<span class="tree-leaf-bullet" aria-hidden="true">·</span>
-				{{ rowURL := WorkspaceRowURL(view, &r.Symbol) }}
-				<a
-					class="tree-row-link"
-					href={ rowURL }
-					data-nav
-				>
-					<code class="tree-row-name">
-						@templ.Raw(splitNameHTML(r.Symbol.Name))
-					</code>
-				</a>
-			</div>
-		</li>
-	}
 }
 
 // workspaceList renders the flat symbol list. The filter input and

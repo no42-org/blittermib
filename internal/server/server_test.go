@@ -362,49 +362,6 @@ func TestWorkspaceRoute(t *testing.T) {
 	}
 }
 
-func TestAPITreeFragment(t *testing.T) {
-	ts := newTestServer(t)
-	resp, err := http.Get(ts.URL + "/api/v1/tree/fragment?parent=1.3.6.1.2.1.2.2.1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
-	}
-	html := body(t, resp)
-	// Phase 4: the fragment endpoint emits `<li>` rows directly
-	// (no surrounding `<ul>`); the chevron's HTMX swap appends
-	// them into the pre-rendered .tree-children-container in the
-	// parent row.
-	//
-	// Phase 5: workspace tree rows split the camelCase name into
-	// `<span class="pre">` + `<span class="tail">` for the dim/
-	// bright treatment, so `>ifIndex<` no longer appears as a
-	// literal substring. We assert on `data-name="…"` instead —
-	// it carries the unsplit name and is the API a future test
-	// (or scraper) would actually want to key off.
-	for _, want := range []string{
-		`class="tree-row `,
-		`data-name="ifIndex"`,
-		`data-name="ifInOctets"`,
-	} {
-		if !strings.Contains(html, want) {
-			t.Errorf("tree fragment missing %q", want)
-		}
-	}
-}
-
-func TestAPITreeFragmentMissingParent(t *testing.T) {
-	ts := newTestServer(t)
-	resp, err := http.Get(ts.URL + "/api/v1/tree/fragment")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want 404 (no parent param)", resp.StatusCode)
-	}
-}
-
 // downloadTestServer seeds a closure A → B → unloaded C with real
 // source files for A and B inside the test temp dir, returning the
 // httptest.Server bound to the corpus root.
@@ -1627,6 +1584,30 @@ func TestAPITreeKeyset(t *testing.T) {
 	}
 }
 
+// TestAPITreeBackward checks the `before` cursor: it returns the page
+// preceding the cursor (ascending) with a prevBefore cursor when more
+// earlier siblings remain.
+func TestAPITreeBackward(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		{ModuleName: "M", Name: "a", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "b", OID: "1.3.6.1.4.1.99.2", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "c", OID: "1.3.6.1.4.1.99.3", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+	// before the last (.3), limit 1 → [.2] with a prevBefore (since .1 remains).
+	page := getTree(t, ts, "parent=1.3.6.1.4.1.99&before=1.3.6.1.4.1.99.3&limit=1")
+	if len(page.Children) != 1 || page.Children[0].Position != "2" {
+		t.Fatalf("before=.3 limit=1 = %v, want [.2]", page.Children)
+	}
+	if page.NextAfter != nil {
+		t.Errorf("backward page should not carry a forward cursor")
+	}
+	// Page before .2 → [.1], no prevBefore (level start reached).
+	page2 := getTree(t, ts, "parent=1.3.6.1.4.1.99&before=1.3.6.1.4.1.99.2&limit=1")
+	if len(page2.Children) != 1 || page2.Children[0].Position != "1" {
+		t.Fatalf("before=.2 = %v, want [.1]", page2.Children)
+	}
+}
+
 // TestAPITreeSyntheticNode checks that an intermediate prefix with no
 // symbol is surfaced as a navigable, non-symbol node.
 func TestAPITreeSyntheticNode(t *testing.T) {
@@ -1662,6 +1643,31 @@ func TestAPITreeInvalidCursor(t *testing.T) {
 	if bad.Children[0].OID != first.Children[0].OID {
 		t.Errorf("invalid cursor first child = %q, want %q",
 			bad.Children[0].OID, first.Children[0].OID)
+	}
+}
+
+// TestWorkspaceTreeIsland pins that the workspace left pane renders the
+// global tree island (not a server-rendered module-scoped tree) and
+// carries the selection as data-tree-focus for the spine expansion.
+func TestWorkspaceTreeIsland(t *testing.T) {
+	ts := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := body(t, resp)
+	for _, want := range []string{
+		`data-tree-mode="workspace"`,
+		`data-tree-focus="1.3.6.1.2.1.2.2.1.10"`,
+		`data-tree-module="IF-MIB"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("workspace page missing island attribute %q", want)
+		}
+	}
+	// The retired server-rendered fragment tree must be gone.
+	if strings.Contains(html, "tree-children-container") {
+		t.Error("workspace still renders the old fragment-tree markup")
 	}
 }
 

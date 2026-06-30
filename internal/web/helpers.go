@@ -266,29 +266,9 @@ func notifyObjectURL(module, name string) templ.SafeURL {
 	return templ.SafeURL("/m/" + url.PathEscape(module) + "?sel=" + url.QueryEscape(name))
 }
 
-// treeFragmentURL is the HTMX target that returns the children of
-// an OID rendered as workspace tree-rows. The `module` + `scope`
-// query params let the fragment handler rebuild a synthetic
-// `*WorkspaceView` for `WorkspaceRowURL` so leaf clicks inside a
-// freshly-expanded subtree preserve the URL scope (matching list-
-// row behavior). Both are URL-safe (alphanumeric + dash for module
-// names, digits + dots for OIDs) so no escaping is needed.
-func treeFragmentURL(module, scope, parentOID string) templ.SafeURL {
-	u := "/api/v1/tree/fragment?parent=" + parentOID
-	if module != "" {
-		u += "&module=" + module
-	}
-	if scope != "" {
-		u += "&scope=" + scope
-	}
-	return templ.SafeURL(u)
-}
-
-// viewModuleName / viewScopeOID are nil-safe accessors used by the
-// templ when rendering a tree-row outside a full workspace render
-// (e.g. WorkspaceTreeFragment with view==nil during early callers
-// — left over for safety, but every fragment now constructs a
-// synthetic view).
+// viewModuleName / viewScopeOID are nil-safe accessors for the
+// workspace module name / URL scope, used by WorkspaceRowURL and the
+// scope breadcrumb.
 func viewModuleName(v *WorkspaceView) string {
 	if v == nil || v.Module == nil {
 		return ""
@@ -1147,48 +1127,20 @@ type TableColumn struct {
 	IsIndex  bool
 }
 
-// TreeRow is one node in the workspace's left-rail OID tree.
-//
-// `HasChildren` drives whether a chevron renders so the user can
-// drill in via lazy HTMX-fragment expansion.
-//
-// `Expanded`, `Selected`, and `PreloadedKids` are populated by the
-// workspace handler's auto-expand pass when a selection or scope
-// is set. Rows on the path from the module's top-level entry
-// down to the selection are marked Expanded=true with their
-// children threaded into PreloadedKids — that way the tree
-// preserves navigation context across full-page navigations
-// without needing client-side state. The row matching the
-// current selection picks up Selected=true for the accent
-// highlight.
-type TreeRow struct {
-	Symbol        model.Symbol
-	HasChildren   bool
-	Expanded      bool
-	Selected      bool
-	PreloadedKids []TreeRow
-}
-
-// TreeRowAlpineState renders the `x-data` initial-state JSON for a
-// tree row, baking the server-decided `expanded` / `loaded` values
-// into the markup so the row paints in the right state on first
-// render. When `expanded` is true, `loaded` is also true so the
-// chevron's click handler treats it as already-fetched and
-// just toggles visibility — no duplicate fragment fetch.
-func TreeRowAlpineState(expanded bool) string {
-	return fmt.Sprintf(`{ expanded: %t, loaded: %t, fetching: false }`, expanded, expanded)
-}
-
 // WorkspaceView aggregates everything the workspace shell needs for
 // a single page render. Built by Server.handleWorkspace.
 type WorkspaceView struct {
 	Module   *model.Module
 	Counts   *model.FamilyCounts
-	TreeRows []TreeRow
 	ListRows []model.Symbol
 	Selected *SymbolView // nil → empty-state right pane
 	OIDPath  []model.OIDStep
-	Modules  []model.Module // preloaded for the status-bar picker
+	// SelectionOID is the OID of the resolved selection; the tree
+	// island uses it as data-tree-focus to expand the spine and
+	// highlight the node. Empty when nothing (or a no-OID symbol) is
+	// selected, leaving the tree at the apex.
+	SelectionOID string
+	Modules      []model.Module // preloaded for the status-bar picker
 	// MissingOID is set when the URL specifies an OID the module
 	// doesn't cover; the workspace renders without selection and a
 	// soft hint in the right pane.

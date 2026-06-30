@@ -263,13 +263,6 @@ html { scroll-behavior: smooth; }
 }
 .list-scope-clear:hover { color: var(--accent); }
 
-/* Tree chevron toggle: glyph rotates 90° when expanded. */
-.tree-chevron {
-  transition: transform 120ms ease;
-  display: inline-block;
-}
-.tree-chevron.expanded { transform: rotate(90deg); }
-.tree-children-container { list-style: none; padding-left: 18px; margin: 0; }
 body {
   margin: 0;
   background: var(--bg);
@@ -1182,6 +1175,41 @@ button { font-family: inherit; }
 
 .tree-node[data-expanded="true"] > .tree-row { color: var(--fg); }
 
+/* Workspace mode: the selected (searched/navigated-to) node. Accent
+   via a left border (no shadows — design.md). */
+.tree-root .tree-row { border-left: 2px solid transparent; }
+.tree-node.tree-selected > .tree-row {
+  background: var(--bg-elev-2);
+  color: var(--fg);
+  border-left-color: var(--accent);
+}
+.tree-node.tree-selected > .tree-row .tree-name { color: var(--accent); }
+
+/* The island row grid is tuned for the full-width /tree page (a
+   right-aligned numeric column, a trailing module·kind meta). In the
+   narrow workspace sidebar that leaves an awkward gap and the meta
+   overflows, so compact it: hug the number left of the name, let the
+   name shrink/truncate, and drop the meta (the module is shown in the
+   detail pane on click). */
+.workspace-tree .tree-root .tree-row {
+  grid-template-columns: 1.1em auto minmax(0, 1fr);
+  gap: 3px;
+}
+/* Align the first-level chevron under the "TREE" head title (the head's
+   12px left padding) so the tree squares up with its header: the row's
+   own -2px margin + 6px padding put the chevron box at list-padding + 4,
+   so 8px lands it at 12px. Left-align the glyph so the triangle (not its
+   centered box) leads the row, tight against the text. */
+.workspace-tree .tree-root-list { padding-left: 8px; }
+.workspace-tree .tree-expand { width: 1.1em; text-align: left; }
+.workspace-tree .tree-num { text-align: left; }
+.workspace-tree .tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tree .tree-meta { display: none; }
+
 .tree-expand {
   appearance: none;
   background: transparent;
@@ -1447,44 +1475,6 @@ main.page:has(.workspace-grid) .content-inner,
   letter-spacing: 0.12em;
   color: var(--fg-3);
 }
-.tree-head-btn {
-  background: transparent;
-  border: 1px solid var(--line);
-  color: var(--fg-3);
-  width: 20px;
-  height: 20px;
-  border-radius: 3px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-feature-settings: 'liga' 0, 'calt' 0;
-  font-size: 11px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.tree-head-btn:hover { color: var(--fg); background: var(--bg-elev); }
-
-.tree-list {
-  list-style: none;
-  margin: 0;
-  padding: 6px 0;
-  font-family: var(--font-mono);
-  font-feature-settings: 'liga' 0, 'calt' 0;
-  font-size: 12px;
-}
-/* Tree-children container — left padding makes room for the
- * branch-line guides drawn by per-row ::before / ::after pseudos.
- * `position: relative` is intentionally NOT set here; each row
- * positions its own pseudos relative to the row, not the container,
- * so an ancestor's guide line can extend past the row's box and
- * span the entire descendant subtree. */
-.workspace-tree .tree-children-container {
-  list-style: none;
-  margin: 0;
-  padding-left: 16px;
-}
-
 /* Loading placeholder — visible only while htmx.ajax for the
  * children-fragment is in flight; once `fetching` flips back to
  * false, x-show hides this li but keeps it in the DOM. */
@@ -1496,173 +1486,6 @@ main.page:has(.workspace-grid) .content-inner,
   font-size: 11px;
   font-style: italic;
 }
-
-/* Branch-line guides — pure-CSS approximation of the design's
- * ├── / └── tree glyphs. Each row gets:
- *   1. ::before on `.tree-row-head` — the L-shape (vertical top
- *      half + horizontal connector) drawn via 1px borders. The
- *      L's elbow sits at the row's vertical center, where the
- *      chevron / bullet sits.
- *   2. ::after on `.tree-row` (non-last children only) — the
- *      vertical CONTINUATION below the row's center, extending
- *      through any descendants so the line passes by intermediate
- *      generations. Suppressed on `:last-child` so the last
- *      sibling renders as `└──` instead of `├──`.
- *
- * The 10px offset (left: -10px, width: 10px) places the guide
- * line at column 6px inside the parent container's 16px padding,
- * matching the chevron's visual axis once the row's own padding
- * is accounted for. */
-.workspace-tree .tree-children-container > .tree-row {
-  position: relative;
-}
-.workspace-tree .tree-children-container > .tree-row > .tree-row-head::before {
-  content: '';
-  position: absolute;
-  left: -10px;
-  top: 0;
-  width: 10px;
-  height: 12px;
-  border-left: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  pointer-events: none;
-}
-.workspace-tree .tree-children-container > .tree-row:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: -10px;
-  top: 12px;
-  bottom: 0;
-  width: 1px;
-  background: var(--line);
-  pointer-events: none;
-}
-/* Tree row container — block-level so the children-container
- * (rendered as a sibling `<ul>`) breaks to its own row underneath
- * the head. Selection styling and the family stripe live on the
- * `<li>` itself; the actual chevron + link sit inside the head. */
-.workspace-tree .tree-row {
-  display: block;
-  position: relative;
-  border-left: 2px solid transparent;
-  margin-left: 0;
-}
-.workspace-tree .tree-row-head {
-  display: flex;
-  align-items: center;
-  padding: 0 12px 0 8px;
-  height: 24px;
-  color: var(--fg-2);
-  white-space: nowrap;
-  position: relative;
-}
-.workspace-tree .tree-row-head:hover { background: var(--bg-row-hover); color: var(--fg); }
-.workspace-tree .tree-row[aria-current="true"] > .tree-row-head,
-.workspace-tree .tree-row.selected > .tree-row-head {
-  background: var(--bg-row-active);
-  color: var(--fg);
-}
-.workspace-tree .tree-row[aria-current="true"],
-.workspace-tree .tree-row.selected {
-  border-left-color: var(--accent);
-}
-/* Stretched-link affordance: the row-link's ::before fills the
- * full row-head box so a click anywhere on the row navigates,
- * not just on the visible name text. The chevron's `click.stop`
- * keeps expand-toggle clicks from also navigating. */
-.workspace-tree .tree-row-link::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-.workspace-tree .tree-row-head .tree-chevron {
-  position: relative;
-  z-index: 2;
-}
-.tree-chevron {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--fg-3);
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-feature-settings: 'liga' 0, 'calt' 0;
-  font-size: 11px;
-  font-weight: 600;
-  width: 14px;
-  height: 14px;
-  padding: 0;
-  margin-right: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  line-height: 1;
-}
-.tree-chevron:hover { color: var(--fg); }
-.tree-leaf-bullet {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  margin-right: 6px;
-  flex-shrink: 0;
-  color: var(--fg-4);
-  font-weight: 700;
-}
-.tree-row-link {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  color: inherit;
-  text-decoration: none;
-  min-width: 0;
-  flex: 1;
-}
-.tree-row-link:hover { text-decoration: none; }
-.tree-row-name {
-  color: inherit;
-  font-family: var(--font-mono);
-  font-feature-settings: 'liga' 0, 'calt' 0;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-/* The pre/tail split encodes the name's distinguishing portion
- * via COLOR only — keeping the same weight for both. Earlier
- * iterations set the tail heavier (500/600) but the contrast
- * read as "bold" against the dim prefix and made the wall of
- * names visually noisy. */
-.tree-row-name .pre { color: var(--fg-3); font-weight: inherit; }
-.tree-row-name .tail { color: inherit; font-weight: inherit; }
-.workspace-tree .tree-row.selected .tree-row-name .pre { color: var(--fg-2); }
-.workspace-tree .tree-row.selected .tree-row-name .tail { color: var(--fg); }
-
-/* Leaf rows recolor the `·` glyph by family so a wall of leaves
- * still encodes type at a glance. */
-.workspace-tree .tree-row.t-counter .tree-leaf-bullet { color: var(--c-counter); }
-.workspace-tree .tree-row.t-gauge   .tree-leaf-bullet { color: var(--c-gauge); }
-.workspace-tree .tree-row.t-int     .tree-leaf-bullet { color: var(--c-int); }
-.workspace-tree .tree-row.t-text    .tree-leaf-bullet { color: var(--c-text); }
-.workspace-tree .tree-row.t-index   .tree-leaf-bullet { color: var(--c-index); }
-.workspace-tree .tree-row.t-time    .tree-leaf-bullet { color: var(--c-time); }
-.workspace-tree .tree-row.t-addr    .tree-leaf-bullet { color: var(--c-addr); }
-.workspace-tree .tree-row.t-bool    .tree-leaf-bullet { color: var(--c-bool); }
-.workspace-tree .tree-row.t-notif   .tree-leaf-bullet { color: var(--c-notif); }
-.workspace-tree .tree-row.t-counter .tree-chevron { color: var(--c-counter); }
-.workspace-tree .tree-row.t-gauge   .tree-chevron { color: var(--c-gauge); }
-.workspace-tree .tree-row.t-int     .tree-chevron { color: var(--c-int); }
-.workspace-tree .tree-row.t-text    .tree-chevron { color: var(--c-text); }
-.workspace-tree .tree-row.t-index   .tree-chevron { color: var(--c-index); }
-.workspace-tree .tree-row.t-time    .tree-chevron { color: var(--c-time); }
-.workspace-tree .tree-row.t-addr    .tree-chevron { color: var(--c-addr); }
-.workspace-tree .tree-row.t-bool    .tree-chevron { color: var(--c-bool); }
-.workspace-tree .tree-row.t-notif   .tree-chevron { color: var(--c-notif); }
 
 /* --- workspace list pane (center) ----------------------------------- */
 

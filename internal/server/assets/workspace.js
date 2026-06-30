@@ -17,7 +17,8 @@
 //                 still rebuild the shell and reset x-data.
 //
 // Selection / scope live in the URL (/m/{name}/{scope}?sel=…).
-// Tree-expanded state is server-driven (auto-expand pass).
+// The OID tree is the client-side tree.js island; it syncs its own
+// selection/expansion (see syncSelection in tree.js).
 var KIND_FILTER_KEY = 'blittermib-kind-filter';
 var KIND_FILTER_VALUES = { all: 1, scalar: 1, table: 1, notif: 1 };
 
@@ -280,70 +281,6 @@ document.body.addEventListener('htmx:oobAfterSwap', function (evt) {
 		return row;
 	}
 
-	function treeNode(oid) {
-		return document.querySelector(
-			'#workspace-tree li.tree-row[data-oid="' + CSS.escape(oid) + '"]'
-		);
-	}
-
-	function isExpanded(node) {
-		try {
-			if (window.Alpine && typeof Alpine.$data === 'function') {
-				var st = Alpine.$data(node);
-				if (st && typeof st.expanded === 'boolean') return st.expanded;
-			}
-		} catch (e) {
-			/* fall through to the DOM attribute */
-		}
-		var btn = node.querySelector(':scope > .tree-row-head .tree-chevron');
-		return !!btn && btn.getAttribute('aria-expanded') === 'true';
-	}
-
-	function waitFor(fn, timeoutMs) {
-		return new Promise(function (resolve) {
-			var t0 = Date.now();
-			(function poll() {
-				var v = fn();
-				if (v) return resolve(v);
-				if (Date.now() - t0 > timeoutMs) return resolve(null);
-				setTimeout(poll, 50);
-			})();
-		});
-	}
-
-	// expandTreeTo expands the workspace tree along `oid`'s prefix path
-	// by driving each collapsed container's own chevron handler — the
-	// inline Alpine expression owns the fragment fetch and state, so
-	// programmatic clicks reuse it exactly (no duplicated fetch logic,
-	// no ancestor re-initialization). Prefixes above the rendered root
-	// are skipped; if a fetched level doesn't surface the next node
-	// within the timeout the walk stops — the tree simply doesn't
-	// highlight deeper than it can show.
-	async function expandTreeTo(oid) {
-		if (!oid) return;
-		var parts = oid.split('.');
-		for (var depth = 1; depth < parts.length; depth++) {
-			var prefix = parts.slice(0, depth).join('.');
-			var node = treeNode(prefix);
-			if (!node) continue; // above the rendered root slice
-			if (!node.querySelector(':scope > .tree-children-container')) {
-				continue; // leaf row — nothing to expand
-			}
-			if (!isExpanded(node)) {
-				var btn = node.querySelector(
-					':scope > .tree-row-head .tree-chevron'
-				);
-				if (!btn) continue;
-				btn.click();
-			}
-			var nextPrefix = parts.slice(0, depth + 1).join('.');
-			var next = await waitFor(function () {
-				return treeNode(nextPrefix);
-			}, 1500);
-			if (!next) return;
-		}
-	}
-
 	// revealListSelection scrolls the selected list row into view only
 	// when it sits outside the list pane's scrollport — a case-A click
 	// happened on a visible row and must not yank the scroll position.
@@ -358,11 +295,6 @@ document.body.addEventListener('htmx:oobAfterSwap', function (evt) {
 		}
 	}
 
-	// navGen guards against overlapping syncs: two rapid navigations
-	// each start an async expandTreeTo walk, and the slower (stale)
-	// walk's trailing highlight must not overwrite the newer one.
-	var navGen = 0;
-
 	document.body.addEventListener('htmx:afterSwap', function (evt) {
 		if (
 			!evt.detail ||
@@ -373,7 +305,6 @@ document.body.addEventListener('htmx:oobAfterSwap', function (evt) {
 		}
 		var nav = navTarget(evt);
 		if (!nav) return;
-		var gen = ++navGen;
 		var sel = nav.sel;
 		// ?sel= carries an OID or a name. SMI identifiers must start
 		// with a letter (RFC 2578 §3.1), so a leading digit is a
@@ -395,12 +326,7 @@ document.body.addEventListener('htmx:oobAfterSwap', function (evt) {
 		requestAnimationFrame(function () {
 			revealListSelection(listRow);
 		});
-		// Tree pane: never swapped — highlight + expand along the path.
-		var treeOID = selIsOID && sel ? sel : nav.scope;
-		moveSelected('#workspace-tree', 'data-oid', treeOID);
-		expandTreeTo(treeOID).then(function () {
-			if (gen !== navGen) return; // superseded by a newer navigation
-			moveSelected('#workspace-tree', 'data-oid', treeOID);
-		});
+		// The tree pane (the tree.js island) syncs its own selection on
+		// htmx:afterSwap — see syncSelection in tree.js.
 	});
 })();

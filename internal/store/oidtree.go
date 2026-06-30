@@ -175,3 +175,46 @@ func (s *Store) ListNodeChildren(ctx context.Context, parentOID string, afterSeg
 	}
 	return out, nil
 }
+
+// ListNodeChildrenBefore returns up to `limit` children of `parentOID`
+// with segment strictly LESS than `beforeSeg`, returned in ascending
+// segment order (the page immediately preceding the cursor). It powers
+// backward paging — the "show earlier" affordance for a level the spine
+// opened anchored in the middle. The query is DESC-limited then reversed
+// so it's the closest page below the cursor.
+func (s *Store) ListNodeChildrenBefore(ctx context.Context, parentOID string, beforeSeg int64, limit int) ([]NodeRow, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT oid, parent_oid, label, seg, name, module_name, kind,
+		       has_symbol, child_count > 0
+		FROM oid_node
+		WHERE parent_oid = ? AND seg < ?
+		ORDER BY seg DESC
+		LIMIT ?`, parentOID, beforeSeg, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list node children before %d of %s: %w", beforeSeg, parentOID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []NodeRow
+	for rows.Next() {
+		var n NodeRow
+		var kind string
+		if err := rows.Scan(&n.OID, &n.ParentOID, &n.Label, &n.Seg,
+			&n.Name, &n.ModuleName, &kind, &n.HasSymbol, &n.HasChildren); err != nil {
+			return nil, fmt.Errorf("scan node child of %s: %w", parentOID, err)
+		}
+		n.Kind = model.SymbolKind(kind)
+		out = append(out, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate node children of %s: %w", parentOID, err)
+	}
+	// Reverse to ascending so the caller can prepend the page as-is.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}

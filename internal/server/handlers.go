@@ -704,38 +704,13 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, name, o
 }
 
 // buildWorkspaceView assembles the workspace's render model for one
-// module: tree rows, the (optionally OID-scoped) list rows, family
-// counts, the module list for the picker, download affordances, and
-// the TC type-defs bar. Selection resolution is layered on top by
-// resolveSelection.
+// module: the (optionally OID-scoped) list rows, family counts, the
+// module list for the picker, download affordances, and the TC
+// type-defs bar. The left-pane tree is the global OID-tree island
+// (client-side, oid_node-backed) — no server-rendered tree rows.
+// Selection resolution is layered on top by resolveSelection.
 func (s *Server) buildWorkspaceView(ctx context.Context, mod *model.Module, syms []model.Symbol, oid string) (*web.WorkspaceView, error) {
 	name := mod.Name
-
-	// Top-level tree rows are the module's "entry points into the OID
-	// space" — symbols whose parent OID is NOT itself a symbol of
-	// this module. The simpler `ListChildren(mod.OIDRoot)` strategy
-	// fails the common case where MODULE-IDENTITY anchors as a
-	// sysObjectID-style sentinel (e.g. ifMIB at 1.3.6.1.2.1.31.1)
-	// while the actual symbols hang off mib-2 children (interfaces
-	// at 1.3.6.1.2.1.2). Computing the orphan set in Go over the
-	// already-loaded `syms` slice keeps this on the per-page hot
-	// path without a second SQL round trip.
-	moduleOIDs := make(map[string]struct{}, len(syms))
-	for i := range syms {
-		moduleOIDs[syms[i].OID] = struct{}{}
-	}
-	var topLevel []model.Symbol
-	for i := range syms {
-		if _, internal := moduleOIDs[syms[i].ParentOID]; internal {
-			continue
-		}
-		topLevel = append(topLevel, syms[i])
-	}
-
-	treeRows, err := s.treeRowsFor(ctx, topLevel)
-	if err != nil {
-		return nil, err
-	}
 
 	counts, err := s.store.CountByFamily(ctx, name)
 	if err != nil {
@@ -834,7 +809,6 @@ func (s *Server) buildWorkspaceView(ctx context.Context, mod *model.Module, syms
 	return &web.WorkspaceView{
 		Module:             mod,
 		Counts:             counts,
-		TreeRows:           treeRows,
 		ListRows:           listRows,
 		Modules:            allModules,
 		ScopeOID:           oid,
@@ -894,6 +868,10 @@ func (s *Server) resolveSelection(ctx context.Context, view *web.WorkspaceView, 
 				selected.NotifyObjects, selected.TrapIndex = s.buildNotifyVarbinds(ctx, outRefs)
 			}
 			view.Selected = selected
+			// SelectionOID is the OID the tree island expands the spine
+			// down to (data-tree-focus). Empty for no-OID symbols (TCs),
+			// which leave the tree at the apex.
+			view.SelectionOID = sym.OID
 			// view.OIDPath is still decoded (the scope breadcrumb
 			// derives from it via `web.ScopeBreadcrumb`); the
 			// right-pane no longer renders an "OID decode"
@@ -908,32 +886,10 @@ func (s *Server) resolveSelection(ctx context.Context, view *web.WorkspaceView, 
 		}
 	}
 
-	// Auto-expand the tree spine from the module's top-level rows
-	// down to the current selection / scope. The user expects the
-	// tree to keep its navigation context across full-page
-	// navigations — clicking a column shouldn't collapse the
-	// entire tree.
-	//
-	// `expandSet` is the set of OIDs we want pre-expanded (named
-	// ancestors of the selection that have children); `selectionOID`
-	// is the row that should pick up the `selected` highlight.
-	expandSet := make(map[string]struct{})
-	for _, st := range view.OIDPath {
-		if st.Canonical || st.Name == "" {
-			continue
-		}
-		// Don't expand the selection itself when it's a leaf —
-		// there's nothing to drop into.
-		if st.Prefix == selectionOID && !web.KindHasChildren(st.Kind) {
-			continue
-		}
-		expandSet[st.Prefix] = struct{}{}
-	}
-	if len(expandSet) > 0 {
-		for i := range view.TreeRows {
-			s.expandTreeRow(ctx, &view.TreeRows[i], expandSet, selectionOID)
-		}
-	}
+	// The tree spine is expanded client-side by the tree.js island
+	// (workspace mode walks the selection OID's prefixes), so there is no
+	// server-side pre-expansion here — the tree is the global OID trie,
+	// not a per-module render.
 	return nil
 }
 
@@ -1494,163 +1450,6 @@ func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
 }
 
-// expandTreeRow recursively pre-loads and pre-expands a tree row's
-// children when its OID is in expandSet, so the workspace tree
-// renders with the path-to-selection already open. Walks the OID
-// tree top-down, so a node's children are populated only if the
-// node itself is on the auto-expand path.
-//
-// Selection highlighting is applied in the same pass: if the
-// row's OID matches selectionOID, the row gets `Selected = true`
-// (the templ adds the `selected` class for the accent stripe).
-//
-// The dedup logic mirrors handleAPITreeFragment — `ListChildren`
-// returns one row per defining module for shared anchors like
-// `mgmt` and `system`, so we collapse to one row per OID before
-// rendering.
-func (s *Server) expandTreeRow(ctx context.Context, row *web.TreeRow, expandSet map[string]struct{}, selectionOID string) {
-	if row.Symbol.OID == selectionOID {
-		row.Selected = true
-	}
-	if _, want := expandSet[row.Symbol.OID]; !want {
-		return
-	}
-	row.Expanded = true
-
-	children, err := s.store.ListChildren(ctx, row.Symbol.OID)
-	if err != nil {
-		// Degrade gracefully: leave the row collapsed so the
-		// chevron's HTMX click can retry. Setting Expanded=false
-		// also forces TreeRowAlpineState to bake `loaded:false`
-		// into the row's x-data, which is what makes the retry
-		// path fire — leaving Expanded=true after a failure
-		// would brick the row (loaded:true skips the fetch).
-		slog.Warn("auto-expand: list children failed", "oid", row.Symbol.OID, "err", err)
-		row.Expanded = false
-		return
-	}
-	if len(children) == 0 {
-		return
-	}
-	kids, err := s.treeRowsFor(ctx, children)
-	if err != nil {
-		slog.Warn("auto-expand: has-children batch failed", "oid", row.Symbol.OID, "err", err)
-		row.Expanded = false
-		return
-	}
-	for i := range kids {
-		s.expandTreeRow(ctx, &kids[i], expandSet, selectionOID)
-	}
-	row.PreloadedKids = kids
-}
-
-// treeRowsFor dedupes children to one row per OID (`ListChildren`
-// returns one row per defining module, and the tree is a navigation
-// surface keyed by OID — `ORDER BY oid, name` makes the retained row
-// the alphabetically-first module's, stable across requests) and
-// decorates each with its HasChildren flag via ONE batched query —
-// the N+1 per-row variant serialized painfully under MaxOpenConns=1.
-func (s *Server) treeRowsFor(ctx context.Context, children []model.Symbol) ([]web.TreeRow, error) {
-	seen := make(map[string]struct{}, len(children))
-	deduped := children[:0]
-	for i := range children {
-		if _, ok := seen[children[i].OID]; ok {
-			continue
-		}
-		seen[children[i].OID] = struct{}{}
-		deduped = append(deduped, children[i])
-	}
-	children = deduped
-
-	parentOIDs := make([]string, 0, len(children))
-	for i := range children {
-		parentOIDs = append(parentOIDs, children[i].OID)
-	}
-	hasChildren, err := s.store.HasChildrenBatch(ctx, parentOIDs)
-	if err != nil {
-		return nil, err
-	}
-	rows := make([]web.TreeRow, 0, len(children))
-	for i := range children {
-		rows = append(rows, web.TreeRow{
-			Symbol:      children[i],
-			HasChildren: hasChildren[children[i].OID],
-		})
-	}
-	return rows, nil
-}
-
-// handleAPITreeFragment returns the immediate children of an OID
-// as an HTML <ul> fragment, suitable for HTMX `beforeend` swap into
-// the workspace tree row that triggered the expansion. The
-// JSON-returning sibling `handleAPITree` is preserved for the
-// standalone tree page.
-//
-// `ListChildren` returns one row per module defining the OID, so
-// shared anchors like `mgmt` / `system` / `interfaces` (defined in
-// RFC1155 + RFC1156 + RFC1213 etc.) come back duplicated. The
-// workspace tree is a navigation surface keyed by OID, not by
-// (module, name), so we dedupe to one row per OID before render.
-// Order is preserved from the SQL `ORDER BY oid, name` so the
-// retained row is the alphabetically-first module's definition —
-// stable across requests and across reloads.
-//
-// The `?module=…&scope=…` query params let the templ rebuild
-// `WorkspaceRowURL` for each child so leaf clicks inside a
-// fragment preserve the URL scope, matching the list-row workflow
-// (clicking a leaf updates only `?sel=…`, never narrows the list
-// to a single OID).
-func (s *Server) handleAPITreeFragment(w http.ResponseWriter, r *http.Request) {
-	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
-	if parent == "" {
-		s.notFound(w, r)
-		return
-	}
-	// `module` / `scope` are echoed back into the rendered fragment's
-	// URLs via WorkspaceRowURL. Validate against the SMI grammars
-	// (RFC 1212 §4.1.6 / RFC 2578 §3.1 for module names; digits +
-	// dots for OIDs) before threading through — otherwise an
-	// attacker-controlled query value flows into href / data-*
-	// attributes. Invalid values degrade silently to empty (the
-	// fragment still renders, just without the leaf-vs-container
-	// scope-preserving URLs).
-	module := strings.TrimSpace(r.URL.Query().Get("module"))
-	if !validModuleName(module) {
-		module = ""
-	}
-	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
-	if !web.SelectorLooksLikeOID(scope) {
-		scope = ""
-	}
-	ctx := r.Context()
-	children, err := s.store.ListChildren(ctx, parent)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	rows, err := s.treeRowsFor(ctx, children)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	// Synthetic view threads the URL scope through the templ so
-	// `WorkspaceRowURL` builds the same leaf-vs-container URLs the
-	// main render uses. Module is required for the URL builder;
-	// scope is optional (empty when the caller didn't pass it,
-	// which falls back to scope-change on leaf click).
-	view := &web.WorkspaceView{
-		Module:   &model.Module{Name: module},
-		ScopeOID: scope,
-	}
-	render(w, r, http.StatusOK, web.WorkspaceTreeFragment(view, rows))
-}
-
-// handleAPITree returns the immediate children of an OID as JSON,
-// suitable for lazy-load expansion in the tree.js island.
-//
-// The default parent is "1" (the root of the OID space). For each
-// child we report whether it has further descendants so the client
-// can decide whether to render an expand chevron.
 // apiTreeMaxLimit caps the page size a caller can request; apiTreeDefaultLimit
 // is used when none is given. Bounds keep a single wide node (e.g.
 // `enterprises`, ~3k children) from serialising thousands of rows at once.
@@ -1664,7 +1463,8 @@ const (
 //
 //	GET /api/v1/tree?parent={oid}&after={oid}&limit={n}
 //
-// `parent` defaults to the OID apex ("1"). `after` is the last OID from
+// An empty `parent` is the OID apex (children = the top arcs 0/1/2).
+// `after` is the last OID from
 // the previous page; the server derives its segment for the keyset bound
 // (an invalid value degrades to the first page). Each child reports
 // `hasChildren` from the stored child_count (no per-child probe) and
@@ -1672,24 +1472,26 @@ const (
 // falls back to the IANA canonical registry and which carry no /s/ link.
 // `nextAfter` is the cursor for the next page, or null when exhausted.
 func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
+	// Empty parent = the OID apex; ListNodeChildren("") returns the top
+	// arcs (0/1/2). A non-empty parent must look like an OID.
 	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
-	if parent == "" {
-		parent = "1"
-	}
-	if !web.SelectorLooksLikeOID(parent) {
+	if parent != "" && !web.SelectorLooksLikeOID(parent) {
 		s.apiError(w, r, http.StatusBadRequest, "parent must be an OID", nil)
 		return
 	}
 
-	// Cursor: the last OID of the prior page. Invalid → first page.
+	// Forward cursor `after` (last OID of the prior page) or backward
+	// cursor `before` (first OID of the current window, for "show
+	// earlier"). Invalid values degrade to the first page. `before` wins
+	// if both are given.
 	afterSeg := int64(-1)
-	if after := strings.TrimSpace(r.URL.Query().Get("after")); after != "" {
-		if web.SelectorLooksLikeOID(after) {
-			if seg, err := strconv.ParseInt(lastOIDSegment(after), 10, 64); err == nil {
-				afterSeg = seg
-			}
+	if after := strings.TrimSpace(r.URL.Query().Get("after")); after != "" && web.SelectorLooksLikeOID(after) {
+		if seg, err := strconv.ParseInt(lastOIDSegment(after), 10, 64); err == nil {
+			afterSeg = seg
 		}
 	}
+	before := strings.TrimSpace(r.URL.Query().Get("before"))
+	backward := before != "" && web.SelectorLooksLikeOID(before)
 
 	limit := apiTreeDefaultLimit
 	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
@@ -1702,7 +1504,19 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	children, err := s.store.ListNodeChildren(ctx, parent, afterSeg, limit)
+	var (
+		children []store.NodeRow
+		err      error
+	)
+	if backward {
+		beforeSeg := int64(0)
+		if seg, perr := strconv.ParseInt(lastOIDSegment(before), 10, 64); perr == nil {
+			beforeSeg = seg
+		}
+		children, err = s.store.ListNodeChildrenBefore(ctx, parent, beforeSeg, limit)
+	} else {
+		children, err = s.store.ListNodeChildren(ctx, parent, afterSeg, limit)
+	}
 	if err != nil {
 		s.apiError(w, r, http.StatusInternalServerError, "internal error", err)
 		return
@@ -1739,18 +1553,23 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// A full page implies there may be more; hand back the last OID as
-	// the next cursor. A short page is the end (a final exact-fit page
-	// costs one extra empty fetch — acceptable).
-	var nextAfter any
+	// Cursors: a full page implies more in that direction. Forward pages
+	// carry nextAfter (last OID); backward pages carry prevBefore (first
+	// OID). A short page is that direction's end.
+	var nextAfter, prevBefore any
 	if len(children) == limit {
-		nextAfter = children[len(children)-1].OID
+		if backward {
+			prevBefore = children[0].OID
+		} else {
+			nextAfter = children[len(children)-1].OID
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"parent":    parent,
-		"children":  out,
-		"nextAfter": nextAfter,
+		"parent":     parent,
+		"children":   out,
+		"nextAfter":  nextAfter,
+		"prevBefore": prevBefore,
 	})
 }
 
