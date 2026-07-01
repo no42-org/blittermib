@@ -1497,6 +1497,35 @@ const (
 	apiTreeMaxLimit     = 500
 )
 
+// treeListParams parses the tree query params shared by the level and spine
+// endpoints: the page `limit` (defaulted and clamped to the bounded range),
+// `branchesOnly` (the workspace "container map", which hides leaf objects),
+// and the kind-chip `family` (honoured only with branchesOnly; any unknown
+// value is ignored, degrading to the full map).
+func treeListParams(r *http.Request) (limit int, branchesOnly bool, family string) {
+	limit = apiTreeDefaultLimit
+	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > apiTreeMaxLimit {
+		limit = apiTreeMaxLimit
+	}
+	branchesOnly = r.URL.Query().Get("branches") == "1"
+	if branchesOnly {
+		switch r.URL.Query().Get("family") {
+		case "scalar":
+			family = "scalar"
+		case "table":
+			family = "table"
+		case "notif":
+			family = "notif"
+		}
+	}
+	return limit, branchesOnly, family
+}
+
 // segDisplayName resolves one folded-chain segment's display name: the
 // stored symbol name when it is symbol-backed, else the IANA canonical
 // name for its OID, else the bare numeric segment. Mirrors the per-row
@@ -1580,15 +1609,17 @@ func projectFoldedRows(children []store.FoldedNodeRow) []treeItem {
 // falls back to the IANA canonical registry and which carry no /s/ link.
 // `nextAfter` is the cursor for the next page, or null when exhausted.
 func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
-	if s.treeCacheHit(w, r) {
-		return
-	}
 	// Empty parent = the OID apex; ListNodeChildren("") returns the top
 	// arcs (normally iso(1); the 0 null-sentinel arc is omitted). A
 	// non-empty parent must look like an OID.
 	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
 	if parent != "" && !web.SelectorLooksLikeOID(parent) {
 		s.apiError(w, r, http.StatusBadRequest, "parent must be an OID", nil)
+		return
+	}
+	// Validated request → stamp cache validators and short-circuit a fresh
+	// 304. Kept after validation so a 4xx never carries success validators.
+	if s.treeCacheHit(w, r) {
 		return
 	}
 
@@ -1605,36 +1636,7 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 	before := strings.TrimSpace(r.URL.Query().Get("before"))
 	backward := before != "" && web.SelectorLooksLikeOID(before)
 
-	limit := apiTreeDefaultLimit
-	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-	if limit > apiTreeMaxLimit {
-		limit = apiTreeMaxLimit
-	}
-
-	// branches=1 (the workspace "container map") hides leaf objects so the
-	// tree is structural navigation only — the leaves are listed in the
-	// center pane. The standalone /tree browser omits it and shows every OID.
-	branchesOnly := r.URL.Query().Get("branches") == "1"
-
-	// family=scalar|table|notif (only honoured with branches=1) further
-	// prunes the container map to branches whose subtree holds that kind-
-	// chip family. The store maps it to a fixed column; any other value is
-	// ignored (no filter), so an unknown chip degrades to the full map.
-	family := ""
-	if branchesOnly {
-		switch r.URL.Query().Get("family") {
-		case "scalar":
-			family = "scalar"
-		case "table":
-			family = "table"
-		case "notif":
-			family = "notif"
-		}
-	}
+	limit, branchesOnly, family := treeListParams(r)
 
 	ctx := r.Context()
 	var (
@@ -1685,24 +1687,29 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 // already matches. It returns true when it wrote a 304 (the caller must
 // return without producing a body).
 //
-// The ETag is a strong validator over (trie version, build version, request
-// URI): the materialised trie changes only when RebuildOIDTree bumps
-// oid_tree_version, and the only other input to a rendered row — the
-// compiled-in IANA canonical-name table used for synthetic segments — can
-// change only when the binary changes, so folding the build version in
-// covers it without tracking a separate registry version. Cache-Control is
+// The ETag is a strong validator over (trie generation, build version,
+// request URI). The generation is bumped by every RebuildOIDTree, so it
+// tracks the trie's CONTENT — including content-only rebuilds after an
+// import or hot reload (the schema version constant does NOT change then, so
+// it can't serve here). The build version covers the only other input to a
+// rendered row, the compiled-in IANA canonical-name table for synthetic
+// segments, which changes only with the binary. Cache-Control is
 // deliberately conservative (must-revalidate, no stored max-age): every use
 // revalidates, but a match returns 304 before any DB work or body render, so
 // repeat loads and back/forward are cheap. A longer max-age is a safe
 // follow-up once a shared cache tier is in play.
+//
+// Call this only AFTER request validation: it stamps success cache
+// validators and can 304, which must not happen for an input that would
+// otherwise be a 4xx.
 func (s *Server) treeCacheHit(w http.ResponseWriter, r *http.Request) bool {
-	ver, err := s.store.OIDTreeVersion(r.Context())
+	gen, err := s.store.OIDTreeGeneration(r.Context())
 	if err != nil {
 		return false // can't validate — serve fresh, no caching headers
 	}
 	h := fnv.New64a()
 	_, _ = io.WriteString(h, r.URL.RequestURI())
-	etag := fmt.Sprintf(`"oidtree-v%d-%s-%x"`, ver, s.version, h.Sum64())
+	etag := fmt.Sprintf(`"oidtree-g%d-%s-%x"`, gen, s.version, h.Sum64())
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
 	if match := r.Header.Get("If-None-Match"); match != "" && etagMatches(match, etag) {
@@ -1743,37 +1750,18 @@ func etagMatches(header, etag string) bool {
 // a single source of truth. branches/family are parsed exactly as in
 // handleAPITree.
 func (s *Server) handleAPITreeSpine(w http.ResponseWriter, r *http.Request) {
-	if s.treeCacheHit(w, r) {
-		return
-	}
 	focus := strings.TrimSpace(r.URL.Query().Get("focus"))
 	if focus == "" || !web.SelectorLooksLikeOID(focus) {
 		s.apiError(w, r, http.StatusBadRequest, "focus must be an OID", nil)
 		return
 	}
-
-	limit := apiTreeDefaultLimit
-	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-	if limit > apiTreeMaxLimit {
-		limit = apiTreeMaxLimit
+	// Validated request → stamp cache validators and short-circuit a fresh
+	// 304. Kept after validation so a 4xx never carries success validators.
+	if s.treeCacheHit(w, r) {
+		return
 	}
 
-	branchesOnly := r.URL.Query().Get("branches") == "1"
-	family := ""
-	if branchesOnly {
-		switch r.URL.Query().Get("family") {
-		case "scalar":
-			family = "scalar"
-		case "table":
-			family = "table"
-		case "notif":
-			family = "notif"
-		}
-	}
+	limit, branchesOnly, family := treeListParams(r)
 
 	spine, err := s.store.SpinePages(r.Context(), focus, branchesOnly, family, limit)
 	if err != nil {

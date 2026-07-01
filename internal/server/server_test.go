@@ -1983,7 +1983,9 @@ func TestAPITreeSpineBranches(t *testing.T) {
 	}
 }
 
-// TestAPITreeSpineBadFocus pins that a missing or non-OID focus is a 400.
+// TestAPITreeSpineBadFocus pins that a missing or non-OID focus is a 400 and
+// that the error response carries NO cache validators — treeCacheHit runs
+// only after validation, so an invalid request can't be cached or 304'd.
 func TestAPITreeSpineBadFocus(t *testing.T) {
 	ts := newTestServer(t)
 	for _, q := range []string{"", "focus=", "focus=not-an-oid"} {
@@ -1994,7 +1996,95 @@ func TestAPITreeSpineBadFocus(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("focus %q → status %d, want 400", q, resp.StatusCode)
 		}
+		if et := resp.Header.Get("ETag"); et != "" {
+			t.Errorf("focus %q → 400 carries ETag %q, want none (validate before caching)", q, et)
+		}
 		_ = resp.Body.Close()
+	}
+
+	// Even with an If-None-Match, a bad focus stays 400 — it is never
+	// short-circuited to 304 by the cache path.
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/tree/spine?focus=not-an-oid", nil)
+	req.Header.Set("If-None-Match", `"oidtree-g1-test-abc"`)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("bad focus with If-None-Match → status %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestAPITreeETagChangesAfterRebuild pins the cache-validity token tracks
+// trie CONTENT: after a runtime rebuild that adds OIDs (an import/hot-reload
+// path, schema version unchanged), a conditional request with the old ETag
+// must NOT 304 — it must get a fresh 200 with a new ETag.
+func TestAPITreeETagChangesAfterRebuild(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenInMemory(ctx)
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.ReplaceModule(ctx, &model.Module{Name: "M", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{{ModuleName: "M", Name: "a", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent}},
+		nil, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := st.RebuildOIDTree(ctx); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	ts := httptest.NewServer(New(st, "", "test", t.TempDir()).Handler())
+	t.Cleanup(ts.Close)
+
+	const url = "/api/v1/tree?parent=1.3.6.1.4.1.99"
+	first, err := http.Get(ts.URL + url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	etag := first.Header.Get("ETag")
+	_ = first.Body.Close()
+	if etag == "" {
+		t.Fatal("first response missing ETag")
+	}
+
+	// Same request before any rebuild → 304.
+	cond := func() *http.Response {
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+url, nil)
+		req.Header.Set("If-None-Match", etag)
+		resp, derr := http.DefaultClient.Do(req)
+		if derr != nil {
+			t.Fatal(derr)
+		}
+		return resp
+	}
+	pre := cond()
+	_ = pre.Body.Close()
+	if pre.StatusCode != http.StatusNotModified {
+		t.Fatalf("pre-rebuild conditional = %d, want 304", pre.StatusCode)
+	}
+
+	// Content rebuild: add an OID (schema version stays constant).
+	if err := st.ReplaceModule(ctx, &model.Module{Name: "N", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{{ModuleName: "N", Name: "b", OID: "1.3.6.1.4.1.99.2", Kind: model.KindObjectIdentity, Status: model.StatusCurrent}},
+		nil, nil); err != nil {
+		t.Fatalf("second seed: %v", err)
+	}
+	if err := st.RebuildOIDTree(ctx); err != nil {
+		t.Fatalf("second rebuild: %v", err)
+	}
+
+	// The same conditional request must now MISS (fresh 200, new ETag) —
+	// serving the stale 304 would hide the newly imported OID.
+	post := cond()
+	newEtag := post.Header.Get("ETag")
+	_ = post.Body.Close()
+	if post.StatusCode == http.StatusNotModified {
+		t.Error("post-rebuild conditional returned 304 — stale tree served after a content rebuild")
+	}
+	if newEtag == etag {
+		t.Errorf("ETag unchanged (%s) after a content rebuild — cache validator is content-blind", etag)
 	}
 }
 

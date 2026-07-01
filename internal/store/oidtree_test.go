@@ -726,21 +726,33 @@ func TestSpinePagesUnknownFocus(t *testing.T) {
 	}
 }
 
-// TestOIDTreeVersion pins that OIDTreeVersion reports the current trie
-// version after a build (the ETag validity token).
-func TestOIDTreeVersion(t *testing.T) {
+// TestOIDTreeGeneration pins that the generation counter is 0 before any
+// build and increments on EVERY rebuild — including a content-only rebuild
+// that leaves the schema version constant. This is the ETag validity token,
+// so it must move whenever the browsable trie content moves.
+func TestOIDTreeGeneration(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	if v, err := s.OIDTreeVersion(ctx); err != nil || v != 0 {
-		t.Fatalf("version before build = (%d, %v), want (0, nil)", v, err)
+	if g, err := s.OIDTreeGeneration(ctx); err != nil || g != 0 {
+		t.Fatalf("generation before build = (%d, %v), want (0, nil)", g, err)
 	}
 	seedAndBuild(t, s, "M", []model.Symbol{oidSym("M", "real", "1.3.6.1.4.1.99")})
-	v, err := s.OIDTreeVersion(ctx)
+	g1, err := s.OIDTreeGeneration(ctx)
 	if err != nil {
-		t.Fatalf("OIDTreeVersion: %v", err)
+		t.Fatalf("OIDTreeGeneration: %v", err)
 	}
-	if v != oidTreeVersion {
-		t.Errorf("version after build = %d, want %d", v, oidTreeVersion)
+	if g1 < 1 {
+		t.Fatalf("generation after first build = %d, want >= 1", g1)
+	}
+	// A second rebuild (content changed, schema version unchanged) must bump
+	// the generation — the case a version-only token would miss.
+	seedAndBuild(t, s, "N", []model.Symbol{oidSym("N", "more", "1.3.6.1.4.1.99.7")})
+	g2, err := s.OIDTreeGeneration(ctx)
+	if err != nil {
+		t.Fatalf("OIDTreeGeneration: %v", err)
+	}
+	if g2 <= g1 {
+		t.Errorf("generation after content rebuild = %d, want > %d", g2, g1)
 	}
 }
 

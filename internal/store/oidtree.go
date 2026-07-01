@@ -43,21 +43,24 @@ type NodeRow struct {
 	HasChildren bool
 }
 
-// OIDTreeVersion returns the recorded oid_node trie version (the value
-// under schema_meta('oid_tree_version')), or 0 when the trie has never
-// been built. It changes only when RebuildOIDTree runs, so it is a stable
-// cache-validity token for the tree endpoints (an ETag component).
-func (s *Store) OIDTreeVersion(ctx context.Context) (int, error) {
-	var ver int
+// OIDTreeGeneration returns a monotonic counter incremented on every
+// RebuildOIDTree — i.e. whenever the trie's CONTENT is (re)materialised,
+// including content-only rebuilds after an import or hot reload. Unlike
+// oidTreeVersion (a fixed schema-shape marker, re-stamped unchanged on a
+// content rebuild), it changes whenever the browsable data changes, so it
+// is the correct cache-validity token for the tree endpoints (an ETag
+// component). 0 when the trie has never been built.
+func (s *Store) OIDTreeGeneration(ctx context.Context) (int64, error) {
+	var gen int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT value FROM schema_meta WHERE key = 'oid_tree_version'`).Scan(&ver)
+		`SELECT value FROM schema_meta WHERE key = 'oid_tree_generation'`).Scan(&gen)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("read oid tree version: %w", err)
+		return 0, fmt.Errorf("read oid tree generation: %w", err)
 	}
-	return ver, nil
+	return gen, nil
 }
 
 // OIDTreeStale reports whether oid_node needs a (re)build because its
@@ -199,6 +202,17 @@ func (s *Store) RebuildOIDTree(ctx context.Context) error {
 		INSERT INTO schema_meta(key, value) VALUES ('oid_tree_version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, oidTreeVersion); err != nil {
 		return fmt.Errorf("rebuild oid tree: mark version: %w", err)
+	}
+
+	// Bump a monotonic generation on every rebuild so the tree-API cache
+	// validator changes whenever the trie's CONTENT changes. The version
+	// above is a fixed shape marker (re-stamped unchanged on a content-only
+	// rebuild), so it cannot serve that role — an import or hot reload
+	// rewrites oid_node while leaving the version at its constant.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO schema_meta(key, value) VALUES ('oid_tree_generation', 1)
+		ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`); err != nil {
+		return fmt.Errorf("rebuild oid tree: bump generation: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -497,7 +511,11 @@ func (s *Store) SpinePages(ctx context.Context, focus string, branchesOnly bool,
 		cs := lastSegInt(child)
 		row := findRowBySeg(rows, cs)
 		anchored := false
-		if row == nil && cs > 0 {
+		// Re-fetch anchored only when the first page was FULL and the child
+		// wasn't on it — then the child may be on a later page (a wide level).
+		// A short first page already enumerated every child, so a missing
+		// child is genuinely absent; re-fetching would just repeat the scan.
+		if row == nil && cs > 0 && len(rows) == limit {
 			// Wide level: the spine child is past the first page. Re-fetch the
 			// keyset page anchored at the child (so it is the first row) and
 			// flag the level so the client offers "show earlier".

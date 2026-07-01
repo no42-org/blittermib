@@ -772,10 +772,10 @@
 			if (first) first.tabIndex = 0;
 			return;
 		}
-		container.querySelectorAll('.tree-node').forEach((n) => { n.tabIndex = -1; });
-		target.tabIndex = 0;
-		if (target.scrollIntoView) target.scrollIntoView({ block: 'center' });
+		// markSelected owns the highlight + roving-tabindex move (reset all,
+		// set target); this only adds the scroll-into-view on top.
 		markSelected(container, target);
+		if (target.scrollIntoView) target.scrollIntoView({ block: 'center' });
 	}
 
 	async function buildInitial(container) {
