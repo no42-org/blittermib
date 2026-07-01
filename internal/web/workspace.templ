@@ -81,7 +81,7 @@ templ workspaceListSection(view *WorkspaceView, oob bool) {
 			hx-swap-oob="outerHTML"
 		}
 	>
-		@workspaceList(view, view.ListRows, selectedOID(view))
+		@workspaceList(view, view.ListRows, selectedName(view))
 	</section>
 }
 
@@ -691,7 +691,7 @@ templ statusCount(family string, n int, label string) {
 // 5-col grid lives in CSS via `display: contents` on `<thead>` /
 // `<tbody>` / `<tr>` so semantic table markup survives without
 // breaking the column-aligned layout.
-templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string) {
+templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedName string) {
 	{{ module := view.Module.Name }}
 	{{ crumbs := ScopeBreadcrumb(view) }}
 	<div class="list-controls">
@@ -753,7 +753,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 							<a
 								class="scope-crumb"
 								href={ WorkspaceSymbolURL(c.Module, c.Name, c.OID) }
-								data-nav
+								data-nav?={ c.Module == module }
 							>{ c.Name }</a>
 							<span class="scope-sep" aria-hidden="true">/</span>
 						}
@@ -783,7 +783,7 @@ templ workspaceList(view *WorkspaceView, rows []model.Symbol, selectedOID string
 				{{ oidPre, oidLast := splitOIDLast(s.OID) }}
 				{{ rowURL := WorkspaceRowURL(view, &s) }}
 				<tr
-					class={ "list-row " + familyClass(&s), statusModifier(s.Status), templ.KV("selected", selectedOID != "" && s.OID == selectedOID) }
+					class={ "list-row " + familyClass(&s), statusModifier(s.Status), templ.KV("selected", selectedName != "" && s.Name == selectedName) }
 					data-name={ s.Name }
 					data-oid={ s.OID }
 					data-kind={ string(s.Kind) }
@@ -962,6 +962,7 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 		}
 	</div>
 	<div class="detail-body">
+		@oidCollisionWarning(s.OID, sv.CollisionSiblings)
 		if sv.Relationship != nil {
 			<div class="section-title">Alarm semantics</div>
 			<p class="rel-line">

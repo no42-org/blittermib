@@ -78,7 +78,11 @@ func WorkspaceSymbolURL(module, name, oid string) templ.SafeURL {
 	if oid == "" {
 		return symbolURL(module, name)
 	}
-	return templ.SafeURL("/m/" + module + "/" + oid)
+	// Scope to the OID but SELECT by name: names are unique per module
+	// (schema UNIQUE(module_name, name)), so a click resolves to THIS exact
+	// symbol even when a buggy MIB shares its OID with another. A bare-OID
+	// deep link still resolves (auto-select), so this only adds precision.
+	return templ.SafeURL("/m/" + url.PathEscape(module) + "/" + url.PathEscape(oid) + "?sel=" + url.QueryEscape(name))
 }
 
 // KindHasChildren is the kind-based heuristic for "does clicking
@@ -163,6 +167,12 @@ func WorkspaceRowURL(view *WorkspaceView, s *model.Symbol) templ.SafeURL {
 		// detail pane the only thing reflecting the click.
 		return templ.SafeURL("/m/" + url.PathEscape(module) + "?sel=" + url.QueryEscape(s.Name))
 	}
+	// Selection is by NAME, not OID: names are unique per module (schema
+	// UNIQUE(module_name, name)), so a click resolves to THIS exact symbol
+	// even when a buggy MIB shares its OID with another (a bare-OID
+	// selector would strand the user on whichever symbol won GetSymbolByOID's
+	// arbitrary tie-break). The scope path stays OID-based; only the
+	// selector is the name.
 	if !KindHasChildren(s.Kind) {
 		// Preserve the current scope only when the clicked leaf
 		// actually lives under it. Setting scope to the leaf
@@ -170,15 +180,15 @@ func WorkspaceRowURL(view *WorkspaceView, s *model.Symbol) templ.SafeURL {
 		// scope that doesn't enclose the leaf strands the list
 		// pane on an unrelated subtree.
 		if scope != "" && OIDUnderPrefix(s.OID, scope) {
-			return templ.SafeURL("/m/" + url.PathEscape(module) + "/" + url.PathEscape(scope) + "?sel=" + url.QueryEscape(s.OID))
+			return templ.SafeURL("/m/" + url.PathEscape(module) + "/" + url.PathEscape(scope) + "?sel=" + url.QueryEscape(s.Name))
 		}
 		if s.ParentOID != "" {
-			return templ.SafeURL("/m/" + url.PathEscape(module) + "/" + url.PathEscape(s.ParentOID) + "?sel=" + url.QueryEscape(s.OID))
+			return templ.SafeURL("/m/" + url.PathEscape(module) + "/" + url.PathEscape(s.ParentOID) + "?sel=" + url.QueryEscape(s.Name))
 		}
-		return templ.SafeURL("/m/" + url.PathEscape(module) + "?sel=" + url.QueryEscape(s.OID))
+		return templ.SafeURL("/m/" + url.PathEscape(module) + "?sel=" + url.QueryEscape(s.Name))
 	}
-	// Container — drill in (scope change).
-	return templ.SafeURL("/m/" + url.PathEscape(s.ModuleName) + "/" + url.PathEscape(s.OID))
+	// Container — drill in (scope change) and select it by name.
+	return templ.SafeURL("/m/" + url.PathEscape(s.ModuleName) + "/" + url.PathEscape(s.OID) + "?sel=" + url.QueryEscape(s.Name))
 }
 
 // syntaxShort returns the short display form of a symbol's
@@ -283,15 +293,17 @@ func viewScopeOID(v *WorkspaceView) string {
 	return v.ScopeOID
 }
 
-// selectedOID returns the OID of the workspace view's currently
-// selected symbol, or "" when nothing is selected. Threaded into
-// the list pane so the matching row can carry a `selected` class
-// for the design's tinted-background highlight.
-func selectedOID(v *WorkspaceView) string {
+// selectedName returns the NAME of the workspace view's currently
+// selected symbol, or "" when nothing is selected. Threaded into the list
+// pane so the matching row carries the `selected` class. Keyed on name
+// (unique per module), not OID: on a collided OID an OID match would
+// highlight BOTH colliding rows, so the list couldn't show WHICH symbol is
+// selected — the very ambiguity the selection-by-name fix removes.
+func selectedName(v *WorkspaceView) string {
 	if v == nil || v.Selected == nil || v.Selected.Symbol == nil {
 		return ""
 	}
-	return v.Selected.Symbol.OID
+	return v.Selected.Symbol.Name
 }
 
 // BreadcrumbStep is one segment in the workspace's scope-path
@@ -1187,6 +1199,26 @@ type WorkspaceView struct {
 	// per notification name, for the inline list-row badges. Empty for
 	// modules with no notifications.
 	Relationships map[string]correlate.Relationship
+}
+
+// OIDCollision names one of several symbols a module defines at the same
+// OID (a MIB bug). Kind lets the UI say "a table AND a notification". The
+// collision set for the SELECTED symbol lives on SymbolView.CollisionSiblings
+// (resolved per-symbol via store.SymbolsAtOID), so the warning renders the
+// same on the workspace right pane and the canonical /s/ page.
+type OIDCollision struct {
+	Name string
+	Kind model.SymbolKind
+}
+
+// CollisionSummary renders collision entries as "name (kind), name (kind)"
+// for the detail-pane warning text.
+func CollisionSummary(entries []OIDCollision) string {
+	parts := make([]string, len(entries))
+	for i, e := range entries {
+		parts[i] = e.Name + " (" + kindLabel(e.Kind) + ")"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // moduleSummaryPreview returns the first-sentence preview of a

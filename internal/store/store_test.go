@@ -2,12 +2,52 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/no42-org/blittermib/internal/model"
 )
+
+// TestMigrateAddOIDNodeFamilyFlagsPartial pins the self-heal for a
+// partially-applied family-flag migration: the three columns are added by
+// separate autocommit ALTERs, so a crash after has_scalar but before
+// has_notif must be recovered on the next boot (each column checked
+// independently), NOT skipped on a single sentinel — which would leave
+// RebuildOIDTree's INSERT failing forever on the missing column.
+func TestMigrateAddOIDNodeFamilyFlagsPartial(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// A trie whose prior migration got only as far as has_scalar.
+	if _, err := db.ExecContext(ctx,
+		`CREATE TABLE oid_node (oid TEXT PRIMARY KEY, has_scalar INTEGER NOT NULL DEFAULT 0)`); err != nil {
+		t.Fatalf("seed partial oid_node: %v", err)
+	}
+
+	if err := migrateAddOIDNodeFamilyFlags(ctx, db); err != nil {
+		t.Fatalf("recovery migration: %v", err)
+	}
+	for _, col := range []string{"has_scalar", "has_table", "has_notif"} {
+		has, err := tableHasColumn(ctx, db, "oid_node", col)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !has {
+			t.Errorf("column %s missing after recovery migration", col)
+		}
+	}
+
+	// Idempotent: a second run is a no-op (no duplicate-column error).
+	if err := migrateAddOIDNodeFamilyFlags(ctx, db); err != nil {
+		t.Fatalf("re-run should be a no-op: %v", err)
+	}
+}
 
 func newStore(t *testing.T) *Store {
 	t.Helper()
@@ -897,5 +937,47 @@ func TestMigrateAddIndexImpliedAlters(t *testing.T) {
 	}
 	if !got.IndexImplied {
 		t.Errorf("post-migration round-trip: IndexImplied = false, want true")
+	}
+}
+
+// TestSymbolsAtOID pins the collision-lookup query: it returns every
+// symbol a module defines at an OID (module-scoped, name-ordered), which
+// the detail pane uses to warn about a MIB that assigns one OID twice.
+func TestSymbolsAtOID(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	const oid = "1.3.6.1.4.1.5189.1.1"
+	clean := func(name string, syms []model.Symbol) {
+		if err := s.ReplaceModule(ctx,
+			&model.Module{Name: name, ParseStatus: model.ParseStatusClean}, syms, nil, nil); err != nil {
+			t.Fatalf("ReplaceModule(%s): %v", name, err)
+		}
+	}
+	clean("ZBX", []model.Symbol{
+		{ModuleName: "ZBX", Name: "zabbixEventTable", OID: oid, Kind: model.KindTable, Status: model.StatusCurrent},
+		{ModuleName: "ZBX", Name: "zabbixAlertEvent", OID: oid, Kind: model.KindNotificationType, Status: model.StatusCurrent},
+		{ModuleName: "ZBX", Name: "solo", OID: "1.3.6.1.4.1.5189.2", Kind: model.KindScalar, Status: model.StatusCurrent},
+	})
+
+	both, err := s.SymbolsAtOID(ctx, "ZBX", oid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(both) != 2 || both[0].Name != "zabbixAlertEvent" || both[1].Name != "zabbixEventTable" {
+		t.Fatalf("SymbolsAtOID = %+v, want [zabbixAlertEvent, zabbixEventTable] name-sorted", both)
+	}
+	if one, _ := s.SymbolsAtOID(ctx, "ZBX", "1.3.6.1.4.1.5189.2"); len(one) != 1 {
+		t.Errorf("unique OID = %d rows, want 1", len(one))
+	}
+	if none, _ := s.SymbolsAtOID(ctx, "ZBX", ""); none != nil {
+		t.Errorf("empty OID should return nil, got %+v", none)
+	}
+
+	// Module-scoped: another module at the SAME OID does not leak in.
+	clean("OTHER", []model.Symbol{
+		{ModuleName: "OTHER", Name: "elsewhere", OID: oid, Kind: model.KindScalar, Status: model.StatusCurrent},
+	})
+	if got, _ := s.SymbolsAtOID(ctx, "ZBX", oid); len(got) != 2 {
+		t.Errorf("ZBX at OID after OTHER added = %d, want 2 (module-scoped)", len(got))
 	}
 }

@@ -44,6 +44,11 @@ type SymbolView struct {
 	// a NOTIFICATION-TYPE/TRAP-TYPE symbol; nil for anything else or when
 	// inference produced no record.
 	Relationship *correlate.Relationship
+	// CollisionSiblings is the OTHER symbols the module defines at this
+	// symbol's OID (a MIB bug — an OID must identify one object). Non-empty
+	// only for a collided OID; drives the detail-pane warning on BOTH the
+	// workspace right pane and the canonical /s/ page (shared body).
+	CollisionSiblings []OIDCollision
 }
 
 // SymbolDetail renders the canonical reference page for a symbol
@@ -58,6 +63,26 @@ templ SymbolDetail(view *SymbolView) {
 			{ view.Symbol.Name }
 		</nav>
 		@symbolDetailBody(view)
+	}
+}
+
+// oidCollisionWarning renders the "this MIB defines two symbols at one
+// OID" notice, shared by the workspace right pane and the canonical /s/
+// page so they never drift. `role="note"` (not "alert"): the warning is
+// static, always-present content, not a transient live-region event.
+templ oidCollisionWarning(oid string, siblings []OIDCollision) {
+	if len(siblings) > 0 {
+		<div class="detail-warning" role="note" aria-label="OID collision warning">
+			<span class="detail-warning-icon" aria-hidden="true">⚠</span>
+			<span>
+				<strong>OID collision — this MIB has a bug.</strong>
+				{ " " }
+				<code>{ oid }</code> is also defined as { CollisionSummary(siblings) }.
+				An OID must identify a single object; blittermib disambiguates
+				clicks by name, but tools that key on the OID alone may resolve
+				the wrong symbol.
+			</span>
+		</div>
 	}
 }
 
@@ -90,6 +115,7 @@ templ symbolDetailBody(view *SymbolView) {
 			units: { view.Symbol.Units }
 		}
 	</div>
+	@oidCollisionWarning(view.Symbol.OID, view.CollisionSiblings)
 	if view.Relationship != nil {
 		<section class="section rel-section">
 			<h2 class="section-label">Alarm semantics</h2>

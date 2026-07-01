@@ -69,6 +69,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate reference position: %w", err)
 	}
+	if err := migrateAddOIDNodeFamilyFlags(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate oid_node family flags: %w", err)
+	}
 	s := &Store{db: db}
 	// One-time: classify an already-ingested corpus whose relationship
 	// tables predate the feature (the boot sync skips unchanged MIBs, so
@@ -221,6 +225,39 @@ func migrateAddReferencePosition(ctx context.Context, db *sql.DB) error {
 		`ALTER TABLE reference ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
 	); err != nil {
 		return fmt.Errorf("alter table add position: %w", err)
+	}
+	return nil
+}
+
+// migrateAddOIDNodeFamilyFlags adds the has_scalar / has_table / has_notif
+// subtree-family columns to oid_node on databases whose trie predates the
+// kind-filtered tree. oid_node is a derived projection that RebuildOIDTree
+// refills via DELETE+INSERT (not DROP+CREATE), so the columns must exist
+// before that INSERT can reference them. Non-destructive in-place ALTERs;
+// the columns default 0 and the version-gated RebuildOIDTree (bumped to
+// fill them) sets the real values on the same upgrade.
+//
+// Each column is checked and added INDEPENDENTLY (not gated on a single
+// sentinel), because the three ALTERs are separate autocommit statements:
+// a crash after adding has_scalar but before has_notif must self-heal on
+// the next boot, not leave the schema permanently half-migrated (which
+// would make RebuildOIDTree's INSERT fail forever on the missing column).
+func migrateAddOIDNodeFamilyFlags(ctx context.Context, db *sql.DB) error {
+	for _, col := range []string{"has_scalar", "has_table", "has_notif"} {
+		has, err := tableHasColumn(ctx, db, "oid_node", col)
+		if err != nil {
+			return err
+		}
+		if has {
+			continue
+		}
+		slog.Info("adding family-flag column to oid_node", "column", col)
+		// #nosec G202 -- col is a compile-time constant from the loop, not user input.
+		if _, err := db.ExecContext(ctx,
+			`ALTER TABLE oid_node ADD COLUMN `+col+` INTEGER NOT NULL DEFAULT 0`,
+		); err != nil {
+			return fmt.Errorf("alter table add %s: %w", col, err)
+		}
 	}
 	return nil
 }

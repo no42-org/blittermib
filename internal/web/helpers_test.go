@@ -152,6 +152,11 @@ func TestWorkspaceRowURL(t *testing.T) {
 		Module:   &model.Module{Name: moduleName},
 		ScopeOID: "1.3.6.1.2.1.2",
 	}
+	// A module that (wrongly) defines a table AND a notification at the
+	// same OID — selection is by NAME (all rows are), so each resolves to
+	// its own symbol despite the shared OID.
+	const collidedOID = "1.3.6.1.4.1.5189.1.1"
+	collidedView := moduleView
 
 	cases := []struct {
 		name string
@@ -173,7 +178,7 @@ func TestWorkspaceRowURL(t *testing.T) {
 				OID: linkDownOID, ParentOID: snmpTraps,
 				Kind: model.KindNotificationType,
 			},
-			"/m/" + moduleName + "/" + snmpTraps + "?sel=" + linkDownOID,
+			"/m/" + moduleName + "/" + snmpTraps + "?sel=linkDown",
 		},
 		{
 			"leaf inside current scope preserves that scope",
@@ -183,7 +188,7 @@ func TestWorkspaceRowURL(t *testing.T) {
 				OID: ifIndexOID, ParentOID: ifEntryOID,
 				Kind: model.KindColumn,
 			},
-			"/m/" + moduleName + "/" + ifEntryOID + "?sel=" + ifIndexOID,
+			"/m/" + moduleName + "/" + ifEntryOID + "?sel=ifIndex",
 		},
 		{
 			"leaf outside current scope switches to the leaf's parent",
@@ -193,7 +198,7 @@ func TestWorkspaceRowURL(t *testing.T) {
 				OID: linkDownOID, ParentOID: snmpTraps,
 				Kind: model.KindNotificationType,
 			},
-			"/m/" + moduleName + "/" + snmpTraps + "?sel=" + linkDownOID,
+			"/m/" + moduleName + "/" + snmpTraps + "?sel=linkDown",
 		},
 		{
 			"leaf with no scope and no parent OID falls back to module root",
@@ -203,7 +208,7 @@ func TestWorkspaceRowURL(t *testing.T) {
 				OID: topLevelLeaf, ParentOID: "",
 				Kind: model.KindNotificationType,
 			},
-			"/m/" + moduleName + "?sel=" + topLevelLeaf,
+			"/m/" + moduleName + "?sel=orphanLeaf",
 		},
 		{
 			"container drills in (scope change)",
@@ -213,7 +218,7 @@ func TestWorkspaceRowURL(t *testing.T) {
 				OID: ifEntryOID, ParentOID: "1.3.6.1.2.1.2.2",
 				Kind: model.KindTableEntry,
 			},
-			"/m/" + moduleName + "/" + ifEntryOID,
+			"/m/" + moduleName + "/" + ifEntryOID + "?sel=ifEntry",
 		},
 		{
 			"no-OID symbol with no scope rides in by name to module root",
@@ -233,6 +238,25 @@ func TestWorkspaceRowURL(t *testing.T) {
 			},
 			"/m/" + moduleName + "?sel=InterfaceIndex",
 		},
+		{
+			"collided leaf selects by NAME, not the shared OID",
+			collidedView,
+			&model.Symbol{
+				ModuleName: moduleName, Name: "zabbixAlertEvent",
+				OID: collidedOID, ParentOID: "1.3.6.1.4.1.5189.1",
+				Kind: model.KindNotificationType,
+			},
+			"/m/" + moduleName + "/1.3.6.1.4.1.5189.1?sel=zabbixAlertEvent",
+		},
+		{
+			"collided container drills but also selects by NAME",
+			collidedView,
+			&model.Symbol{
+				ModuleName: moduleName, Name: "zabbixEventTable",
+				OID: collidedOID, Kind: model.KindTable,
+			},
+			"/m/" + moduleName + "/" + collidedOID + "?sel=zabbixEventTable",
+		},
 	}
 
 	for _, c := range cases {
@@ -242,6 +266,25 @@ func TestWorkspaceRowURL(t *testing.T) {
 				t.Errorf("WorkspaceRowURL = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestSymbolCollisions pins detection of intra-module OID collisions (a
+// MIB bug) and the sibling/summary helpers the warning renders.
+// TestCollisionSummary pins the warning text formatting (name + kind
+// label, comma-joined). Collision DETECTION now lives in the store
+// (SymbolsAtOID) and is exercised there; this covers the one remaining
+// pure web helper.
+func TestCollisionSummary(t *testing.T) {
+	if s := CollisionSummary(nil); s != "" {
+		t.Errorf("empty summary = %q, want \"\"", s)
+	}
+	entries := []OIDCollision{
+		{Name: "zabbixEventTable", Kind: model.KindTable},
+		{Name: "zabbixAlertEvent", Kind: model.KindNotificationType},
+	}
+	if s := CollisionSummary(entries); s != "zabbixEventTable (table), zabbixAlertEvent (notification)" {
+		t.Errorf("summary = %q", s)
 	}
 }
 

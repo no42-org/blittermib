@@ -206,6 +206,12 @@ CREATE INDEX IF NOT EXISTS source_file_module_idx ON source_file(module_name);
 -- (module_name, name)-first symbol at that OID; they are empty for
 -- synthetic nodes, whose display name is resolved at read time via
 -- the IANA canonical registry.
+-- has_scalar / has_table / has_notif are subtree family flags: 1 when the
+-- node's subtree (including itself) contains a leaf of the kind-chip
+-- family — scalar (scalar+column), table (table+table-entry), notif
+-- (notification-type). They power the kind-filtered workspace tree
+-- (?family=); filled bottom-up by RebuildOIDTree, same projection family
+-- as child_count.
 CREATE TABLE IF NOT EXISTS oid_node (
     oid          TEXT    PRIMARY KEY,
     parent_oid   TEXT    NOT NULL DEFAULT '',
@@ -215,7 +221,10 @@ CREATE TABLE IF NOT EXISTS oid_node (
     module_name  TEXT    NOT NULL DEFAULT '',
     kind         TEXT    NOT NULL DEFAULT '',
     has_symbol   INTEGER NOT NULL DEFAULT 0,
-    child_count  INTEGER NOT NULL DEFAULT 0
+    child_count  INTEGER NOT NULL DEFAULT 0,
+    has_scalar   INTEGER NOT NULL DEFAULT 0,
+    has_table    INTEGER NOT NULL DEFAULT 0,
+    has_notif    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS oid_node_children_idx ON oid_node(parent_oid, seg);
 

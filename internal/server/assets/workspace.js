@@ -50,6 +50,9 @@ window.workspace = function () {
 			this.$watch('kindFilter', (v) => {
 				saveKindFilter(v);
 				this.applyFilter();
+				// The OID tree is a separate vanilla island (tree.js); tell
+				// it to re-filter its container map to the chosen family.
+				window.dispatchEvent(new CustomEvent('blittermib:kindfilter', { detail: v }));
 			});
 			this.$watch('filter', () => this.applyFilter());
 			// Apply the persisted kind filter to the server-rendered
@@ -77,9 +80,24 @@ window.workspace = function () {
 		// resulting relayout proportional to the visible viewport.
 		applyFilter() {
 			var rows = document.querySelectorAll('#workspace-list .list-row');
+			var kindCount = 0;
 			for (var i = 0; i < rows.length; i++) {
+				if (this.matchesKind(rows[i])) kindCount++;
 				rows[i].hidden = !this.matchesRow(rows[i]);
 			}
+			this.updateScopeCount(kindCount);
+		},
+
+		// updateScopeCount makes the list's "N objects" scope count reflect
+		// the active KIND chip, so it agrees with the family-filtered tree
+		// (e.g. a notif-scoped trap group reads "12 objects", not the 14
+		// that also counts the structural object-identity nodes). The text
+		// grep is a transient refinement and does NOT change the count. On
+		// the 'all' chip kindCount is every row — the server's original
+		// value. No-op when unscoped (the count span isn't rendered).
+		updateScopeCount(n) {
+			var el = document.querySelector('#workspace-list .list-scope-count');
+			if (el) el.textContent = n + (n === 1 ? ' object' : ' objects');
 		},
 
 		// matchesKind reads `data-kind` from the row and answers

@@ -1163,7 +1163,9 @@ button { font-family: inherit; }
  * the two row variants don't fight over the same selector. */
 .tree-root .tree-row {
   display: grid;
-  grid-template-columns: 1.6em 4em 1fr auto;
+  /* chevron · numeric seg-path · name · meta · child-count badge. The
+     seg-path column is min 4em but grows for a folded path ("1.3.6"). */
+  grid-template-columns: 1.6em minmax(4em, auto) 1fr auto auto;
   align-items: center;
   gap: 8px;
   padding: 2px 6px;
@@ -1192,7 +1194,9 @@ button { font-family: inherit; }
    name shrink/truncate, and drop the meta (the module is shown in the
    detail pane on click). */
 .workspace-tree .tree-root .tree-row {
-  grid-template-columns: 1.1em auto minmax(0, 1fr);
+  /* meta is hidden here, so the columns are chevron · seg-path · name ·
+     badge (the badge trails the name in the narrow pane). */
+  grid-template-columns: 1.1em auto minmax(0, 1fr) auto;
   gap: 3px;
 }
 /* Align the first-level chevron under the "TREE" head title (the head's
@@ -1258,6 +1262,21 @@ button { font-family: inherit; }
   color: var(--fg-3);
   font-size: 11px;
   text-align: right;
+  white-space: nowrap;
+}
+
+/* Child-count badge: the number of children under a (possibly folded)
+   row — what tells you ".1.3.6 iso.org.dod" still has 1 child below.
+   Leaf rows render no badge. */
+.tree-badge {
+  justify-self: end;
+  min-width: 1.6em;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  color: var(--fg-3);
+  font-size: 11px;
+  text-align: center;
   white-space: nowrap;
 }
 
@@ -2021,6 +2040,31 @@ main.page:has(.workspace-grid) .content-inner,
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
+}
+
+/* OID-collision warning: the module defines >1 symbol at one OID (a MIB
+   bug). Amber severity, distinct from the red error state. */
+.detail-warning {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--severity-orange);
+  background: var(--severity-orange-soft);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.detail-warning .detail-warning-icon {
+  color: var(--severity-orange);
+  font-size: 15px;
+  line-height: 1.3;
+}
+.detail-warning code {
+  font-family: var(--font-mono);
+  color: var(--severity-orange);
 }
 .workspace-detail .detail-meta .pill {
   font-family: var(--font-mono);

@@ -277,6 +277,22 @@ func (s *Store) GetSymbolByOID(ctx context.Context, oid string) (*model.Symbol, 
 	return scanSymbol(row.Scan)
 }
 
+// SymbolsAtOID returns every symbol the given module defines at exactly
+// `oid`, name-ordered. More than one is a MIB authoring bug (an OID must
+// identify a single object); the detail pane warns when this returns ≥2.
+// Empty oid returns nil (no-OID symbols never collide on OID).
+func (s *Store) SymbolsAtOID(ctx context.Context, module, oid string) ([]model.Symbol, error) {
+	if oid == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, symbolSelectColumns+`
+		FROM symbol WHERE module_name = ? AND oid = ? ORDER BY name`, module, oid)
+	if err != nil {
+		return nil, fmt.Errorf("symbols at oid %s in %s: %w", oid, module, err)
+	}
+	return scanSymbolRows(rows)
+}
+
 // ListSymbolsByModule returns all symbols belonging to a module, ordered
 // by their OID (numeric ordering would require splitting; lexical
 // ordering is good enough at view-time).

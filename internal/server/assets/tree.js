@@ -50,30 +50,120 @@
 		return oid === prefix || oid.indexOf(prefix + '.') === 0;
 	}
 
+	// cssEsc escapes an OID for use inside a CSS attribute selector value
+	// (CSS.escape where available — OIDs are digits and dots, so a missing
+	// CSS.escape is harmless).
+	function cssEsc(s) {
+		return window.CSS && CSS.escape ? CSS.escape(s) : s;
+	}
+
+	// A folded row stands in for a run of OIDs from its DIRECT child
+	// (data-direct) down to its ANCHOR (data-oid). rowCovers tests whether
+	// `oid` lies on that run — used to resolve a folded-away ancestor to
+	// the single row that represents it.
+	function rowCovers(node, oid) {
+		const direct = node.dataset.direct || node.dataset.oid;
+		return oidUnderPrefix(oid, direct) && oidUnderPrefix(node.dataset.oid, oid);
+	}
+
+	// rowFor finds the rendered row representing `oid`: an exact anchor
+	// match, or the folded row whose run covers it (its ancestors may have
+	// been compressed away, so no node carries `oid` as its own data-oid).
+	//
+	// The covering row's data-direct is one of `oid`'s ancestor prefixes
+	// and its anchor (data-oid) is a descendant-or-equal of `oid`. So probe
+	// `oid`'s prefixes by attribute index (≤ depth lookups) rather than
+	// scanning every rendered node.
+	function rowFor(root, oid) {
+		const exact = treeNode(root, oid);
+		if (exact) return exact;
+		for (let cur = oid; cur; cur = parentOf(cur)) {
+			const n = root.querySelector('.tree-node[data-direct="' + cssEsc(cur) + '"]');
+			if (n && oidUnderPrefix(n.dataset.oid, oid)) return n;
+		}
+		return null;
+	}
+
+	// deepestAncestorRow returns the rendered row whose anchor is the
+	// longest strict prefix of `focus` — the deepest point the spine has
+	// reached so far, from which to expand one level further toward focus.
+	// An ancestor row's anchor (data-oid) is by definition an exact prefix
+	// of focus, so walk focus's prefixes longest-first and return the first
+	// anchored row (≤ depth lookups), not a full-tree scan.
+	function deepestAncestorRow(root, focus) {
+		for (let cur = parentOf(focus); cur; cur = parentOf(cur)) {
+			const n = treeNode(root, cur);
+			if (n) return n;
+		}
+		return null;
+	}
+
+	// childTowards returns the direct child of `anchor` that lies on the
+	// path to `focus` (anchor + the next focus segment), or '' if focus is
+	// not below anchor.
+	function childTowards(anchor, focus) {
+		if (anchor === focus || !oidUnderPrefix(focus, anchor)) return '';
+		const seg = focus.slice(anchor.length + 1).split('.')[0];
+		return seg ? anchor + '.' + seg : '';
+	}
+
 	// workspaceRowURL mirrors web.WorkspaceRowURL for a symbol-backed
 	// node. It ALWAYS targets the node's OWN module (item.module) — in a
 	// global tree most nodes belong to other modules, and a leaf must
 	// route to /m/{its module}, not the page's current module. Scope is
 	// preserved only for a same-module leaf that lives under the current
 	// scope; otherwise it scopes to the leaf's parent. Containers drill.
+	//
+	// Selection is by NAME (unique per module), like web.WorkspaceRowURL —
+	// so a click resolves to THIS symbol even on a buggy MIB that shares
+	// its OID with another (a bare-OID sel would hit the tie-break winner).
 	function workspaceRowURL(item) {
 		const m = encodeURIComponent(item.module);
+		const sel = '?sel=' + encodeURIComponent(item.name);
 		if (!CONTAINER_KINDS.has(item.kind)) {
 			if (item.module === cfg.module && cfg.scope && oidUnderPrefix(item.oid, cfg.scope)) {
-				return '/m/' + m + '/' + encodeURIComponent(cfg.scope) + '?sel=' + encodeURIComponent(item.oid);
+				return '/m/' + m + '/' + encodeURIComponent(cfg.scope) + sel;
 			}
 			const p = parentOf(item.oid);
-			if (p) return '/m/' + m + '/' + encodeURIComponent(p) + '?sel=' + encodeURIComponent(item.oid);
-			return '/m/' + m + '?sel=' + encodeURIComponent(item.oid);
+			if (p) return '/m/' + m + '/' + encodeURIComponent(p) + sel;
+			return '/m/' + m + sel;
 		}
-		return '/m/' + m + '/' + encodeURIComponent(item.oid);
+		return '/m/' + m + '/' + encodeURIComponent(item.oid) + sel;
+	}
+
+	// currentFamily is the kind-chip family applied to the workspace tree
+	// ('' = all). Initialised from the persisted chip so a reload respects
+	// the active filter; updated by the blittermib:kindfilter event.
+	let currentFamily = readKindFamily();
+
+	// normFamily maps a kind-chip value to the tree's family param, '' for
+	// 'all' or anything unrecognised.
+	function normFamily(v) {
+		return v === 'scalar' || v === 'table' || v === 'notif' ? v : '';
+	}
+
+	function readKindFamily() {
+		try {
+			return normFamily(sessionStorage.getItem('blittermib-kind-filter'));
+		} catch (e) {
+			return '';
+		}
+	}
+
+	// branchesParam asks the server to hide leaf objects (the workspace
+	// "container map" — leaves are listed in the center pane) and, when a
+	// kind chip is active, to prune to that family's branches. The
+	// standalone /tree browser omits it and shows every OID.
+	function branchesParam() {
+		if (cfg.mode !== 'workspace') return '';
+		return currentFamily ? '&branches=1&family=' + currentFamily : '&branches=1';
 	}
 
 	// fetchPage returns one keyset page of children plus the cursor for
 	// the next page (null when the level is exhausted). `after` is the
 	// last OID of the previous page (or an anchor OID for spine expansion).
 	async function fetchPage(parent, after) {
-		let url = TREE_API + '?parent=' + encodeURIComponent(parent || ROOT_OID);
+		let url = TREE_API + '?parent=' + encodeURIComponent(parent || ROOT_OID) + branchesParam();
 		if (after) url += '&after=' + encodeURIComponent(after);
 		const res = await fetch(url);
 		if (!res.ok) throw new Error('tree fetch ' + res.status);
@@ -85,7 +175,7 @@
 	// `before` (ascending), plus prevBefore (the cursor for the page
 	// before that, or null at the level's start). Powers "show earlier".
 	async function fetchPageBefore(parent, before) {
-		const url = TREE_API + '?parent=' + encodeURIComponent(parent || ROOT_OID) +
+		const url = TREE_API + '?parent=' + encodeURIComponent(parent || ROOT_OID) + branchesParam() +
 			'&before=' + encodeURIComponent(before);
 		const res = await fetch(url);
 		if (!res.ok) throw new Error('tree fetch ' + res.status);
@@ -96,9 +186,19 @@
 	function makeNode(item, level) {
 		const li = document.createElement('li');
 		li.className = 'tree-node';
+		// data-oid is the ANCHOR (deepest node of a folded run) — what
+		// expand/select address; data-direct is the run's direct child
+		// under the parent — the keyset cursor key and the basis for
+		// rowCovers. They coincide on an unfolded row.
 		li.dataset.oid = item.oid;
+		li.dataset.direct = item.directOID || item.oid;
 		li.dataset.expanded = 'false';
-		li.dataset.hasChildren = item.hasChildren ? 'true' : 'false';
+		// hasChildren is the EXPANDABLE signal from the server — in the
+		// workspace container map it is "has a child the tree will render",
+		// so a table-entry whose only children are leaf columns is a
+		// non-expandable tree leaf even though childCount > 0 (the badge).
+		const hasChildren = !!item.hasChildren;
+		li.dataset.hasChildren = hasChildren ? 'true' : 'false';
 		// ARIA tree pattern (WCAG 4.1.2): the <li> is the focusable
 		// treeitem. Roving tabindex — every node starts at -1; exactly
 		// one node carries tabindex=0 (set by setRovingTo) so the tree is
@@ -106,9 +206,11 @@
 		li.setAttribute('role', 'treeitem');
 		li.setAttribute('aria-level', String(level));
 		li.tabIndex = -1;
-		if (item.hasChildren) li.setAttribute('aria-expanded', 'false');
+		if (hasChildren) li.setAttribute('aria-expanded', 'false');
 		// Workspace mode highlights the focused (searched/selected) node.
-		if (cfg.mode === 'workspace' && cfg.focus && item.oid === cfg.focus) {
+		// The focus may be folded INTO this row (an ancestor compressed
+		// away), so test run-coverage, not just anchor equality.
+		if (cfg.mode === 'workspace' && cfg.focus && rowCovers(li, cfg.focus)) {
 			li.classList.add('tree-selected');
 			li.setAttribute('aria-selected', 'true');
 		}
@@ -125,8 +227,8 @@
 		btn.setAttribute('aria-hidden', 'true');
 		btn.tabIndex = -1;
 		btn.dataset.action = 'expand';
-		btn.textContent = item.hasChildren ? '▸' : ' ';
-		if (!item.hasChildren) btn.disabled = true;
+		btn.textContent = hasChildren ? '▸' : ' ';
+		if (!hasChildren) btn.disabled = true;
 		row.appendChild(btn);
 
 		const num = document.createElement('span');
@@ -134,9 +236,14 @@
 		num.textContent = '.' + (item.position || '');
 		row.appendChild(num);
 
-		// Symbol-backed nodes link to /s/{module}::{name}. Synthetic
-		// bridge nodes (item.hasSymbol === false) have no symbol page —
-		// render their name (IANA canonical when known, else the numeric
+		// A folded row shows the dotted name-path of its run
+		// ("iso.org.dod"); the row links/expands as a whole to the anchor
+		// (its deepest node). An unfolded row's namePath is just its name.
+		const np = item.namePath || item.name || ('.' + (item.position || ''));
+
+		// Symbol-backed anchors link to /s/{module}::{name}. Synthetic
+		// bridge anchors (item.hasSymbol === false) have no symbol page —
+		// render the name-path (IANA canonical when known, else the numeric
 		// segment) as plain text so the subtree is still navigable.
 		let nameEl;
 		if (item.hasSymbol) {
@@ -155,10 +262,21 @@
 			} else {
 				nameEl.href = '/s/' + encodeURIComponent(item.module + '::' + item.name);
 			}
-			nameEl.textContent = item.name;
+			nameEl.textContent = np;
+		} else if (cfg.mode === 'workspace' && cfg.module) {
+			// Synthetic bridge (no /s/ page) — but in the workspace it can
+			// still SCOPE the list to its OID. Its descendants belong to the
+			// module being viewed (e.g. the `{trapGroup 0}` wrapper that
+			// holds a module's notifications), so scope to the OID within the
+			// current module rather than leaving it a dead, unclickable span.
+			nameEl = document.createElement('a');
+			nameEl.href = '/m/' + encodeURIComponent(cfg.module) + '/' + encodeURIComponent(item.oid);
+			nameEl.setAttribute('data-nav', '');
+			nameEl.textContent = np;
+			nameEl.classList.add('tree-name-synthetic');
 		} else {
 			nameEl = document.createElement('span');
-			nameEl.textContent = item.name || ('.' + (item.position || ''));
+			nameEl.textContent = np;
 			nameEl.classList.add('tree-name-synthetic');
 		}
 		nameEl.classList.add('tree-name');
@@ -171,6 +289,15 @@
 		// Synthetic nodes carry no module/kind; leave the meta empty.
 		meta.textContent = item.hasSymbol ? (item.module + ' · ' + item.kind) : '';
 		row.appendChild(meta);
+
+		// Child-count badge — the figure that makes a folded row legible
+		// (".1.3.6 iso.org.dod" still has 1 child below). Anchor's count.
+		if (item.childCount > 0) {
+			const badge = document.createElement('span');
+			badge.className = 'tree-badge';
+			badge.textContent = String(item.childCount);
+			row.appendChild(badge);
+		}
 
 		li.appendChild(row);
 		return li;
@@ -251,16 +378,19 @@
 		const level = parseInt(btn.dataset.level || '1', 10);
 		// The 'before' bound is the level's current first real node — so
 		// we fetch the page just below it and prepend, never touching the
-		// existing (possibly expanded) window.
+		// existing (possibly expanded) window. The keyset is on the DIRECT
+		// child's segment, so bound by data-direct (the anchor in data-oid
+		// may sit several folded segments deeper, giving the wrong seg).
 		const firstNode = ul.querySelector(':scope > .tree-node');
-		if (!firstNode || !firstNode.dataset.oid) {
+		const firstDirect = firstNode && (firstNode.dataset.direct || firstNode.dataset.oid);
+		if (!firstDirect) {
 			ul.removeChild(li);
 			return;
 		}
 		btn.disabled = true;
 		btn.textContent = 'Loading…';
 		try {
-			const page = await fetchPageBefore(parent, firstNode.dataset.oid);
+			const page = await fetchPageBefore(parent, firstDirect);
 			const frag = document.createDocumentFragment();
 			page.items.forEach((item) => frag.appendChild(makeNode(item, level)));
 			ul.insertBefore(frag, firstNode);
@@ -286,7 +416,7 @@
 
 	// treeNode finds a rendered node by OID within a tree root.
 	function treeNode(root, oid) {
-		return root.querySelector('.tree-node[data-oid="' + (window.CSS && CSS.escape ? CSS.escape(oid) : oid) + '"]');
+		return root.querySelector('.tree-node[data-oid="' + cssEsc(oid) + '"]');
 	}
 
 	async function expand(node) {
@@ -348,8 +478,9 @@
 	async function loadAnchored(node, childOID) {
 		if (node.dataset.hasChildren !== 'true') return;
 		const root = node.closest('[data-tree]');
-		if (root && treeNode(root, childOID)) {
-			// Already present (level previously loaded) — just ensure open.
+		if (root && rowFor(root, childOID)) {
+			// Already present (level previously loaded) — the child may be
+			// folded into a deeper row, so test coverage, not exact OID.
 			if (node.dataset.expanded !== 'true') expand(node);
 			return;
 		}
@@ -372,7 +503,10 @@
 		const parentOID = node.dataset.oid;
 		let page = await fetchPage(parentOID, '');
 		let anchored = false;
-		if (!page.items.some((it) => it.oid === childOID)) {
+		// Each item is keyed by its DIRECT child under parentOID; childOID
+		// IS that direct child, so match on directOID (the anchor may sit
+		// deeper after folding).
+		if (!page.items.some((it) => (it.directOID || it.oid) === childOID)) {
 			// The child isn't on the first page → this is a wide level;
 			// jump to the page that starts at the child, and offer a way
 			// back to the earlier siblings we skipped.
@@ -388,27 +522,46 @@
 
 	// expandSpineTo expands the tree from the apex down to `focusOID`,
 	// anchoring each wide level at the next spine node, then selects and
-	// scrolls the focus into view. The apex page is already rendered, so
-	// it walks the focus OID's prefixes from depth 1 downward.
+	// scrolls the focus into view.
+	//
+	// Path compression means the focus OID's numeric ancestors are NOT all
+	// rendered rows — a single-child run (e.g. iso→org→dod) is one row
+	// whose anchor sits several segments below the parent. So the walk is
+	// driven by the rendered rows: from the deepest row that is an ancestor
+	// of focus, expand toward focus by its anchor's next child, and repeat
+	// until a row covers focus (or the spine genuinely breaks).
 	async function expandSpineTo(root, focusOID) {
-		const parts = focusOID.split('.');
-		for (let d = 1; d < parts.length; d++) {
-			const ancestor = parts.slice(0, d).join('.');
-			const child = parts.slice(0, d + 1).join('.');
-			const node = treeNode(root, ancestor);
-			if (!node) return; // spine broke (e.g. apex page didn't include it)
-			if (node.dataset.hasChildren !== 'true') return; // leaf — stop
-			await loadAnchored(node, child);
+		// Bounded by OID depth; the guard only backstops a data anomaly.
+		let prevAnchor = '';
+		for (let guard = 0; guard < 64; guard++) {
+			if (rowFor(root, focusOID)) break; // focus rendered/covered — done
+			const ancestor = deepestAncestorRow(root, focusOID);
+			if (!ancestor) break; // spine broke (apex page didn't include it)
+			// Deepest ancestor is a tree-leaf container (e.g. focus is a leaf
+			// object hidden from the container map) — stop and highlight it.
+			if (ancestor.dataset.hasChildren !== 'true') break;
+			// No progress since the last expand (e.g. a stale focus whose
+			// child doesn't exist) — stop rather than spin.
+			if (ancestor.dataset.oid === prevAnchor) break;
+			prevAnchor = ancestor.dataset.oid;
+			const child = childTowards(ancestor.dataset.oid, focusOID);
+			if (!child) break;
+			await loadAnchored(ancestor, child);
 		}
-		const target = treeNode(root, focusOID);
+		// The focus may itself be hidden (a leaf object in the container
+		// map); fall back to the deepest container that holds it so the tree
+		// still shows "which scope am I in". Return it for the caller to
+		// highlight (callers own selection state / generation guarding).
+		const target = rowFor(root, focusOID) || deepestAncestorRow(root, focusOID);
 		if (target) {
-			// Make the selection the single tab stop and scroll it into
-			// view, but DON'T steal focus on load (that would yank the
-			// caret into the tree the moment the page renders).
+			// Make it the single tab stop and scroll into view, but DON'T
+			// steal focus on load (that would yank the caret into the tree
+			// the moment the page renders).
 			root.querySelectorAll('.tree-node').forEach((n) => { n.tabIndex = -1; });
 			target.tabIndex = 0;
 			if (target.scrollIntoView) target.scrollIntoView({ block: 'center' });
 		}
+		return target;
 	}
 
 	function collapse(node) {
@@ -547,7 +700,15 @@
 		node.tabIndex = 0;
 	}
 
+	// buildGen serialises rebuilds: a chip toggle (or reload) can start a
+	// new buildInitial while an earlier one is mid-await. Each run stamps a
+	// generation and bails after every await once a newer run has started,
+	// so overlapping rebuilds never append into each other's (detached) DOM
+	// or run two spine walks on the same container.
+	let buildGen = 0;
+
 	async function buildInitial(container) {
+		const gen = ++buildGen;
 		cfg = {
 			mode: container.dataset.treeMode === 'workspace' ? 'workspace' : 'standalone',
 			focus: container.dataset.treeFocus || '',
@@ -567,6 +728,7 @@
 
 		try {
 			const page = await fetchPage(parent);
+			if (gen !== buildGen) return; // superseded by a newer rebuild
 			if (page.items.length === 0) {
 				ul.innerHTML = '<li class="tree-empty">No OIDs under <code>' + escape(parent || 'the root') + '</code>.</li>';
 				return;
@@ -586,7 +748,12 @@
 		// already rendered above.
 		if (cfg.mode === 'workspace' && cfg.focus) {
 			try {
-				await expandSpineTo(container, cfg.focus);
+				const target = await expandSpineTo(container, cfg.focus);
+				if (gen !== buildGen) return; // superseded mid-spine-walk
+				// Highlight the resolved row. makeNode already selects a row
+				// whose run COVERS the focus; this also covers the case where
+				// the focus is a hidden leaf and `target` is its container.
+				if (target) markSelected(container, target);
 			} catch (err) {
 				console.warn('tree spine expand failed', err);
 			}
@@ -647,7 +814,9 @@
 		// no-OID selection (a TC), which has nothing to highlight.
 		clearSelection(container);
 		if (!cur.focus) return;
-		let node = treeNode(container, cur.focus);
+		// rowFor (not treeNode): the selection's ancestors may be folded,
+		// so it can be represented by a covering row rather than its own.
+		let node = rowFor(container, cur.focus);
 		if (!node) {
 			try {
 				await expandSpineTo(container, cur.focus);
@@ -656,7 +825,9 @@
 				return;
 			}
 			if (gen !== selectGen) return; // superseded by a newer nav
-			node = treeNode(container, cur.focus);
+			// rowFor first; for a hidden leaf selection, fall back to the
+			// container row that holds it.
+			node = rowFor(container, cur.focus) || deepestAncestorRow(container, cur.focus);
 		}
 		if (node) markSelected(container, node);
 	}
@@ -671,6 +842,24 @@
 		document.body.addEventListener('htmx:afterSwap', function () {
 			attach();
 			syncSelection();
+		});
+		// The kind chips (Alpine, in workspace.js) dispatch this when the
+		// active family changes; re-filter the tree's container map to it
+		// and re-reveal the current selection.
+		window.addEventListener('blittermib:kindfilter', function (e) {
+			const fam = normFamily(e && e.detail);
+			if (fam === currentFamily) return;
+			currentFamily = fam;
+			const container = document.querySelector('[data-tree]');
+			if (!container || container.dataset.treeBuilt !== 'true') return;
+			// data-tree-focus is frozen at page load (the tree pane never
+			// htmx-swaps), but buildInitial re-reads it — so sync it to the
+			// LIVE selection (cfg.focus, tracked by syncSelection) first, or
+			// the rebuild would revert the highlight to the page-load node.
+			if (cfg.mode === 'workspace') container.dataset.treeFocus = cfg.focus || '';
+			// buildInitial re-fetches every level with the new family and
+			// re-reveals the current selection.
+			buildInitial(container);
 		});
 		listenersBound = true;
 	}

@@ -919,15 +919,16 @@ func TestWorkspaceScopeFilter(t *testing.T) {
 		}
 	}
 
-	// /m/IF-MIB/1.3.6.1.2.1.2.2.1 (ifEntry) narrows to the entry +
-	// its columns; ifTable (the parent) is excluded.
+	// /m/IF-MIB/1.3.6.1.2.1.2.2.1 (ifEntry) narrows to the entry's
+	// columns; both ifTable (the parent) and ifEntry (the scope root
+	// itself) are excluded — the root is the breadcrumb's current crumb,
+	// so listing it again duplicates it.
 	resp, err = http.Get(ts.URL + "/m/IF-MIB/1.3.6.1.2.1.2.2.1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	scoped := body(t, resp)
 	for _, want := range []string{
-		`data-name="ifEntry"`,
 		`data-name="ifIndex"`,
 		`data-name="ifInOctets"`,
 	} {
@@ -938,6 +939,10 @@ func TestWorkspaceScopeFilter(t *testing.T) {
 	// The list pane scope-link is rendered when scope is active.
 	if !strings.Contains(scoped, "View all in module") {
 		t.Errorf("scoped list missing the View-all-in-module link")
+	}
+	// The scope root (ifEntry) is no longer a list-row.
+	if strings.Contains(scoped, `data-name="ifEntry"`) {
+		t.Errorf("scoped list still includes the scope-root ifEntry row")
 	}
 	// Server-narrowing means ifTable should NOT appear as a list-row
 	// (it can still appear as the scope-link href, etc., so check the
@@ -1060,7 +1065,7 @@ func TestSearchResultsLinkToWorkspace(t *testing.T) {
 	html := body(t, resp)
 	// Hit rows must point at the workspace selection, not the
 	// canonical detail page (Phase 3 retarget).
-	want := `href="/m/IF-MIB/1.3.6.1.2.1.2.2.1.10"`
+	want := `href="/m/IF-MIB/1.3.6.1.2.1.2.2.1.10?sel=ifInOctets"`
 	if !strings.Contains(html, want) {
 		t.Errorf("search hit link missing %q (search results should target workspace, not /s/...)", want)
 	}
@@ -1433,12 +1438,12 @@ func TestAPITree(t *testing.T) {
 	var got struct {
 		Parent   string
 		Children []struct {
-			OID         string
-			Name        string
-			Module      string
-			Kind        string
-			HasChildren bool
-			Position    string
+			OID        string
+			Name       string
+			Module     string
+			Kind       string
+			ChildCount int64
+			Position   string
 		}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
@@ -1449,12 +1454,12 @@ func TestAPITree(t *testing.T) {
 	}
 	// ifEntry is at 1.3.6.1.2.1.2.2.1 in our fixture and has children.
 	var entry *struct {
-		OID         string
-		Name        string
-		Module      string
-		Kind        string
-		HasChildren bool
-		Position    string
+		OID        string
+		Name       string
+		Module     string
+		Kind       string
+		ChildCount int64
+		Position   string
 	}
 	for i := range got.Children {
 		if got.Children[i].Name == "ifEntry" {
@@ -1465,8 +1470,8 @@ func TestAPITree(t *testing.T) {
 	if entry == nil {
 		t.Fatal("ifEntry not in children")
 	}
-	if !entry.HasChildren {
-		t.Error("ifEntry should report HasChildren=true")
+	if entry.ChildCount == 0 {
+		t.Error("ifEntry should report children (childCount > 0)")
 	}
 	if entry.Position != "1" {
 		t.Errorf("ifEntry position = %q, want 1", entry.Position)
@@ -1475,15 +1480,19 @@ func TestAPITree(t *testing.T) {
 
 // treeAPIResp mirrors the /api/v1/tree JSON shape for decoding in tests.
 type treeAPIResp struct {
-	Parent    string
-	NextAfter *string
-	Children  []struct {
+	Parent     string
+	NextAfter  *string
+	PrevBefore *string
+	Children   []struct {
 		OID         string
+		DirectOID   string
 		Name        string
+		NamePath    string
 		Module      string
 		Kind        string
-		HasChildren bool
 		HasSymbol   bool
+		HasChildren bool
+		ChildCount  int64
 		Position    string
 	}
 }
@@ -1609,12 +1618,16 @@ func TestAPITreeBackward(t *testing.T) {
 }
 
 // TestAPITreeSyntheticNode checks that an intermediate prefix with no
-// symbol is surfaced as a navigable, non-symbol node.
+// symbol is surfaced as a navigable, non-symbol node. The bridge has two
+// children so it is a BRANCH — path compression leaves branch nodes as
+// their own rows (a single-child bridge would instead fold into its
+// descendant; see TestAPITreeFoldsSingleChildRun).
 func TestAPITreeSyntheticNode(t *testing.T) {
 	ts := treeServerWith(t, []model.Symbol{
-		{ModuleName: "M", Name: "leaf", OID: "1.3.6.1.4.1.99.5.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "leaf1", OID: "1.3.6.1.4.1.99.5.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "leaf2", OID: "1.3.6.1.4.1.99.5.2", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
 	})
-	// 1.3.6.1.4.1.99.5 has no symbol but bridges to the .5.1 leaf.
+	// 1.3.6.1.4.1.99.5 has no symbol but bridges to the .5.1/.5.2 leaves.
 	got := getTree(t, ts, "parent=1.3.6.1.4.1.99")
 	if len(got.Children) != 1 {
 		t.Fatalf("want one child (the .5 bridge), got %d", len(got.Children))
@@ -1623,11 +1636,182 @@ func TestAPITreeSyntheticNode(t *testing.T) {
 	if c.HasSymbol {
 		t.Error("bridge node should report hasSymbol=false")
 	}
-	if !c.HasChildren {
-		t.Error("bridge node should report hasChildren=true")
+	if c.ChildCount == 0 {
+		t.Error("bridge node should report children (childCount > 0)")
 	}
 	if c.OID != "1.3.6.1.4.1.99.5" {
 		t.Errorf("bridge OID = %q", c.OID)
+	}
+}
+
+// TestAPITreeFoldsSingleChildRun pins path compression end to end: a run
+// of single-child nodes collapses into one row whose Position is the
+// dotted seg-path, NamePath the dotted resolved names, anchor fields the
+// deepest node, and ChildCount the badge figure. A leaf tail is absorbed.
+func TestAPITreeFoldsSingleChildRun(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		// .99 → .99.1 → .99.1.4 (leaf): a single-child run bottoming in a leaf.
+		{ModuleName: "M", Name: "spine", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "tip", OID: "1.3.6.1.4.1.99.1.4", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+	got := getTree(t, ts, "parent=1.3.6.1.4.1")
+	if len(got.Children) != 1 {
+		t.Fatalf("enterprises children = %d, want 1 folded row", len(got.Children))
+	}
+	c := got.Children[0]
+	if c.Position != "99.1.4" {
+		t.Errorf("position (seg-path) = %q, want %q", c.Position, "99.1.4")
+	}
+	if c.NamePath != "99.spine.tip" {
+		t.Errorf("namePath = %q, want %q", c.NamePath, "99.spine.tip")
+	}
+	if c.OID != "1.3.6.1.4.1.99.1.4" || c.Name != "tip" {
+		t.Errorf("anchor = %q/%q, want the .99.1.4 tip", c.OID, c.Name)
+	}
+	if c.ChildCount != 0 {
+		t.Errorf("absorbed-leaf row childCount=%d, want 0 (leaf)", c.ChildCount)
+	}
+	// The cursor for this row is the DIRECT child (.99), not the anchor.
+	if c.DirectOID != "1.3.6.1.4.1.99" {
+		t.Errorf("directOID (cursor) = %q, want 1.3.6.1.4.1.99", c.DirectOID)
+	}
+}
+
+// TestAPITreeMockupRegion reproduces the screenshot region under the
+// inclusive fold rule: a node with exactly one child merges with that
+// child even when the child is a branch. The root spine folds all the way
+// to internet (dod's one child), and mgmt folds into mib-2 → ".2.1
+// mgmt.mib-2" with mib-2's child-count badge.
+func TestAPITreeMockupRegion(t *testing.T) {
+	// Symbols hang leaves so the intermediate prefixes get the right child
+	// counts: internet gets two children (directory, mgmt) → a branch;
+	// mib-2 gets two (system, interfaces) → a branch; mgmt keeps one.
+	ts := treeServerWith(t, []model.Symbol{
+		{ModuleName: "M", Name: "aDir", OID: "1.3.6.1.1.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "sysDescr", OID: "1.3.6.1.2.1.1.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "ifNumber", OID: "1.3.6.1.2.1.2.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+
+	// Apex: each of iso/org/dod has exactly one child, so the spine folds
+	// down to (and includes) internet, the first branch (2 children).
+	apex := getTree(t, ts, "parent=")
+	if len(apex.Children) != 1 {
+		t.Fatalf("apex children = %d, want 1 folded spine row", len(apex.Children))
+	}
+	if c := apex.Children[0]; c.Position != "1.3.6.1" || c.NamePath != "iso.org.dod.internet" ||
+		c.OID != "1.3.6.1" || c.HasSymbol || c.ChildCount != 2 {
+		t.Fatalf("apex row = %+v, want .1.3.6.1 iso.org.dod.internet [2] (synthetic)", c)
+	}
+
+	// internet → directory and mgmt. mgmt has one child (mib-2), so it
+	// FOLDS into it: ".2.1 mgmt.mib-2" anchored at mib-2 with its [2] badge.
+	inet := getTree(t, ts, "parent=1.3.6.1")
+	mgmtIdx := -1
+	for i := range inet.Children {
+		if inet.Children[i].Position == "2.1" {
+			mgmtIdx = i
+		}
+	}
+	if mgmtIdx < 0 {
+		t.Fatalf("no folded mgmt.mib-2 row among internet children: %+v", inet.Children)
+	}
+	if c := inet.Children[mgmtIdx]; c.NamePath != "mgmt.mib-2" || c.OID != "1.3.6.1.2.1" ||
+		c.ChildCount != 2 || c.DirectOID != "1.3.6.1.2" {
+		t.Errorf("mgmt row = %+v, want .2.1 mgmt.mib-2 [2] (anchor mib-2, direct 1.3.6.1.2)", c)
+	}
+}
+
+// TestAPITreeFamily pins the kind-family filter on the API: with
+// branches=1&family=table the tree prunes to table-bearing branches;
+// family is ignored without branches=1; an unknown family ⇒ no filter.
+func TestAPITreeFamily(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		// Under mib-2: system has a scalar; interfaces has a table.
+		{ModuleName: "M", Name: "sysDescr", OID: "1.3.6.1.2.1.1.1", Kind: model.KindScalar, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "ifTable", OID: "1.3.6.1.2.1.2.2", Kind: model.KindTable, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "ifEntry", OID: "1.3.6.1.2.1.2.2.1", Kind: model.KindTableEntry, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "ifIndex", OID: "1.3.6.1.2.1.2.2.1.1", Kind: model.KindColumn, Status: model.StatusCurrent},
+	})
+	const mib2 = "parent=1.3.6.1.2.1&branches=1"
+
+	// No family ⇒ both system and interfaces show.
+	all := getTree(t, ts, mib2)
+	if len(all.Children) != 2 {
+		t.Fatalf("branches, no family = %d rows, want 2", len(all.Children))
+	}
+
+	// family=table ⇒ only the interfaces branch (folded to its entry).
+	tbl := getTree(t, ts, mib2+"&family=table")
+	if len(tbl.Children) != 1 || tbl.Children[0].DirectOID != "1.3.6.1.2.1.2" {
+		t.Fatalf("family=table = %+v, want 1 row under interfaces", tbl.Children)
+	}
+
+	// family=notif ⇒ nothing here matches.
+	if n := getTree(t, ts, mib2+"&family=notif"); len(n.Children) != 0 {
+		t.Errorf("family=notif = %d rows, want 0", len(n.Children))
+	}
+
+	// family WITHOUT branches=1 is ignored (standalone tree shows all).
+	if s := getTree(t, ts, "parent=1.3.6.1.2.1&family=table"); len(s.Children) != 2 {
+		t.Errorf("family without branches = %d rows, want 2 (ignored)", len(s.Children))
+	}
+}
+
+// TestAPITreeFoldCursorUsesDirectChild pins that a paginated cursor on a
+// folded boundary row carries the direct child OID, so the next page
+// continues by sibling segment rather than by the anchor's deep segment.
+func TestAPITreeFoldCursorUsesDirectChild(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		// Two single-child spines under .99: .1→.1.7 and .2→.2.7.
+		{ModuleName: "M", Name: "a", OID: "1.3.6.1.4.1.99.1.7", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "b", OID: "1.3.6.1.4.1.99.2.7", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+	page1 := getTree(t, ts, "parent=1.3.6.1.4.1.99&limit=1")
+	if page1.NextAfter == nil {
+		t.Fatal("page1 should carry a next cursor")
+	}
+	if *page1.NextAfter != "1.3.6.1.4.1.99.1" {
+		t.Errorf("cursor = %q, want the direct child 1.3.6.1.4.1.99.1 (not the .1.7 anchor)", *page1.NextAfter)
+	}
+	page2 := getTree(t, ts, "parent=1.3.6.1.4.1.99&limit=1&after="+*page1.NextAfter)
+	if len(page2.Children) != 1 || page2.Children[0].Position != "2.7" {
+		t.Fatalf("page2 = %v, want the .2 spine folded to 2.7", page2.Children)
+	}
+}
+
+// TestAPITreeBranches pins the workspace "container map": with branches=1
+// leaf objects are hidden and a container whose children are all leaves is
+// reported non-expandable (hasChildren=false) though its childCount stands;
+// without the param every node shows.
+func TestAPITreeBranches(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		// Under .99: a scalar leaf .1 and a table .4 → entry .4.1 → 2 columns.
+		{ModuleName: "M", Name: "scalar", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "col1", OID: "1.3.6.1.4.1.99.4.1.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "col2", OID: "1.3.6.1.4.1.99.4.1.2", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+
+	// Default: both the scalar leaf and the folded table.entry show.
+	def := getTree(t, ts, "parent=1.3.6.1.4.1.99")
+	if len(def.Children) != 2 {
+		t.Fatalf("default children = %d, want 2 (scalar + table)", len(def.Children))
+	}
+
+	// branches=1: the scalar leaf is hidden; only the folded table.entry
+	// remains, and it is non-expandable (its children are leaf columns).
+	br := getTree(t, ts, "parent=1.3.6.1.4.1.99&branches=1")
+	if len(br.Children) != 1 {
+		t.Fatalf("branches=1 children = %d, want 1 (scalar hidden)", len(br.Children))
+	}
+	c := br.Children[0]
+	if c.Position != "4.1" || c.HasChildren || c.ChildCount != 2 {
+		t.Errorf("folded entry = %+v, want position 4.1, hasChildren=false, childCount=2", c)
+	}
+
+	// Drilling the entry with branches=1 yields nothing (columns are leaves).
+	cols := getTree(t, ts, "parent=1.3.6.1.4.1.99.4.1&branches=1")
+	if len(cols.Children) != 0 {
+		t.Errorf("branches=1 under the entry = %d rows, want 0", len(cols.Children))
 	}
 }
 
@@ -1760,7 +1944,7 @@ func TestSymbolDisambiguationRedirectsSingleMatch(t *testing.T) {
 	// workspace selection so `/s/{name}` is consistent with /o/{oid}
 	// and search-hit retargets. Symbols without an OID still fall
 	// back to /s/... via web.WorkspaceSymbolURL.
-	if loc := resp.Header.Get("Location"); loc != "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10" {
+	if loc := resp.Header.Get("Location"); loc != "/m/IF-MIB/1.3.6.1.2.1.2.2.1.10?sel=ifInOctets" {
 		t.Errorf("location = %q", loc)
 	}
 }

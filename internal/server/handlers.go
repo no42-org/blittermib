@@ -745,6 +745,29 @@ func (s *Server) buildWorkspaceView(ctx context.Context, mod *model.Module, syms
 		}
 	}
 
+	// Scoped iff the scope OID actually narrows the list (computed from the
+	// at-or-under count, BEFORE the scope-root row is stripped below).
+	scoped := oid != "" && len(listRows) < oidBearing
+
+	// When genuinely scoped to a sub-container, drop the scope-root row
+	// itself from the list — it is already the breadcrumb's current crumb
+	// (and the auto-selected detail), so listing it again just duplicates
+	// it. Unscoped / module-root views keep every row. Guard: if stripping
+	// the root would leave nothing (a deep-link scoped directly to a leaf
+	// OID, whose only row IS the root), keep the root so the list isn't
+	// empty.
+	if scoped {
+		kept := listRows[:0:0]
+		for i := range listRows {
+			if listRows[i].OID != oid {
+				kept = append(kept, listRows[i])
+			}
+		}
+		if len(kept) > 0 {
+			listRows = kept
+		}
+	}
+
 	// Pre-compute disk-availability so the module-info bar can hide
 	// download affordances when the source has disappeared. A single
 	// stat per render is cheap; doing it from inside the templ would
@@ -812,7 +835,7 @@ func (s *Server) buildWorkspaceView(ctx context.Context, mod *model.Module, syms
 		ListRows:           listRows,
 		Modules:            allModules,
 		ScopeOID:           oid,
-		Scoped:             oid != "" && len(listRows) < oidBearing,
+		Scoped:             scoped,
 		ModuleDownloadable: downloadable,
 		TypeDefs:           web.CollectTypeDefs(syms),
 		BundleFileCount:    bundleFileCount,
@@ -996,6 +1019,20 @@ func (s *Server) buildSymbolView(ctx context.Context, sym *model.Symbol) (*web.S
 			v.SourceText = slice
 			v.SourcePath = mod.SourcePath
 		}
+	}
+	// OID collision: OTHER symbols the module defines at this symbol's OID
+	// (a MIB bug). Drives the detail-pane warning on both the workspace and
+	// the /s/ page. A well-formed module returns just this symbol → none.
+	if peers, err := s.store.SymbolsAtOID(ctx, sym.ModuleName, sym.OID); err == nil {
+		for i := range peers {
+			if peers[i].Name != sym.Name {
+				v.CollisionSiblings = append(v.CollisionSiblings, web.OIDCollision{
+					Name: peers[i].Name, Kind: peers[i].Kind,
+				})
+			}
+		}
+	} else {
+		slog.WarnContext(ctx, "symbol view: collision lookup failed", "module", sym.ModuleName, "oid", sym.OID, "err", err)
 	}
 	return v, nil
 }
@@ -1458,6 +1495,21 @@ const (
 	apiTreeMaxLimit     = 500
 )
 
+// segDisplayName resolves one folded-chain segment's display name: the
+// stored symbol name when it is symbol-backed, else the IANA canonical
+// name for its OID, else the bare numeric segment. Mirrors the per-row
+// fallback the tree uses for synthetic bridge nodes, applied per segment
+// so a compressed name-path (e.g. "iso.org.dod") names every hop.
+func segDisplayName(seg store.FoldSeg) string {
+	if seg.HasSymbol && seg.Name != "" {
+		return seg.Name
+	}
+	if canon, ok := iana.LookupCanonical(seg.OID); ok {
+		return canon
+	}
+	return seg.Label
+}
+
 // handleAPITree serves the children of an OID from the materialised
 // oid_node trie as JSON, paginated by a keyset cursor.
 //
@@ -1503,9 +1555,30 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 		limit = apiTreeMaxLimit
 	}
 
+	// branches=1 (the workspace "container map") hides leaf objects so the
+	// tree is structural navigation only — the leaves are listed in the
+	// center pane. The standalone /tree browser omits it and shows every OID.
+	branchesOnly := r.URL.Query().Get("branches") == "1"
+
+	// family=scalar|table|notif (only honoured with branches=1) further
+	// prunes the container map to branches whose subtree holds that kind-
+	// chip family. The store maps it to a fixed column; any other value is
+	// ignored (no filter), so an unknown chip degrades to the full map.
+	family := ""
+	if branchesOnly {
+		switch r.URL.Query().Get("family") {
+		case "scalar":
+			family = "scalar"
+		case "table":
+			family = "table"
+		case "notif":
+			family = "notif"
+		}
+	}
+
 	ctx := r.Context()
 	var (
-		children []store.NodeRow
+		children []store.FoldedNodeRow
 		err      error
 	)
 	if backward {
@@ -1513,55 +1586,74 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 		if seg, perr := strconv.ParseInt(lastOIDSegment(before), 10, 64); perr == nil {
 			beforeSeg = seg
 		}
-		children, err = s.store.ListNodeChildrenBefore(ctx, parent, beforeSeg, limit)
+		children, err = s.store.ListNodeChildrenFoldedBefore(ctx, parent, beforeSeg, limit, branchesOnly, family)
 	} else {
-		children, err = s.store.ListNodeChildren(ctx, parent, afterSeg, limit)
+		children, err = s.store.ListNodeChildrenFolded(ctx, parent, afterSeg, limit, branchesOnly, family)
 	}
 	if err != nil {
 		s.apiError(w, r, http.StatusInternalServerError, "internal error", err)
 		return
 	}
 
+	// Each row is one direct child of `parent`, path-compressed: a run of
+	// single-child nodes folded to its deepest (anchor) node. The client
+	// renders Position (the dotted seg-path, e.g. "1.3.6") and NamePath
+	// ("iso.org.dod") but expands / links via the anchor (OID, Name).
+	// DirectOID is the keyset cursor key (the direct child under `parent`),
+	// kept distinct from the anchor so the cursor's last segment stays a
+	// valid sibling key here. hasChildren is the EXPANDABLE signal (distinct
+	// from childCount): in branches mode a table-entry has childCount>0 but
+	// hasChildren=false (its only children are hidden leaf columns), so the
+	// chevron must come from hasChildren while childCount drives the badge.
 	type item struct {
-		OID         string `json:"oid"`
-		Name        string `json:"name"`
-		Module      string `json:"module"`
-		Kind        string `json:"kind"`
-		HasChildren bool   `json:"hasChildren"`
-		HasSymbol   bool   `json:"hasSymbol"`
-		Position    string `json:"position"`
+		OID         string `json:"oid"`         // anchor OID — expand + data-oid
+		DirectOID   string `json:"directOID"`   // direct child OID — cursor + fold coverage
+		Name        string `json:"name"`        // anchor name — /s/ link
+		NamePath    string `json:"namePath"`    // dotted resolved names — display
+		Module      string `json:"module"`      // anchor module
+		Kind        string `json:"kind"`        // anchor kind
+		HasSymbol   bool   `json:"hasSymbol"`   // anchor is symbol-backed
+		HasChildren bool   `json:"hasChildren"` // anchor is expandable (has a rendered child)
+		ChildCount  int64  `json:"childCount"`  // anchor child count — badge
+		Position    string `json:"position"`    // dotted seg-path under parent
 	}
 	out := make([]item, 0, len(children))
 	for _, c := range children {
-		name := c.Name
-		if !c.HasSymbol {
-			// Synthetic bridge: no symbol, so name the node from the
-			// IANA canonical registry when known (else the client falls
-			// back to the numeric segment).
-			if canon, ok := iana.LookupCanonical(c.OID); ok {
-				name = canon
-			}
+		// Resolve each segment's display name (stored symbol name, else
+		// IANA canonical, else the bare numeric segment) and join into the
+		// compressed seg-path / name-path. Synthetic names stay out of the
+		// table so the registry can update independently.
+		segPath := make([]string, len(c.Chain))
+		namePath := make([]string, len(c.Chain))
+		for i, seg := range c.Chain {
+			segPath[i] = seg.Label
+			namePath[i] = segDisplayName(seg)
 		}
+		anchor := c.Anchor()
 		out = append(out, item{
-			OID:         c.OID,
-			Name:        name,
+			OID:         anchor.OID,
+			DirectOID:   c.DirectOID(),
+			Name:        anchor.Name,
+			NamePath:    strings.Join(namePath, "."),
 			Module:      c.ModuleName,
 			Kind:        string(c.Kind),
-			HasChildren: c.HasChildren,
-			HasSymbol:   c.HasSymbol,
-			Position:    c.Label,
+			HasSymbol:   anchor.HasSymbol,
+			HasChildren: c.HasChildren(),
+			ChildCount:  c.ChildCount,
+			Position:    strings.Join(segPath, "."),
 		})
 	}
 
-	// Cursors: a full page implies more in that direction. Forward pages
-	// carry nextAfter (last OID); backward pages carry prevBefore (first
-	// OID). A short page is that direction's end.
+	// Cursors: a full page implies more in that direction. The cursor is
+	// the boundary row's DIRECT child OID (not its anchor), so its last
+	// segment is a valid sibling key under `parent`. A short page is that
+	// direction's end.
 	var nextAfter, prevBefore any
 	if len(children) == limit {
 		if backward {
-			prevBefore = children[0].OID
+			prevBefore = children[0].DirectOID()
 		} else {
-			nextAfter = children[len(children)-1].OID
+			nextAfter = children[len(children)-1].DirectOID()
 		}
 	}
 
