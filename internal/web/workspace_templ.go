@@ -74,7 +74,7 @@ func Workspace(view *WorkspaceView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "           <div class=\"workspace-grid\" x-data=\"workspace()\" hx-target=\"#workspace-detail\" hx-swap=\"outerHTML\" hx-push-url=\"true\"><aside class=\"workspace-tree\" id=\"workspace-tree\"><div class=\"tree-head\"><span class=\"tree-head-title\">TREE</span></div><div class=\"tree-root\" data-tree data-tree-mode=\"workspace\" data-tree-focus=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "           <div class=\"workspace-grid\" x-data=\"workspace()\" hx-target=\"#workspace-detail\" hx-swap=\"outerHTML\" hx-push-url=\"true\"><aside class=\"workspace-tree\" id=\"workspace-tree\"><div class=\"tree-head\"><span class=\"tree-head-title\">OID TREE</span></div><div class=\"tree-root\" data-tree data-tree-mode=\"workspace\" data-tree-focus=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -1194,22 +1194,42 @@ button { font-family: inherit; }
    name shrink/truncate, and drop the meta (the module is shown in the
    detail pane on click). */
 .workspace-tree .tree-root .tree-row {
-  /* meta is hidden here, so the columns are chevron · seg-path · name ·
-     badge (the badge trails the name in the narrow pane). */
-  grid-template-columns: 1.1em auto minmax(0, 1fr) auto;
+  /* meta is display:none in the rail, so only chevron · seg-path · name ·
+     badge render (4 items). Columns: chevron · seg · name(auto) ·
+     spacer(1fr); the badge auto-places into the 1fr and right-aligns via
+     its `justify-self:end`. width:max-content lets a long name overflow
+     (⇒ horizontal scroll); min-width:100% keeps a short row full-pane so
+     the spacer holds the badge hard right. See design.md Decision 1. */
+  grid-template-columns: 1.1em auto auto 1fr;
   gap: 3px;
+  width: max-content;
+  min-width: 100%;
 }
+/* Tighter nesting indent in the narrow rail only. Scoped here (not on the
+   global `.tree-children`) so the full-width /tree page keeps its 1.6em
+   indent, which matches that surface's 1.6em chevron column. */
+.workspace-tree .tree-children { padding-left: 1.0em; }
 /* Align the first-level chevron under the "TREE" head title (the head's
    12px left padding) so the tree squares up with its header: the row's
    own -2px margin + 6px padding put the chevron box at list-padding + 4,
    so 8px lands it at 12px. Left-align the glyph so the triangle (not its
    centered box) leads the row, tight against the text. */
-.workspace-tree .tree-root-list { padding-left: 8px; }
+/* Size the scroll content to its widest row so every row (via the row's
+   own min-width:100%) stretches to that same width. Without this the rows
+   are only pane-wide, so on horizontal scroll a short row's right edge —
+   and its sticky badge, which is clamped to the row — slides left out of
+   view; only rows already wider than the pane kept their badge pinned.
+   See design.md Decision 2. */
+.workspace-tree .tree-root-list {
+  padding-left: 8px;
+  width: max-content;
+  min-width: 100%;
+}
 .workspace-tree .tree-expand { width: 1.1em; text-align: left; }
 .workspace-tree .tree-num { text-align: left; }
+/* Full label, no ellipsis clamp: the row grows to content width and the
+   pane scrolls horizontally to reveal the rest (design.md Decision 1). */
 .workspace-tree .tree-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .workspace-tree .tree-meta { display: none; }
@@ -1280,6 +1300,16 @@ button { font-family: inherit; }
   white-space: nowrap;
 }
 
+/* Frozen right column: as a workspace row grows past the pane the badge
+   would scroll out of view, so pin it to the pane's right edge. The
+   opaque background + z-index let the label scroll cleanly underneath.
+   See design.md Decision 2. */
+.workspace-tree .tree-badge {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+}
+
 .tree-loading,
 .tree-empty,
 .tree-error {
@@ -1337,7 +1367,7 @@ main.page:has(.workspace-grid) .content-inner,
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 380px;
+  grid-template-columns: 380px minmax(0, 1fr) 380px;
   height: calc(100vh - var(--topbar-h) - 40px - 56px);
   min-height: 420px;
   border-top: 1px solid var(--line);
@@ -1361,7 +1391,7 @@ main.page:has(.workspace-grid) .content-inner,
   padding: 8px 0;
   min-width: 0;
 }
-.workspace-tree::-webkit-scrollbar { width: 8px; }
+.workspace-tree::-webkit-scrollbar { width: 8px; height: 8px; }
 .workspace-tree::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 
 .workspace-list {
