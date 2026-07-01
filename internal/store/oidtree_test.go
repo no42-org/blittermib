@@ -562,6 +562,188 @@ func TestListNodeChildrenBefore(t *testing.T) {
 	}
 }
 
+// spineParents extracts the ordered Parent of each level for compact
+// assertions.
+func spineParents(levels []SpineLevel) []string {
+	out := make([]string, len(levels))
+	for i, lv := range levels {
+		out[i] = lv.Parent
+	}
+	return out
+}
+
+// TestSpinePagesDeepFocus pins the core preload: SpinePages returns one
+// level per spine step from the apex down to the focus, each descending into
+// the previous level's fold ANCHOR (not the next numeric prefix), and stops
+// at the level whose folded run carries the focus.
+func TestSpinePagesDeepFocus(t *testing.T) {
+	s := newStore(t)
+	// focus = …99.5.2 (a leaf). Structure:
+	//   enterprises → 99 (99 has children 5 and 7 → a branch, the apex anchor)
+	//   99.5 has children .2 (focus) and .9 (branch)
+	//   99.7 has one child .1
+	seedAndBuild(t, s, "M", []model.Symbol{
+		oidSym("M", "focus", "1.3.6.1.4.1.99.5.2"),
+		oidSym("M", "sib", "1.3.6.1.4.1.99.5.9"),
+		oidSym("M", "seven", "1.3.6.1.4.1.99.7.1"),
+	})
+	ctx := context.Background()
+
+	levels, err := s.SpinePages(ctx, "1.3.6.1.4.1.99.5.2", false, "", 200)
+	if err != nil {
+		t.Fatalf("SpinePages: %v", err)
+	}
+	wantParents := []string{"", "1.3.6.1.4.1.99", "1.3.6.1.4.1.99.5"}
+	if got := spineParents(levels); len(got) != 3 ||
+		got[0] != wantParents[0] || got[1] != wantParents[1] || got[2] != wantParents[2] {
+		t.Fatalf("spine parents = %v, want %v", got, wantParents)
+	}
+
+	// Apex level folds iso…enterprises.99 into one row anchored at 99.
+	if n := len(levels[0].Rows); n != 1 {
+		t.Fatalf("apex level = %d rows, want 1 (folded spine)", n)
+	}
+	if a := levels[0].Rows[0].Anchor().OID; a != "1.3.6.1.4.1.99" {
+		t.Errorf("apex row anchor = %q, want the enterprises.99 fold", a)
+	}
+	// Middle level: 99's children are 5 and 7.
+	if len(levels[1].Rows) != 2 || levels[1].Rows[0].Seg != 5 || levels[1].Rows[1].Seg != 7 {
+		t.Errorf("level under 99 segs = %+v, want [5 7]", levels[1].Rows)
+	}
+	// Deepest level: 99.5's children are 2 (focus) and 9; the walk stops here
+	// (a row already carries the focus) — no level for the focus's own children.
+	if len(levels[2].Rows) != 2 || levels[2].Rows[0].Seg != 2 || levels[2].Rows[1].Seg != 9 {
+		t.Errorf("level under 99.5 segs = %+v, want [2 9]", levels[2].Rows)
+	}
+	for i, lv := range levels {
+		if lv.Anchored {
+			t.Errorf("level %d unexpectedly Anchored (narrow levels need no 'show earlier')", i)
+		}
+	}
+}
+
+// TestSpinePagesBranchesStopsAtContainer pins the hidden-leaf case: in
+// branchesOnly mode a focus that is a leaf column is not itself a spine
+// level; the walk descends to the deepest CONTAINER that holds it (the
+// table-entry) and stops, so the client highlights that container.
+func TestSpinePagesBranchesStopsAtContainer(t *testing.T) {
+	s := newStore(t)
+	// agent 99.1 has scalars (.1/.2, leaves) and a table (.4 → entry .4.1 →
+	// columns .1/.2). focus is a column (leaf, hidden in branchesOnly).
+	seedAndBuild(t, s, "M", []model.Symbol{
+		kindSym("M", "s1", "1.3.6.1.4.1.99.1.1", model.KindScalar),
+		kindSym("M", "s2", "1.3.6.1.4.1.99.1.2", model.KindScalar),
+		kindSym("M", "tbl", "1.3.6.1.4.1.99.1.4", model.KindTable),
+		kindSym("M", "entry", "1.3.6.1.4.1.99.1.4.1", model.KindTableEntry),
+		kindSym("M", "col1", "1.3.6.1.4.1.99.1.4.1.1", model.KindColumn),
+		kindSym("M", "col2", "1.3.6.1.4.1.99.1.4.1.2", model.KindColumn),
+	})
+	ctx := context.Background()
+
+	levels, err := s.SpinePages(ctx, "1.3.6.1.4.1.99.1.4.1.1", true, "", 200)
+	if err != nil {
+		t.Fatalf("SpinePages: %v", err)
+	}
+	// Two levels: the apex fold (anchored at the agent 99.1) and the agent's
+	// container children. No level parented at the entry or the hidden column.
+	if got := spineParents(levels); len(got) != 2 || got[0] != "" || got[1] != "1.3.6.1.4.1.99.1" {
+		t.Fatalf("spine parents = %v, want [\"\" \"1.3.6.1.4.1.99.1\"]", got)
+	}
+	// The deepest level's spine row is the table folded to its entry, and the
+	// entry is a non-expandable tree leaf (its children are hidden columns).
+	var entry *FoldedNodeRow
+	for i := range levels[1].Rows {
+		if levels[1].Rows[i].Anchor().OID == "1.3.6.1.4.1.99.1.4.1" {
+			entry = &levels[1].Rows[i]
+		}
+	}
+	if entry == nil {
+		t.Fatalf("deepest level missing the folded table-entry row: %+v", levels[1].Rows)
+	}
+	if entry.HasChildren() {
+		t.Error("table-entry should be a non-expandable tree leaf (children are hidden columns)")
+	}
+}
+
+// TestSpinePagesWideLevelAnchored pins that a wide level whose spine child is
+// beyond the first page is re-fetched anchored at the child and flagged
+// Anchored (the client renders "show earlier").
+func TestSpinePagesWideLevelAnchored(t *testing.T) {
+	s := newStore(t)
+	// 99 has five branch children 1..5 (each with a child), so it never folds
+	// past 99. focus goes through the fifth — beyond a 2-row first page.
+	seedAndBuild(t, s, "M", []model.Symbol{
+		oidSym("M", "c1", "1.3.6.1.4.1.99.1.1"),
+		oidSym("M", "c2", "1.3.6.1.4.1.99.2.1"),
+		oidSym("M", "c3", "1.3.6.1.4.1.99.3.1"),
+		oidSym("M", "c4", "1.3.6.1.4.1.99.4.1"),
+		oidSym("M", "c5", "1.3.6.1.4.1.99.5.1"),
+	})
+	ctx := context.Background()
+
+	levels, err := s.SpinePages(ctx, "1.3.6.1.4.1.99.5.1", false, "", 2)
+	if err != nil {
+		t.Fatalf("SpinePages: %v", err)
+	}
+	// The level under 99 is anchored at seg 5 (past the first 2-row page).
+	var under99 *SpineLevel
+	for i := range levels {
+		if levels[i].Parent == "1.3.6.1.4.1.99" {
+			under99 = &levels[i]
+		}
+	}
+	if under99 == nil {
+		t.Fatalf("no level parented at 99: parents=%v", spineParents(levels))
+	}
+	if !under99.Anchored {
+		t.Error("wide level under 99 should be Anchored (spine child past the first page)")
+	}
+	if findRowBySeg(under99.Rows, 5) == nil {
+		t.Errorf("anchored level missing the spine child (seg 5): %+v", under99.Rows)
+	}
+}
+
+// TestSpinePagesUnknownFocus pins the fallback: a focus that does not resolve
+// to a node returns only as far as the trie reaches (here the apex), never
+// erroring — the client then highlights the deepest rendered ancestor.
+func TestSpinePagesUnknownFocus(t *testing.T) {
+	s := newStore(t)
+	seedAndBuild(t, s, "M", []model.Symbol{
+		oidSym("M", "real", "1.3.6.1.4.1.99"),
+	})
+	ctx := context.Background()
+
+	levels, err := s.SpinePages(ctx, "9.9.9", false, "", 200)
+	if err != nil {
+		t.Fatalf("SpinePages: %v", err)
+	}
+	// The 9 arc doesn't exist; only the apex level (iso) comes back.
+	if got := spineParents(levels); len(got) != 1 || got[0] != "" {
+		t.Fatalf("unknown-focus spine parents = %v, want [\"\"] (apex only)", got)
+	}
+	if findRowBySeg(levels[0].Rows, 9) != nil {
+		t.Error("apex level should not contain a seg-9 row (no such arc)")
+	}
+}
+
+// TestOIDTreeVersion pins that OIDTreeVersion reports the current trie
+// version after a build (the ETag validity token).
+func TestOIDTreeVersion(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	if v, err := s.OIDTreeVersion(ctx); err != nil || v != 0 {
+		t.Fatalf("version before build = (%d, %v), want (0, nil)", v, err)
+	}
+	seedAndBuild(t, s, "M", []model.Symbol{oidSym("M", "real", "1.3.6.1.4.1.99")})
+	v, err := s.OIDTreeVersion(ctx)
+	if err != nil {
+		t.Fatalf("OIDTreeVersion: %v", err)
+	}
+	if v != oidTreeVersion {
+		t.Errorf("version after build = %d, want %d", v, oidTreeVersion)
+	}
+}
+
 // TestRebuildOIDTreeOmitsNullSentinel verifies the { 0 0 } null-identifier
 // sentinel (zeroDotZero) is excluded from the trie — neither 0.0 nor its
 // otherwise-childless synthetic 0 root is materialised — while a normal

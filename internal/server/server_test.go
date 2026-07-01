@@ -1855,6 +1855,214 @@ func TestWorkspaceTreeIsland(t *testing.T) {
 	}
 }
 
+// spineAPIResp mirrors the /api/v1/tree/spine JSON shape for decoding.
+type spineAPIResp struct {
+	Focus  string
+	Levels []struct {
+		Parent    string
+		Anchored  bool
+		NextAfter *string
+		Children  []struct {
+			OID         string
+			DirectOID   string
+			Name        string
+			NamePath    string
+			Module      string
+			Kind        string
+			HasSymbol   bool
+			HasChildren bool
+			ChildCount  int64
+			Position    string
+		}
+	}
+}
+
+func getSpine(t *testing.T, ts *httptest.Server, query string) spineAPIResp {
+	t.Helper()
+	resp, err := http.Get(ts.URL + "/api/v1/tree/spine?" + query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d for %q", resp.StatusCode, query)
+	}
+	var got spineAPIResp
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return got
+}
+
+// TestAPITreeSpine pins the one-shot spine endpoint: it returns every level
+// from the apex down to the focus (apex-first), each descending into the
+// previous level's fold anchor, with item shapes identical to /api/v1/tree.
+func TestAPITreeSpine(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		{ModuleName: "M", Name: "focus", OID: "1.3.6.1.4.1.99.5.2", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "sib", OID: "1.3.6.1.4.1.99.5.9", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "seven", OID: "1.3.6.1.4.1.99.7.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent},
+	})
+
+	got := getSpine(t, ts, "focus=1.3.6.1.4.1.99.5.2")
+	if got.Focus != "1.3.6.1.4.1.99.5.2" {
+		t.Errorf("focus echoed = %q", got.Focus)
+	}
+	wantParents := []string{"", "1.3.6.1.4.1.99", "1.3.6.1.4.1.99.5"}
+	if len(got.Levels) != 3 {
+		t.Fatalf("spine levels = %d, want 3 (parents %v)", len(got.Levels), wantParents)
+	}
+	for i, want := range wantParents {
+		if got.Levels[i].Parent != want {
+			t.Errorf("level %d parent = %q, want %q", i, got.Levels[i].Parent, want)
+		}
+	}
+	// Apex level folds to the enterprises.99 anchor and carries the compressed
+	// name-path — the same projection /api/v1/tree emits.
+	apex := got.Levels[0]
+	if len(apex.Children) != 1 || apex.Children[0].OID != "1.3.6.1.4.1.99" {
+		t.Fatalf("apex level children = %+v, want one row anchored at …99", apex.Children)
+	}
+	if apex.Children[0].Position == "" || apex.Children[0].NamePath == "" {
+		t.Errorf("apex row missing folded position/namePath: %+v", apex.Children[0])
+	}
+	// The deepest level holds the focus row (by its direct-child cursor key).
+	deepest := got.Levels[2]
+	var haveFocus bool
+	for _, c := range deepest.Children {
+		if c.DirectOID == "1.3.6.1.4.1.99.5.2" {
+			haveFocus = true
+		}
+	}
+	if !haveFocus {
+		t.Errorf("deepest level missing the focus row: %+v", deepest.Children)
+	}
+
+	// Item shape parity: the level under 99 matches /api/v1/tree for that parent.
+	lazy := getTree(t, ts, "parent=1.3.6.1.4.1.99")
+	if len(lazy.Children) != len(got.Levels[1].Children) {
+		t.Errorf("level-under-99 child count spine=%d lazy=%d, want equal",
+			len(got.Levels[1].Children), len(lazy.Children))
+	}
+}
+
+// TestAPITreeSpineBranches pins that branches=1 hides leaf objects in the
+// spine exactly as it does per level: a leaf-column focus stops at the
+// deepest container.
+func TestAPITreeSpineBranches(t *testing.T) {
+	ts := treeServerWith(t, []model.Symbol{
+		{ModuleName: "M", Name: "s1", OID: "1.3.6.1.4.1.99.1.1", Kind: model.KindScalar, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "tbl", OID: "1.3.6.1.4.1.99.1.4", Kind: model.KindTable, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "entry", OID: "1.3.6.1.4.1.99.1.4.1", Kind: model.KindTableEntry, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "col1", OID: "1.3.6.1.4.1.99.1.4.1.1", Kind: model.KindColumn, Status: model.StatusCurrent},
+		{ModuleName: "M", Name: "col2", OID: "1.3.6.1.4.1.99.1.4.1.2", Kind: model.KindColumn, Status: model.StatusCurrent},
+	})
+
+	got := getSpine(t, ts, "focus=1.3.6.1.4.1.99.1.4.1.1&branches=1")
+	// No level is parented at the entry or the hidden column — the walk stops
+	// at the entry container.
+	for _, lv := range got.Levels {
+		if lv.Parent == "1.3.6.1.4.1.99.1.4.1" || lv.Parent == "1.3.6.1.4.1.99.1.4.1.1" {
+			t.Errorf("spine descended past the container into a hidden level: parent=%q", lv.Parent)
+		}
+	}
+	// The entry appears as a non-expandable row somewhere in the spine.
+	var sawEntry bool
+	for _, lv := range got.Levels {
+		for _, c := range lv.Children {
+			if c.OID == "1.3.6.1.4.1.99.1.4.1" {
+				sawEntry = true
+				if c.HasChildren {
+					t.Error("table-entry should be a non-expandable tree leaf in branches mode")
+				}
+			}
+		}
+	}
+	if !sawEntry {
+		t.Error("spine missing the deepest container (the table-entry)")
+	}
+}
+
+// TestAPITreeSpineBadFocus pins that a missing or non-OID focus is a 400.
+func TestAPITreeSpineBadFocus(t *testing.T) {
+	ts := newTestServer(t)
+	for _, q := range []string{"", "focus=", "focus=not-an-oid"} {
+		resp, err := http.Get(ts.URL + "/api/v1/tree/spine?" + q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("focus %q → status %d, want 400", q, resp.StatusCode)
+		}
+		_ = resp.Body.Close()
+	}
+}
+
+// TestAPITreeETag pins the cache-validation contract: tree responses carry a
+// strong ETag, a matching If-None-Match short-circuits to 304, and distinct
+// requests carry distinct ETags.
+func TestAPITreeETag(t *testing.T) {
+	ts := newTestServer(t)
+
+	resp, err := http.Get(ts.URL + "/api/v1/tree?parent=1.3.6.1.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	etag := resp.Header.Get("ETag")
+	_ = resp.Body.Close()
+	if etag == "" {
+		t.Fatal("tree response missing ETag")
+	}
+	if resp.Header.Get("Cache-Control") == "" {
+		t.Error("tree response missing Cache-Control")
+	}
+
+	// Same request with the ETag → 304, no body.
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/tree?parent=1.3.6.1.2.1", nil)
+	req.Header.Set("If-None-Match", etag)
+	cond, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cond.Body.Close()
+	if cond.StatusCode != http.StatusNotModified {
+		t.Errorf("conditional request status = %d, want 304", cond.StatusCode)
+	}
+
+	// A different query yields a different ETag (so it won't satisfy the old
+	// If-None-Match).
+	other, err := http.Get(ts.URL + "/api/v1/tree?parent=1.3.6.1.2.1.2.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherETag := other.Header.Get("ETag")
+	_ = other.Body.Close()
+	if otherETag == etag {
+		t.Errorf("distinct queries share an ETag (%s) — cache would collide", etag)
+	}
+
+	// The spine endpoint validates the same way.
+	sp, err := http.Get(ts.URL + "/api/v1/tree/spine?focus=1.3.6.1.2.1.2.2.1.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spineETag := sp.Header.Get("ETag")
+	_ = sp.Body.Close()
+	if spineETag == "" {
+		t.Error("spine response missing ETag")
+	}
+	spReq, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/tree/spine?focus=1.3.6.1.2.1.2.2.1.10", nil)
+	spReq.Header.Set("If-None-Match", spineETag)
+	spCond, err := http.DefaultClient.Do(spReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = spCond.Body.Close()
+	if spCond.StatusCode != http.StatusNotModified {
+		t.Errorf("spine conditional status = %d, want 304", spCond.StatusCode)
+	}
+}
+
 func TestTreeIslandLoaded(t *testing.T) {
 	ts := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/")

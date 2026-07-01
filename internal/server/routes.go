@@ -18,6 +18,8 @@ import (
 //	/diagnostics                   parse errors and warnings
 //	/api/v1/search                 palette JSON
 //	/api/v1/symbol/{module}/{name} symbol detail JSON
+//	/api/v1/tree                   one OID-tree level (keyset paginated)
+//	/api/v1/tree/spine             whole apex→focus spine in one response
 //	/static/*                      embedded CSS, fonts, JS islands
 //	/imprint                       operator disclosure (§ 5 TMG)
 //	/privacy                       data-handling notice (GDPR)
@@ -59,6 +61,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/v1/search", chain(http.HandlerFunc(s.handleAPISearch), withLogging, withRecover))
 	s.mux.Handle("/api/v1/symbol/", chain(http.HandlerFunc(s.handleAPISymbol), withLogging, withRecover))
 	s.mux.Handle("/api/v1/tree", chain(http.HandlerFunc(s.handleAPITree), withLogging, withRecover))
+	s.mux.Handle("/api/v1/tree/spine", chain(http.HandlerFunc(s.handleAPITreeSpine), withLogging, withRecover))
 
 	s.mux.Handle("/", chain(http.HandlerFunc(s.handleIndex), withLogging, withRecover))
 }

@@ -708,6 +708,76 @@
 	// or run two spine walks on the same container.
 	let buildGen = 0;
 
+	// newRootList builds the tree's root <ul> (the ARIA `tree`).
+	function newRootList() {
+		const ul = document.createElement('ul');
+		ul.className = 'tree-children tree-root-list';
+		ul.setAttribute('role', 'tree');
+		ul.setAttribute('aria-label', 'OID tree');
+		return ul;
+	}
+
+	// fetchSpine loads the whole apex→focus path in one request (the
+	// /spine endpoint) — the levels the lazy spine walk would otherwise
+	// fetch one round trip each. Returns the ordered (apex-first) levels.
+	async function fetchSpine(focus) {
+		const url = TREE_API + '/spine?focus=' + encodeURIComponent(focus) + branchesParam();
+		const res = await fetch(url);
+		if (!res.ok) throw new Error('tree spine fetch ' + res.status);
+		const data = await res.json();
+		return data.levels || [];
+	}
+
+	// renderSpineLevels renders a preloaded spine into the tree. Level 0 is
+	// the apex (into the root <ul>); each deeper level is attached under the
+	// row for its parent (the anchor rendered by the previous level), mirroring
+	// loadAnchored's DOM construction. Stops early if a parent row is missing
+	// or a non-container (the deepest reachable point), leaving the highlight
+	// to the caller.
+	function renderSpineLevels(container, rootUl, levels) {
+		levels.forEach((lvl, i) => {
+			const page = { items: lvl.children || [], nextAfter: lvl.nextAfter };
+			if (i === 0) {
+				if (lvl.anchored) rootUl.appendChild(makeEarlier(lvl.parent, 1));
+				appendPage(rootUl, lvl.parent, page, 1);
+				return;
+			}
+			const node = rowFor(container, lvl.parent);
+			if (!node || node.dataset.hasChildren !== 'true') return; // spine ends here
+			let children = node.querySelector(':scope > .tree-children');
+			if (children) node.removeChild(children);
+			node.dataset.expanded = 'true';
+			node.setAttribute('aria-expanded', 'true');
+			const chevron = node.querySelector(':scope > .tree-row > .tree-expand');
+			if (chevron) chevron.textContent = '▾';
+			children = document.createElement('ul');
+			children.className = 'tree-children';
+			children.setAttribute('role', 'group');
+			node.appendChild(children);
+			const lvlNum = childLevel(node);
+			if (lvl.anchored) children.appendChild(makeEarlier(lvl.parent, lvlNum));
+			appendPage(children, lvl.parent, page, lvlNum);
+		});
+	}
+
+	// highlightFocus resolves and selects the focus row after a build:
+	// rowFor first, else the deepest rendered ancestor (a hidden-leaf focus
+	// highlights the container that holds it). Sets the single tab stop and
+	// scrolls it into view without stealing focus. Falls back to seeding the
+	// first node when the focus resolves to nothing.
+	function highlightFocus(container, focus) {
+		const target = rowFor(container, focus) || deepestAncestorRow(container, focus);
+		if (!target) {
+			const first = container.querySelector('.tree-node');
+			if (first) first.tabIndex = 0;
+			return;
+		}
+		container.querySelectorAll('.tree-node').forEach((n) => { n.tabIndex = -1; });
+		target.tabIndex = 0;
+		if (target.scrollIntoView) target.scrollIntoView({ block: 'center' });
+		markSelected(container, target);
+	}
+
 	async function buildInitial(container) {
 		const gen = ++buildGen;
 		cfg = {
@@ -716,17 +786,37 @@
 			module: container.dataset.treeModule || '',
 			scope: container.dataset.treeScope || '',
 		};
-		// Standalone roots AT the focus (or the apex); workspace roots at
-		// the apex and expands the spine down TO the focus.
-		const parent = cfg.mode === 'workspace' ? ROOT_OID : (cfg.focus || ROOT_OID);
 		container.innerHTML = '';
-
-		const ul = document.createElement('ul');
-		ul.className = 'tree-children tree-root-list';
-		ul.setAttribute('role', 'tree');
-		ul.setAttribute('aria-label', 'OID tree');
+		let ul = newRootList();
 		container.appendChild(ul);
 
+		// Workspace + focus fast path: one /spine request returns every level
+		// from the apex down to the focus, collapsing the per-level round-trip
+		// chain the lazy walk would otherwise pay. Any failure (or an empty
+		// apex) falls through to the lazy walk below, which also owns the
+		// standalone and no-focus cases.
+		if (cfg.mode === 'workspace' && cfg.focus) {
+			try {
+				const levels = await fetchSpine(cfg.focus);
+				if (gen !== buildGen) return; // superseded by a newer rebuild
+				if (levels.length && levels[0].children && levels[0].children.length) {
+					renderSpineLevels(container, ul, levels);
+					highlightFocus(container, cfg.focus);
+					return;
+				}
+			} catch (err) {
+				console.warn('tree spine preload failed; using lazy walk', err);
+			}
+			if (gen !== buildGen) return;
+			// Reset any partial render before the fallback rebuilds cleanly.
+			container.innerHTML = '';
+			ul = newRootList();
+			container.appendChild(ul);
+		}
+
+		// Lazy walk (fallback + standalone + no-focus): render the apex, then
+		// expand the spine one level at a time. Standalone roots AT the focus.
+		const parent = cfg.mode === 'workspace' ? ROOT_OID : (cfg.focus || ROOT_OID);
 		try {
 			const page = await fetchPage(parent);
 			if (gen !== buildGen) return; // superseded by a newer rebuild
