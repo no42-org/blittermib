@@ -1515,7 +1515,8 @@ func segDisplayName(seg store.FoldSeg) string {
 //
 //	GET /api/v1/tree?parent={oid}&after={oid}&limit={n}
 //
-// An empty `parent` is the OID apex (children = the top arcs 0/1/2).
+// An empty `parent` is the OID apex (children = the top arcs, normally
+// just iso(1); the null-sentinel 0 arc is omitted — see RebuildOIDTree).
 // `after` is the last OID from
 // the previous page; the server derives its segment for the keyset bound
 // (an invalid value degrades to the first page). Each child reports
@@ -1525,7 +1526,8 @@ func segDisplayName(seg store.FoldSeg) string {
 // `nextAfter` is the cursor for the next page, or null when exhausted.
 func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 	// Empty parent = the OID apex; ListNodeChildren("") returns the top
-	// arcs (0/1/2). A non-empty parent must look like an OID.
+	// arcs (normally iso(1); the 0 null-sentinel arc is omitted). A
+	// non-empty parent must look like an OID.
 	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
 	if parent != "" && !web.SelectorLooksLikeOID(parent) {
 		s.apiError(w, r, http.StatusBadRequest, "parent must be an OID", nil)

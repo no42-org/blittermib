@@ -19,7 +19,10 @@ import (
 // already-built DB rebuilds on the next boot instead of serving a stale
 // generation. Stored under schema_meta('oid_tree_version'), independent
 // of the PRAGMA user_version owned by the relationship backfill.
-const oidTreeVersion = 2
+//
+// v3: the trie omits the null-identifier sentinel { 0 0 } (see the
+// prefixes seed in RebuildOIDTree), so a v2 DB rebuilds to drop it.
+const oidTreeVersion = 3
 
 // NodeRow is one node of the materialised OID trie, as served to the
 // tree browser. HasChildren is derived from child_count; HasSymbol is
@@ -98,7 +101,12 @@ func (s *Store) RebuildOIDTree(ctx context.Context) error {
 		INSERT INTO oid_node(oid, parent_oid, label, seg, name, module_name, kind, has_symbol, child_count,
 		                     has_scalar, has_table, has_notif)
 		WITH RECURSIVE prefixes(p) AS (
-			SELECT DISTINCT oid FROM symbol WHERE oid <> ''
+			-- Omit the SNMP null-identifier sentinel { 0 0 } (zeroDotZero):
+			-- a placeholder value, not a browsable object, and the only
+			-- descendant of the ccitt(0) arc in the corpus — excluding it
+			-- here drops both 0.0 and its now-childless synthetic 0 root.
+			-- The symbol row itself is untouched (still resolvable by OID/name).
+			SELECT DISTINCT oid FROM symbol WHERE oid <> '' AND oid <> '0.0'
 			UNION
 			SELECT rtrim(rtrim(p, '0123456789'), '.') FROM prefixes WHERE p LIKE '%.%'
 		),
@@ -107,10 +115,14 @@ func (s *Store) RebuildOIDTree(ctx context.Context) error {
 			FROM prefixes WHERE p <> ''
 		),
 		winner AS (
+			-- 0.0 excluded here too (not just the seed): if a corpus ever
+			-- defines a descendant under 0.0, the recursive step re-creates
+			-- the 0.0 prefix as a bridge to reach it — but it must stay an
+			-- unnamed synthetic node, never re-attach the zeroDotZero sentinel.
 			SELECT oid, name, module_name, kind FROM (
 				SELECT oid, name, module_name, kind,
 				       ROW_NUMBER() OVER (PARTITION BY oid ORDER BY module_name, name) AS rn
-				FROM symbol WHERE oid <> ''
+				FROM symbol WHERE oid <> '' AND oid <> '0.0'
 			) WHERE rn = 1
 		),
 		cc AS (

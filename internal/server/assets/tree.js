@@ -12,7 +12,8 @@
 	'use strict';
 
 	const TREE_API = '/api/v1/tree';
-	// Empty parent = the OID apex; its children are the top arcs (0/1/2).
+	// Empty parent = the OID apex; its children are the top arcs (normally
+	// just iso(1); the 0 null-sentinel arc is omitted server-side).
 	const ROOT_OID = '';
 
 	// cfg is per-page tree configuration, read from the [data-tree]

@@ -561,3 +561,77 @@ func TestListNodeChildrenBefore(t *testing.T) {
 		t.Errorf("before seg=100 limit=2 = %v, want segs [9 10]", page)
 	}
 }
+
+// TestRebuildOIDTreeOmitsNullSentinel verifies the { 0 0 } null-identifier
+// sentinel (zeroDotZero) is excluded from the trie — neither 0.0 nor its
+// otherwise-childless synthetic 0 root is materialised — while a normal
+// symbol at another OID is still projected.
+func TestRebuildOIDTreeOmitsNullSentinel(t *testing.T) {
+	s := newStore(t)
+	seedAndBuild(t, s, "M", []model.Symbol{
+		oidSym("M", "zeroDotZero", "0.0"),
+		oidSym("M", "real", "1.3.6.1.4.1.99"),
+	})
+
+	if _, _, _, _, ok := node(t, s, "0.0"); ok {
+		t.Error("oid_node has a row for 0.0; the null sentinel must be omitted")
+	}
+	if _, _, _, _, ok := node(t, s, "0"); ok {
+		t.Error("oid_node has a row for the synthetic 0 root; it must be dropped once childless")
+	}
+	if _, _, _, _, ok := node(t, s, "1.3.6.1.4.1.99"); !ok {
+		t.Error("oid_node missing the normal 1.3.6.1.4.1.99 node; only the sentinel should be omitted")
+	}
+}
+
+// TestNullSentinelSymbolStillResolvable confirms omission is tree-only: the
+// sentinel is absent from oid_node yet its symbol row is untouched and still
+// resolves by OID. Asserting BOTH halves is what makes this guard the
+// feature — a symbol-only check would pass even if the trie kept 0.0.
+func TestNullSentinelSymbolStillResolvable(t *testing.T) {
+	s := newStore(t)
+	seedAndBuild(t, s, "SNMPv2-SMI", []model.Symbol{
+		oidSym("SNMPv2-SMI", "zeroDotZero", "0.0"),
+	})
+
+	// Off-tree: no oid_node row for the sentinel.
+	if _, _, _, _, ok := node(t, s, "0.0"); ok {
+		t.Error("oid_node has a row for 0.0; the sentinel must be omitted from the tree")
+	}
+	// ...but still resolvable via the symbol table.
+	sym, err := s.GetSymbolByOID(context.Background(), "0.0")
+	if err != nil {
+		t.Fatalf("GetSymbolByOID(0.0): %v", err)
+	}
+	if sym == nil || sym.Name != "zeroDotZero" {
+		t.Errorf("GetSymbolByOID(0.0) = %v, want zeroDotZero (tree omission must not delete the symbol)", sym)
+	}
+}
+
+// TestNullSentinelWithDescendantIsUnnamedBridge locks the semantics when a
+// corpus defines a symbol UNDER 0.0: the recursive prefix step must re-create
+// 0.0 (and its 0 root) so the descendant is reachable, but 0.0 must be an
+// unnamed synthetic bridge — the winner CTE excludes 0.0, so the zeroDotZero
+// sentinel is never re-attached even though its symbol row exists.
+func TestNullSentinelWithDescendantIsUnnamedBridge(t *testing.T) {
+	s := newStore(t)
+	seedAndBuild(t, s, "M", []model.Symbol{
+		oidSym("M", "zeroDotZero", "0.0"),
+		oidSym("M", "underSentinel", "0.0.5"),
+	})
+
+	// The descendant is reachable, so 0.0 and 0 exist as bridges...
+	hasSym, _, name, _, ok := node(t, s, "0.0")
+	if !ok {
+		t.Fatal("oid_node missing 0.0; it must exist as a bridge to reach 0.0.5")
+	}
+	if hasSym || name != "" {
+		t.Errorf("0.0 bridge = (has_symbol=%v, name=%q); want an unnamed synthetic node, not the zeroDotZero sentinel", hasSym, name)
+	}
+	if _, _, _, _, ok := node(t, s, "0"); !ok {
+		t.Error("oid_node missing the 0 root; it must exist as a bridge above 0.0")
+	}
+	if _, _, _, _, ok := node(t, s, "0.0.5"); !ok {
+		t.Error("oid_node missing the 0.0.5 descendant")
+	}
+}
