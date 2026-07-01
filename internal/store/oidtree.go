@@ -356,6 +356,11 @@ func (s *Store) foldChildren(ctx context.Context, parentOID, cmp, order string, 
 			recurseWhere = "(SELECT COUNT(*) FROM oid_node g WHERE g.parent_oid = f.oid AND g." + col + " = 1) = 1"
 		}
 	}
+	// #nosec G202 -- no injection: cmp/order are compile-time direction
+	// constants; pageFilter/hasBranchExpr/recurseJoin/recurseWhere are built
+	// only from string literals; col comes from familyColumn's fixed column
+	// whitelist (has_scalar/has_table/has_notif); every runtime value
+	// (parentOID/bound/limit) is bound via a ? placeholder below.
 	q := `
 		WITH RECURSIVE page AS (
 			SELECT oid, label, seg, name, module_name, kind, has_symbol, child_count
