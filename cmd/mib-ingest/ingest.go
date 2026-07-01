@@ -361,16 +361,6 @@ func hashFile(path string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
-// scaledCompileTimeout is the default compile bound: generous enough
-// that batch size never trips it (1 s/file vs ~25 ms/file measured,
-// 5-minute floor) while still catching a hung smidump.
-func scaledCompileTimeout(n int) time.Duration {
-	if d := time.Duration(n) * time.Second; d > 5*time.Minute {
-		return d
-	}
-	return 5 * time.Minute
-}
-
 // budgetExhausted reports whether a compile error is the batch bound
 // (`ctxErr`) firing rather than a real parse failure. The bound
 // produces two distinct error shapes (verified empirically — see the
@@ -495,10 +485,11 @@ func classifyFiles(smidumpPath, smilintPath, srcDir, root string, files []string
 	// Bound the compile pipeline — a pathological MIB or hung
 	// smidump shouldn't hang ingest indefinitely. The bound is a
 	// hang backstop, not a throughput ceiling: the default scales
-	// with the batch (~25 ms/file measured vs 1 s/file budgeted).
+	// with the batch (~25 ms/file measured vs 1 s/file budgeted) and
+	// honors BLITTERMIB_COMPILE_TIMEOUT, the same as the import engine.
 	timeout := compileTimeout
 	if !timeoutSet {
-		timeout = scaledCompileTimeout(len(keep))
+		timeout = compile.ScaledTimeout(len(keep))
 	}
 	ctx := context.Background()
 	if timeout > 0 {

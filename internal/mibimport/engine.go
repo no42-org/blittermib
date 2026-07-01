@@ -200,6 +200,12 @@ func (e *Engine) ImportReplacing(ctx context.Context, path string) Outcome {
 		Reason: "file disappeared during replacement"}
 }
 
+// testHookBeforeMove, when non-nil, is invoked just before a settled
+// file is moved into the curated tree — a test seam for simulating a
+// concurrent Import pass that files the source first. Always nil outside
+// tests.
+var testHookBeforeMove func(target, dest string)
+
 func (e *Engine) run(ctx context.Context, paths []string, replace bool) []Outcome {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -304,7 +310,7 @@ func (e *Engine) run(ctx context.Context, paths []string, replace bool) []Outcom
 	if e.Smilint != "" {
 		comp.Smilint = &compile.Smilint{Path: e.Smilint, Paths: smiPaths}
 	}
-	cctx, cancel := context.WithTimeout(ctx, scaledCompileTimeout(len(files)))
+	cctx, cancel := context.WithTimeout(ctx, compile.ScaledTimeout(len(files)))
 	results := comp.Compile(cctx, files)
 	cancel()
 
@@ -389,7 +395,30 @@ func (e *Engine) run(ctx context.Context, paths []string, replace bool) []Outcom
 				fmt.Sprintf("create destination dir: %v", err), ""))
 			continue
 		}
+		// Test seam: lets a test simulate a concurrent pass filing this
+		// drop between the dir creation and the move. Nil in production.
+		if testHookBeforeMove != nil {
+			testHookBeforeMove(r.Target, dest)
+		}
 		if err := moveFile(r.Target, dest); err != nil {
+			// A non-nil moveFile error means nothing was written to the
+			// curated tree (source cleanup after the destination is in
+			// place is best-effort and never surfaces here). ENOENT
+			// almost always means the source is already gone: a prior or
+			// concurrent pass filed this drop, or it was removed
+			// mid-pipeline. The rescan, watcher, and uploads share the
+			// engine lock, so a straggler that captured the path before
+			// locking is normally dropped at the settle stat above — but
+			// the source can still vanish during the compile window. With
+			// no source left there is nothing to import, so skip rather
+			// than quarantine a module that filed fine. A still-present
+			// source means the failure was real (e.g. the destination
+			// parent vanished) — quarantine it.
+			if errors.Is(err, fs.ErrNotExist) {
+				if _, statErr := os.Lstat(r.Target); errors.Is(statErr, fs.ErrNotExist) {
+					continue
+				}
+			}
 			outcomes = append(outcomes, e.quarantine(ctx, r.Target, StatusFailed,
 				fmt.Sprintf("move into corpus: %v", err), ""))
 			continue
@@ -603,13 +632,26 @@ func moveFile(src, dst string) error {
 		return err
 	}
 	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
-	return os.Remove(src)
+	// The destination is in place, so the move succeeded. Removing the
+	// source is best-effort cleanup: returning an error here would
+	// orphan the freshly-written curated file and quarantine a module
+	// that was imported. A vanished source (a concurrent pass took it)
+	// is fine; any other removal error is logged and the leftover source
+	// is re-examined — and deduped against the now-curated file — by the
+	// next pass. This keeps the invariant callers rely on: a non-nil
+	// error means nothing was written to the destination.
+	if err := os.Remove(src); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		slog.Warn("import: curated file written but source cleanup failed; leaving source for the next pass",
+			"src", src, "dst", dst, "err", err)
+	}
+	return nil
 }
 
 func (e *Engine) smidumpPath() string {
@@ -677,15 +719,6 @@ func hashFile(path string) (string, int64, error) {
 		return "", 0, err
 	}
 	return hex.EncodeToString(h.Sum(nil)), n, nil
-}
-
-// scaledCompileTimeout mirrors the ingest CLI's bound: a hang
-// backstop (1 s/file, 5 m floor), never a throughput ceiling.
-func scaledCompileTimeout(n int) time.Duration {
-	if d := time.Duration(n) * time.Second; d > 5*time.Minute {
-		return d
-	}
-	return 5 * time.Minute
 }
 
 // budgetExhausted mirrors the ingest CLI's two-shape detection:
