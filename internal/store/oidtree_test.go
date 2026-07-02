@@ -8,6 +8,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/no42-org/blittermib/internal/model"
 )
@@ -726,23 +727,27 @@ func TestSpinePagesUnknownFocus(t *testing.T) {
 	}
 }
 
-// TestOIDTreeGeneration pins that the generation counter is 0 before any
-// build and increments on EVERY rebuild — including a content-only rebuild
-// that leaves the schema version constant. This is the ETag validity token,
-// so it must move whenever the browsable trie content moves.
+// TestOIDTreeGeneration pins that the generation token is 0 before any
+// build and advances on EVERY rebuild — including a content-only rebuild
+// that leaves the schema version constant. It is also anchored to
+// wall-clock seconds so a wiped/recreated DB cannot land on a previous
+// epoch's value (the cross-DB half of the ETag-validity contract).
 func TestOIDTreeGeneration(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	if g, err := s.OIDTreeGeneration(ctx); err != nil || g != 0 {
 		t.Fatalf("generation before build = (%d, %v), want (0, nil)", g, err)
 	}
+	start := time.Now().Unix()
 	seedAndBuild(t, s, "M", []model.Symbol{oidSym("M", "real", "1.3.6.1.4.1.99")})
 	g1, err := s.OIDTreeGeneration(ctx)
 	if err != nil {
 		t.Fatalf("OIDTreeGeneration: %v", err)
 	}
-	if g1 < 1 {
-		t.Fatalf("generation after first build = %d, want >= 1", g1)
+	// Wall-clock anchoring: a fresh DB's first generation is the current
+	// epoch second, not a restarted small counter.
+	if g1 < start {
+		t.Fatalf("generation after first build = %d, want >= %d (wall-clock anchored)", g1, start)
 	}
 	// A second rebuild (content changed, schema version unchanged) must bump
 	// the generation — the case a version-only token would miss.

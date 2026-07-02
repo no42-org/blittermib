@@ -2016,6 +2016,50 @@ func TestAPITreeSpineBadFocus(t *testing.T) {
 	}
 }
 
+// TestAPITreeErrorCarriesNoValidators pins that a tree error response never
+// carries success cache validators: a conforming cache could otherwise store
+// the error body and a later 304 would revalidate it as fresh. Closing the
+// store makes both the validator read and the page read fail, so the 500
+// must arrive with no ETag/Cache-Control.
+func TestAPITreeErrorCarriesNoValidators(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenInMemory(ctx)
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	if err := st.ReplaceModule(ctx, &model.Module{Name: "M", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{{ModuleName: "M", Name: "a", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent}},
+		nil, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := st.RebuildOIDTree(ctx); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	ts := httptest.NewServer(New(st, "", "test", t.TempDir()).Handler())
+	t.Cleanup(ts.Close)
+	_ = st.Close() // every store read now fails → the handlers 500
+
+	for _, url := range []string{
+		"/api/v1/tree?parent=1.3.6.1.4.1.99",
+		"/api/v1/tree/spine?focus=1.3.6.1.4.1.99.1",
+	} {
+		resp, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Errorf("%s status = %d, want 500", url, resp.StatusCode)
+		}
+		if et := resp.Header.Get("ETag"); et != "" {
+			t.Errorf("%s 500 carries ETag %q, want none", url, et)
+		}
+		if cc := resp.Header.Get("Cache-Control"); cc != "" {
+			t.Errorf("%s 500 carries Cache-Control %q, want none", url, cc)
+		}
+	}
+}
+
 // TestAPITreeETagChangesAfterRebuild pins the cache-validity token tracks
 // trie CONTENT: after a runtime rebuild that adds OIDs (an import/hot-reload
 // path, schema version unchanged), a conditional request with the old ETag
@@ -2119,17 +2163,10 @@ func TestAPITreeETag(t *testing.T) {
 		t.Errorf("conditional request status = %d, want 304", cond.StatusCode)
 	}
 
-	// A different query yields a different ETag (so it won't satisfy the old
-	// If-None-Match).
-	other, err := http.Get(ts.URL + "/api/v1/tree?parent=1.3.6.1.2.1.2.2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherETag := other.Header.Get("ETag")
-	_ = other.Body.Close()
-	if otherETag == etag {
-		t.Errorf("distinct queries share an ETag (%s) — cache would collide", etag)
-	}
+	// One validator serves every tree URL by design (caches key entries by
+	// URL; If-None-Match only replays to the same URL), so no per-query
+	// distinctness is asserted here — the validator varies with the trie
+	// generation and build version only.
 
 	// The spine endpoint validates the same way.
 	sp, err := http.Get(ts.URL + "/api/v1/tree/spine?focus=1.3.6.1.2.1.2.2.1.10")

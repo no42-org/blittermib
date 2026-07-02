@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/no42-org/blittermib/internal/model"
 )
@@ -43,13 +44,16 @@ type NodeRow struct {
 	HasChildren bool
 }
 
-// OIDTreeGeneration returns a monotonic counter incremented on every
+// OIDTreeGeneration returns a monotonic token advanced by every
 // RebuildOIDTree — i.e. whenever the trie's CONTENT is (re)materialised,
 // including content-only rebuilds after an import or hot reload. Unlike
 // oidTreeVersion (a fixed schema-shape marker, re-stamped unchanged on a
 // content rebuild), it changes whenever the browsable data changes, so it
 // is the correct cache-validity token for the tree endpoints (an ETag
-// component). 0 when the trie has never been built.
+// component). The value is anchored to wall-clock seconds (see the bump in
+// RebuildOIDTree), so it also differs ACROSS database files: a wiped and
+// re-imported DB cannot land on a previous epoch's value and re-issue an
+// old ETag for different content. 0 when the trie has never been built.
 func (s *Store) OIDTreeGeneration(ctx context.Context) (int64, error) {
 	var gen int64
 	err := s.db.QueryRowContext(ctx,
@@ -204,14 +208,23 @@ func (s *Store) RebuildOIDTree(ctx context.Context) error {
 		return fmt.Errorf("rebuild oid tree: mark version: %w", err)
 	}
 
-	// Bump a monotonic generation on every rebuild so the tree-API cache
+	// Advance a monotonic generation on every rebuild so the tree-API cache
 	// validator changes whenever the trie's CONTENT changes. The version
 	// above is a fixed shape marker (re-stamped unchanged on a content-only
 	// rebuild), so it cannot serve that role — an import or hot reload
 	// rewrites oid_node while leaving the version at its constant.
+	//
+	// The value is MAX(previous+1, now): anchoring to wall-clock seconds
+	// makes the token unique across DATABASE FILES too — a plain counter
+	// restarts at 1 in a wiped/recreated DB, so two DB lifetimes with equal
+	// rebuild counts would re-issue byte-identical ETags for different
+	// content and conditional requests would false-304 to a stale tree.
+	// previous+1 keeps it strictly advancing even under clock skew or two
+	// rebuilds within the same second.
+	now := time.Now().Unix()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO schema_meta(key, value) VALUES ('oid_tree_generation', 1)
-		ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`); err != nil {
+		INSERT INTO schema_meta(key, value) VALUES ('oid_tree_generation', ?)
+		ON CONFLICT(key) DO UPDATE SET value = MAX(CAST(value AS INTEGER) + 1, ?)`, now, now); err != nil {
 		return fmt.Errorf("rebuild oid tree: bump generation: %w", err)
 	}
 
@@ -496,7 +509,6 @@ func (s *Store) SpinePages(ctx context.Context, focus string, branchesOnly bool,
 	}
 	var levels []SpineLevel
 	parent := ""
-	prevParent := "\x00" // sentinel distinct from "" (the apex)
 	for i := 0; i < spineMaxDepth; i++ {
 		child := spineChild(parent, focus)
 		if child == "" {
@@ -537,11 +549,10 @@ func (s *Store) SpinePages(ctx context.Context, focus string, branchesOnly bool,
 		if !row.Expandable {
 			break // deepest reachable container (focus is a hidden leaf under it)
 		}
-		anchorOID := row.Anchor().OID
-		if anchorOID == parent || anchorOID == prevParent {
-			break // no progress — stop rather than spin
-		}
-		prevParent, parent = parent, anchorOID
+		// The anchor is always strictly deeper than `parent` (the row's chain
+		// starts at a direct child), so the walk provably advances each
+		// iteration; spineMaxDepth above is the sole anomaly backstop.
+		parent = row.Anchor().OID
 	}
 	return levels, nil
 }
@@ -610,6 +621,10 @@ func rowCoversOID(row FoldedNodeRow, oid string) bool {
 }
 
 // oidUnderPrefix reports whether `oid` is `prefix` or a descendant of it.
+// NOTE: this mirrors web.OIDUnderPrefix (not imported — the view layer sits
+// above the store) EXCEPT that an EMPTY prefix matches nothing here;
+// rowCoversOID never passes one. Align the semantics before reusing this
+// more broadly.
 func oidUnderPrefix(oid, prefix string) bool {
 	return oid == prefix || strings.HasPrefix(oid, prefix+".")
 }

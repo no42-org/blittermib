@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -1617,9 +1615,11 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, http.StatusBadRequest, "parent must be an OID", nil)
 		return
 	}
-	// Validated request → stamp cache validators and short-circuit a fresh
-	// 304. Kept after validation so a 4xx never carries success validators.
-	if s.treeCacheHit(w, r) {
+	// Validated request → answer a matching conditional with a fresh 304.
+	// Kept after validation so a bad request 400s instead of 304ing; the
+	// validators themselves are stamped only on the success path below.
+	etag := s.treeETag(r)
+	if treeNotModified(w, r, etag) {
 		return
 	}
 
@@ -1674,6 +1674,15 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Stamp validators only now — the read succeeded — and only if the trie
+	// generation didn't move mid-request (a rebuild can commit between the
+	// validator read and the page read on this single-connection pool; a
+	// page from the new generation must not be stored under the old tag —
+	// serve it fresh and let the next request revalidate against the new
+	// generation).
+	if etag != "" && etag == s.treeETag(r) {
+		treeValidatorHeaders(w, etag)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"parent":     parent,
 		"children":   out,
@@ -1682,37 +1691,54 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// treeCacheHit sets validation headers (ETag + revalidate) on a tree-API
-// response and short-circuits with 304 when the client's If-None-Match
-// already matches. It returns true when it wrote a 304 (the caller must
-// return without producing a body).
-//
-// The ETag is a strong validator over (trie generation, build version,
-// request URI). The generation is bumped by every RebuildOIDTree, so it
-// tracks the trie's CONTENT — including content-only rebuilds after an
-// import or hot reload (the schema version constant does NOT change then, so
-// it can't serve here). The build version covers the only other input to a
-// rendered row, the compiled-in IANA canonical-name table for synthetic
-// segments, which changes only with the binary. Cache-Control is
-// deliberately conservative (must-revalidate, no stored max-age): every use
-// revalidates, but a match returns 304 before any DB work or body render, so
-// repeat loads and back/forward are cheap. A longer max-age is a safe
-// follow-up once a shared cache tier is in play.
-//
-// Call this only AFTER request validation: it stamps success cache
-// validators and can 304, which must not happen for an input that would
-// otherwise be a 4xx.
-func (s *Server) treeCacheHit(w http.ResponseWriter, r *http.Request) bool {
+// treeETag computes the strong cache validator for the tree APIs: the trie
+// generation — advanced by every RebuildOIDTree and anchored to wall-clock
+// seconds, so it tracks the trie's CONTENT (including content-only rebuilds
+// after an import or hot reload, where the schema version constant does NOT
+// change) and differs across database files (a wiped/recreated DB cannot
+// re-issue a previous epoch's tags) — plus the build version, which covers
+// the only other input to a rendered row: the compiled-in IANA
+// canonical-name table for synthetic segments. One validator serves every
+// tree URL: HTTP caches key entries by URL and a conditional request only
+// replays the validator stored for that same URL, so per-resource
+// uniqueness (RFC 9110) needs no per-URI component. Returns "" when the
+// generation cannot be read — serve fresh with no caching headers.
+func (s *Server) treeETag(r *http.Request) string {
 	gen, err := s.store.OIDTreeGeneration(r.Context())
 	if err != nil {
-		return false // can't validate — serve fresh, no caching headers
+		return ""
 	}
-	h := fnv.New64a()
-	_, _ = io.WriteString(h, r.URL.RequestURI())
-	etag := fmt.Sprintf(`"oidtree-g%d-%s-%x"`, gen, s.version, h.Sum64())
+	return fmt.Sprintf(`"oidtree-g%d-%s"`, gen, s.version)
+}
+
+// treeValidatorHeaders stamps the cache validators on a response. Called
+// only on the two cacheable outcomes — the 304 itself and a SUCCESSFUL 200
+// body — never before the store read, so a 4xx/5xx error response can
+// never carry success validators (a conforming cache could otherwise store
+// the error and have a later 304 revalidate it as fresh). Cache-Control is
+// deliberately conservative (must-revalidate, no stored max-age): every
+// reuse revalidates, but a match returns 304 before any DB work or body
+// render. A longer max-age is a safe follow-up once a shared cache tier is
+// in play.
+func treeValidatorHeaders(w http.ResponseWriter, etag string) {
+	if etag == "" {
+		return
+	}
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+}
+
+// treeNotModified answers a conditional request: when the client's
+// If-None-Match already names the current validator, it writes the 304
+// (re-stamping the validators, per RFC 9110 §15.4.5) and reports true — the
+// caller returns without a body. Call only AFTER request validation, so an
+// invalid request still gets its 4xx instead of a 304.
+func treeNotModified(w http.ResponseWriter, r *http.Request, etag string) bool {
+	if etag == "" {
+		return false
+	}
 	if match := r.Header.Get("If-None-Match"); match != "" && etagMatches(match, etag) {
+		treeValidatorHeaders(w, etag)
 		w.WriteHeader(http.StatusNotModified)
 		return true
 	}
@@ -1755,9 +1781,11 @@ func (s *Server) handleAPITreeSpine(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, http.StatusBadRequest, "focus must be an OID", nil)
 		return
 	}
-	// Validated request → stamp cache validators and short-circuit a fresh
-	// 304. Kept after validation so a 4xx never carries success validators.
-	if s.treeCacheHit(w, r) {
+	// Validated request → answer a matching conditional with a fresh 304.
+	// Kept after validation so a bad request 400s instead of 304ing; the
+	// validators themselves are stamped only on the success path below.
+	etag := s.treeETag(r)
+	if treeNotModified(w, r, etag) {
 		return
 	}
 
@@ -1792,6 +1820,14 @@ func (s *Server) handleAPITreeSpine(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Stamp validators only now — the walk succeeded — and only if the trie
+	// generation didn't move mid-walk (SpinePages runs one query per level
+	// on a single-connection pool, so a rebuild can commit between levels;
+	// a spine mixing two generations must not be stored under either tag —
+	// serve it fresh and let the next request revalidate).
+	if etag != "" && etag == s.treeETag(r) {
+		treeValidatorHeaders(w, etag)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"focus":  focus,
 		"levels": levels,

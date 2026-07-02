@@ -468,6 +468,40 @@
 		}
 	}
 
+	// attachChildren replaces `node`'s child list with one fetched page and
+	// marks it expanded — the DOM step shared by anchored lazy expansion
+	// (loadAnchored) and the spine preload (renderSpineLevels), so a
+	// preloaded level and a lazily-expanded one render identically. An
+	// EMPTY page instead resets the node to a leaf (mirroring expand()'s
+	// empty-page reset) so a level that vanished server-side can't leave a
+	// dead expanded node over an empty group. `anchored` prepends the
+	// "show earlier" affordance for a level opened mid-way through a wide
+	// arc.
+	function attachChildren(node, parentOID, page, anchored) {
+		let children = node.querySelector(':scope > .tree-children');
+		if (children) node.removeChild(children);
+		const chevron = node.querySelector(':scope > .tree-row > .tree-expand');
+		if (page.items.length === 0) {
+			node.dataset.expanded = 'false';
+			node.dataset.hasChildren = 'false';
+			node.removeAttribute('aria-expanded');
+			if (chevron) {
+				chevron.textContent = ' ';
+				chevron.disabled = true;
+			}
+			return;
+		}
+		node.dataset.expanded = 'true';
+		node.setAttribute('aria-expanded', 'true');
+		if (chevron) chevron.textContent = '▾';
+		children = document.createElement('ul');
+		children.className = 'tree-children';
+		children.setAttribute('role', 'group');
+		node.appendChild(children);
+		if (anchored) children.appendChild(makeEarlier(parentOID, childLevel(node)));
+		appendPage(children, parentOID, page, childLevel(node));
+	}
+
 	// loadAnchored expands `node` to reveal a specific child `childOID`.
 	// It first tries the level's NORMAL first page — the common case
 	// (narrow levels like iso → org → dod) renders fully with no extra
@@ -475,7 +509,10 @@
 	// genuinely wide arc, e.g. enterprises with a high-PEN vendor) does it
 	// re-fetch the keyset page anchored at the child and add a "show
 	// earlier" affordance — so "show earlier" appears only where siblings
-	// were actually skipped. No-op if the child is already rendered.
+	// were actually skipped. No-op if the child is already rendered. A
+	// previously-loaded window that doesn't include the spine child (the
+	// user paged past it via "Show more") is replaced by attachChildren on
+	// success — and left intact if the fetch throws.
 	async function loadAnchored(node, childOID) {
 		if (node.dataset.hasChildren !== 'true') return;
 		const root = node.closest('[data-tree]');
@@ -485,22 +522,6 @@
 			if (node.dataset.expanded !== 'true') expand(node);
 			return;
 		}
-		let children = node.querySelector(':scope > .tree-children');
-		if (children) {
-			// Level was loaded but this window doesn't include the spine
-			// child (the user paged past it via "Show more"). Reload so the
-			// spine can continue — dropping the prior window for THIS level.
-			node.removeChild(children);
-		}
-		node.dataset.expanded = 'true';
-		node.setAttribute('aria-expanded', 'true');
-		const chevron = node.querySelector(':scope > .tree-row > .tree-expand');
-		if (chevron) chevron.textContent = '▾';
-		children = document.createElement('ul');
-		children.className = 'tree-children';
-		children.setAttribute('role', 'group');
-		node.appendChild(children);
-
 		const parentOID = node.dataset.oid;
 		let page = await fetchPage(parentOID, '');
 		let anchored = false;
@@ -517,8 +538,7 @@
 				anchored = true;
 			}
 		}
-		if (anchored) children.appendChild(makeEarlier(parentOID, childLevel(node)));
-		appendPage(children, parentOID, page, childLevel(node));
+		attachChildren(node, parentOID, page, anchored);
 	}
 
 	// expandSpineTo expands the tree from the apex down to `focusOID`,
@@ -744,19 +764,10 @@
 			}
 			const node = rowFor(container, lvl.parent);
 			if (!node || node.dataset.hasChildren !== 'true') return; // spine ends here
-			let children = node.querySelector(':scope > .tree-children');
-			if (children) node.removeChild(children);
-			node.dataset.expanded = 'true';
-			node.setAttribute('aria-expanded', 'true');
-			const chevron = node.querySelector(':scope > .tree-row > .tree-expand');
-			if (chevron) chevron.textContent = '▾';
-			children = document.createElement('ul');
-			children.className = 'tree-children';
-			children.setAttribute('role', 'group');
-			node.appendChild(children);
-			const lvlNum = childLevel(node);
-			if (lvl.anchored) children.appendChild(makeEarlier(lvl.parent, lvlNum));
-			appendPage(children, lvl.parent, page, lvlNum);
+			// Shared with lazy expansion; an empty level (vanished between
+			// the walk's queries) resets the node to a leaf instead of
+			// leaving a dead expanded node.
+			attachChildren(node, lvl.parent, page, !!lvl.anchored);
 		});
 	}
 
@@ -787,55 +798,73 @@
 			scope: container.dataset.treeScope || '',
 		};
 		container.innerHTML = '';
-		let ul = newRootList();
+		const ul = newRootList();
 		container.appendChild(ul);
 
 		// Workspace + focus fast path: one /spine request returns every level
 		// from the apex down to the focus, collapsing the per-level round-trip
-		// chain the lazy walk would otherwise pay. Any failure (or an empty
-		// apex) falls through to the lazy walk below, which also owns the
-		// standalone and no-focus cases.
+		// chain the lazy walk would otherwise pay. The focus is CAPTURED at
+		// fetch time: an htmx navigation can move cfg.focus while the fetch
+		// is in flight (syncSelection runs against the still-empty tree and
+		// no-ops), so this path finishes here only when the selection hasn't
+		// moved — otherwise it keeps the rendered spine and falls through to
+		// the expandSpineTo tail, which walks from the rendered rows to the
+		// LIVE focus (the pre-preload flow converged the same way). Any fetch
+		// failure or an empty apex also falls through; the lazy walk owns the
+		// standalone and no-focus cases too.
+		let spineRendered = false;
 		if (cfg.mode === 'workspace' && cfg.focus) {
+			const focus = cfg.focus;
 			try {
-				const levels = await fetchSpine(cfg.focus);
+				const levels = await fetchSpine(focus);
 				if (gen !== buildGen) return; // superseded by a newer rebuild
 				if (levels.length && levels[0].children && levels[0].children.length) {
 					renderSpineLevels(container, ul, levels);
-					highlightFocus(container, cfg.focus);
-					return;
+					// Seed the roving tabindex so the tree is reachable with
+					// a single Tab even if the highlight below finds nothing.
+					const first = ul.querySelector(':scope > .tree-node');
+					if (first) first.tabIndex = 0;
+					if (cfg.focus === focus) {
+						highlightFocus(container, focus);
+						return;
+					}
+					spineRendered = true; // stale spine — walk to the live focus below
 				}
 			} catch (err) {
 				console.warn('tree spine preload failed; using lazy walk', err);
 			}
 			if (gen !== buildGen) return;
-			// Reset any partial render before the fallback rebuilds cleanly.
-			container.innerHTML = '';
-			ul = newRootList();
-			container.appendChild(ul);
+			// Reset any partial render before the fallback rebuilds. Every
+			// artifact of a spine render lives inside the root list, so
+			// clearing it is a full reset.
+			if (!spineRendered) ul.textContent = '';
 		}
 
 		// Lazy walk (fallback + standalone + no-focus): render the apex, then
 		// expand the spine one level at a time. Standalone roots AT the focus.
-		const parent = cfg.mode === 'workspace' ? ROOT_OID : (cfg.focus || ROOT_OID);
-		try {
-			const page = await fetchPage(parent);
-			if (gen !== buildGen) return; // superseded by a newer rebuild
-			if (page.items.length === 0) {
-				ul.innerHTML = '<li class="tree-empty">No OIDs under <code>' + escape(parent || 'the root') + '</code>.</li>';
+		// Skipped when a (stale-focus) spine already rendered the apex above.
+		if (!spineRendered) {
+			const parent = cfg.mode === 'workspace' ? ROOT_OID : (cfg.focus || ROOT_OID);
+			try {
+				const page = await fetchPage(parent);
+				if (gen !== buildGen) return; // superseded by a newer rebuild
+				if (page.items.length === 0) {
+					ul.innerHTML = '<li class="tree-empty">No OIDs under <code>' + escape(parent || 'the root') + '</code>.</li>';
+					return;
+				}
+				appendPage(ul, parent, page, 1);
+				// Seed the roving tabindex on the first node so the tree is
+				// reachable with a single Tab.
+				const first = ul.querySelector(':scope > .tree-node');
+				if (first) first.tabIndex = 0;
+			} catch (err) {
+				container.innerHTML = '<div class="tree-error">Failed to load tree.</div>';
+				console.warn('tree init failed', err);
 				return;
 			}
-			appendPage(ul, parent, page, 1);
-			// Seed the roving tabindex on the first node so the tree is
-			// reachable with a single Tab.
-			const first = ul.querySelector(':scope > .tree-node');
-			if (first) first.tabIndex = 0;
-		} catch (err) {
-			container.innerHTML = '<div class="tree-error">Failed to load tree.</div>';
-			console.warn('tree init failed', err);
-			return;
 		}
-		// Spine expansion is best-effort and SEPARATELY guarded: a
-		// deep-level fetch failure must not discard the apex/upper levels
+		// Spine expansion to the LIVE focus — best-effort and SEPARATELY
+		// guarded: a deep-level fetch failure must not discard the levels
 		// already rendered above.
 		if (cfg.mode === 'workspace' && cfg.focus) {
 			try {
