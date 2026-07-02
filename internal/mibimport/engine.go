@@ -480,7 +480,15 @@ func (e *Engine) refreshOIDTree(ctx context.Context, changed bool) {
 	if !changed {
 		// Nothing changed — only rebuild to heal a stale/absent trie
 		// (e.g. first boot after the feature ships on an existing DB).
-		if stale, err := e.Store.OIDTreeStale(ctx); err != nil || !stale {
+		stale, err := e.Store.OIDTreeStale(ctx)
+		if err != nil {
+			// Surface the probe failure — this check runs once per boot,
+			// so a silently skipped heal would leave a stale trie with no
+			// diagnostic until the next restart or import.
+			slog.Warn("oid tree staleness probe failed", "err", err)
+			return
+		}
+		if !stale {
 			return
 		}
 	}

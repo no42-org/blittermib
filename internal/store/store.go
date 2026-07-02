@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -72,6 +73,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := migrateAddOIDNodeFamilyFlags(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate oid_node family flags: %w", err)
+	}
+	if err := migrateStampOIDTreeGeneration(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate oid tree generation: %w", err)
 	}
 	s := &Store{db: db}
 	// One-time: classify an already-ingested corpus whose relationship
@@ -258,6 +263,42 @@ func migrateAddOIDNodeFamilyFlags(ctx context.Context, db *sql.DB) error {
 		); err != nil {
 			return fmt.Errorf("alter table add %s: %w", col, err)
 		}
+	}
+	return nil
+}
+
+// migrateStampOIDTreeGeneration stamps schema_meta('oid_tree_generation')
+// on databases whose trie predates the generation-tagged tree ETags: the
+// trie CONTENT under the current oid_tree_version is intact — only the
+// cache-validity token is missing — so a one-row INSERT, not a full trie
+// rebuild, is the correct upgrade. Without it every pre-upgrade DB would
+// serve the SHARED zero generation, and two such DBs would carry
+// byte-identical ETags for different content (a DB swap could false-304;
+// see OIDTreeGeneration). Wall-clock anchored like RebuildOIDTree's bump,
+// so the stamped token is also unique across database files. Runs
+// synchronously in Open, before any listener binds, so upgraded DBs never
+// serve a zero-generation window.
+//
+// A DB with no trie yet (no oid_tree_version marker) is left alone: its
+// first RebuildOIDTree stamps the token, and treeETag serves uncacheable
+// responses until then.
+func migrateStampOIDTreeGeneration(ctx context.Context, db *sql.DB) error {
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_meta WHERE key = 'oid_tree_version'`).Scan(&n); err != nil {
+		return fmt.Errorf("probe oid_tree_version: %w", err)
+	}
+	if n == 0 {
+		return nil // no trie yet — the first RebuildOIDTree stamps it
+	}
+	res, err := db.ExecContext(ctx, `
+		INSERT INTO schema_meta(key, value) VALUES ('oid_tree_generation', ?)
+		ON CONFLICT(key) DO NOTHING`, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("stamp oid tree generation: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows > 0 {
+		slog.Info("stamped oid_tree_generation for a pre-upgrade trie")
 	}
 	return nil
 }

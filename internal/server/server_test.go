@@ -2060,6 +2060,61 @@ func TestAPITreeErrorCarriesNoValidators(t *testing.T) {
 	}
 }
 
+// TestAPITreeNoValidatorsWithoutGeneration pins the zero-generation guard:
+// a store whose trie has never been (re)built in a generation-aware world
+// (generation 0 — e.g. a brand-new DB before its first build) must serve
+// tree responses WITHOUT cache validators. The zero is shared across every
+// such database, so minting "oidtree-g0-…" would let a cache revalidate one
+// DB's response against another's after a swap (a false 304).
+func TestAPITreeNoValidatorsWithoutGeneration(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenInMemory(ctx)
+	if err != nil {
+		t.Fatalf("OpenInMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	// Symbols present but the trie never rebuilt → generation stays 0.
+	if err := st.ReplaceModule(ctx, &model.Module{Name: "M", ParseStatus: model.ParseStatusClean},
+		[]model.Symbol{{ModuleName: "M", Name: "a", OID: "1.3.6.1.4.1.99.1", Kind: model.KindObjectIdentity, Status: model.StatusCurrent}},
+		nil, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	ts := httptest.NewServer(New(st, "", "test", t.TempDir()).Handler())
+	t.Cleanup(ts.Close)
+
+	for _, url := range []string{
+		"/api/v1/tree?parent=1.3.6.1.4.1.99",
+		"/api/v1/tree/spine?focus=1.3.6.1.4.1.99.1",
+	} {
+		resp, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s status = %d, want 200", url, resp.StatusCode)
+		}
+		if et := resp.Header.Get("ETag"); et != "" {
+			t.Errorf("%s zero-generation response carries ETag %q, want none", url, et)
+		}
+		if cc := resp.Header.Get("Cache-Control"); cc != "" {
+			t.Errorf("%s zero-generation response carries Cache-Control %q, want none", url, cc)
+		}
+	}
+
+	// A conditional request with the shared zero tag must NOT 304.
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/tree?parent=1.3.6.1.4.1.99", nil)
+	req.Header.Set("If-None-Match", `"oidtree-g0-test"`)
+	cond, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cond.Body.Close()
+	if cond.StatusCode == http.StatusNotModified {
+		t.Error("zero-generation conditional request returned 304 — the shared g0 tag must never validate")
+	}
+}
+
 // TestAPITreeETagChangesAfterRebuild pins the cache-validity token tracks
 // trie CONTENT: after a runtime rebuild that adds OIDs (an import/hot-reload
 // path, schema version unchanged), a conditional request with the old ETag

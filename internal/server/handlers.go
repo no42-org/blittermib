@@ -1701,11 +1701,16 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 // canonical-name table for synthetic segments. One validator serves every
 // tree URL: HTTP caches key entries by URL and a conditional request only
 // replays the validator stored for that same URL, so per-resource
-// uniqueness (RFC 9110) needs no per-URI component. Returns "" when the
-// generation cannot be read — serve fresh with no caching headers.
+// uniqueness (RFC 9110) needs no per-URI component. Returns "" — serve
+// fresh with no caching headers — when the generation cannot be read OR is
+// zero: gen 0 means no rebuild has ever stamped a token (a brand-new DB
+// before its first build), and the zero is SHARED across every such
+// database, so minting "oidtree-g0-…" would let a cache revalidate one
+// DB's response against another's (a false 304 across a DB swap). No
+// token, no caching.
 func (s *Server) treeETag(r *http.Request) string {
 	gen, err := s.store.OIDTreeGeneration(r.Context())
-	if err != nil {
+	if err != nil || gen == 0 {
 		return ""
 	}
 	return fmt.Sprintf(`"oidtree-g%d-%s"`, gen, s.version)

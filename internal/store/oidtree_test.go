@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -758,6 +759,66 @@ func TestOIDTreeGeneration(t *testing.T) {
 	}
 	if g2 <= g1 {
 		t.Errorf("generation after content rebuild = %d, want > %d", g2, g1)
+	}
+}
+
+// TestMigrateStampOIDTreeGeneration pins the upgrade path: a DB whose trie
+// predates the generation token (oid_tree_version present, generation key
+// absent — simulated by stripping the key) gets the token stamped by the
+// one-row migration at Open, WITHOUT a trie rebuild, so pre-upgrade DBs
+// never serve the shared zero generation and never pay a full rebuild for
+// a token-only upgrade.
+func TestMigrateStampOIDTreeGeneration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	// Build a trie, then strip the generation key — the exact schema_meta
+	// state of a DB built before the token existed.
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	seedAndBuild(t, s, "M", []model.Symbol{oidSym("M", "real", "1.3.6.1.4.1.99")})
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM schema_meta WHERE key = 'oid_tree_generation'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Reopen: the migration must stamp a wall-clock token and leave the
+	// trie alone (still current — no rebuild owed).
+	start := time.Now().Unix()
+	s2, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer func() { _ = s2.Close() }()
+	gen, err := s2.OIDTreeGeneration(ctx)
+	if err != nil {
+		t.Fatalf("OIDTreeGeneration: %v", err)
+	}
+	if gen < start {
+		t.Errorf("migrated generation = %d, want >= %d (wall-clock stamp)", gen, start)
+	}
+	if stale, err := s2.OIDTreeStale(ctx); err != nil || stale {
+		t.Errorf("trie after stamp migration stale = (%v, %v), want (false, nil) — token-only upgrade must not force a rebuild", stale, err)
+	}
+	// The trie content survived untouched.
+	if _, _, _, _, ok := node(t, s2, "1.3.6.1.4.1.99"); !ok {
+		t.Error("trie content missing after the stamp migration — it must not clear oid_node")
+	}
+}
+
+// TestMigrateStampOIDTreeGenerationSkipsFreshDB pins the other half: a DB
+// with no trie yet (no oid_tree_version marker) is NOT stamped at Open —
+// the generation stays 0, treeETag serves uncacheable responses, and the
+// first RebuildOIDTree writes the real token.
+func TestMigrateStampOIDTreeGenerationSkipsFreshDB(t *testing.T) {
+	s := newStore(t)
+	if g, err := s.OIDTreeGeneration(context.Background()); err != nil || g != 0 {
+		t.Fatalf("fresh DB generation = (%d, %v), want (0, nil) — nothing to stamp before the first build", g, err)
 	}
 }
 
