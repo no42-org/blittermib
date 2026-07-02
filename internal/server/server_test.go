@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Ronny Trommer <ronny@no42.org>
+ * SPDX-License-Identifier: MIT
+ */
+
 package server
 
 import (
@@ -2097,8 +2102,10 @@ func TestAPITreeNoValidatorsWithoutGeneration(t *testing.T) {
 		if et := resp.Header.Get("ETag"); et != "" {
 			t.Errorf("%s zero-generation response carries ETag %q, want none", url, et)
 		}
-		if cc := resp.Header.Get("Cache-Control"); cc != "" {
-			t.Errorf("%s zero-generation response carries Cache-Control %q, want none", url, cc)
+		// Explicit no-store, not a bare 200: without directives the
+		// response would be heuristically cacheable (RFC 9111 §4.2.2).
+		if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("%s zero-generation Cache-Control = %q, want %q", url, cc, "no-store")
 		}
 	}
 

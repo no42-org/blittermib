@@ -50,10 +50,11 @@ type NodeRow struct {
 // oidTreeVersion (a fixed schema-shape marker, re-stamped unchanged on a
 // content rebuild), it changes whenever the browsable data changes, so it
 // is the correct cache-validity token for the tree endpoints (an ETag
-// component). The value is anchored to wall-clock seconds (see the bump in
-// RebuildOIDTree), so it also differs ACROSS database files: a wiped and
-// re-imported DB cannot land on a previous epoch's value and re-issue an
-// old ETag for different content. 0 when the trie has never been built.
+// component). The value is anchored to the wall clock at nanosecond
+// resolution (see the bump in RebuildOIDTree), so it also differs ACROSS
+// database files: a wiped and re-imported DB cannot land on a previous
+// epoch's value and re-issue an old ETag for different content. 0 when the
+// trie has never been built.
 func (s *Store) OIDTreeGeneration(ctx context.Context) (int64, error) {
 	var gen int64
 	err := s.db.QueryRowContext(ctx,
@@ -214,14 +215,15 @@ func (s *Store) RebuildOIDTree(ctx context.Context) error {
 	// rebuild), so it cannot serve that role — an import or hot reload
 	// rewrites oid_node while leaving the version at its constant.
 	//
-	// The value is MAX(previous+1, now): anchoring to wall-clock seconds
-	// makes the token unique across DATABASE FILES too — a plain counter
-	// restarts at 1 in a wiped/recreated DB, so two DB lifetimes with equal
-	// rebuild counts would re-issue byte-identical ETags for different
-	// content and conditional requests would false-304 to a stale tree.
-	// previous+1 keeps it strictly advancing even under clock skew or two
-	// rebuilds within the same second.
-	now := time.Now().Unix()
+	// The value is MAX(previous+1, now): anchoring to the wall clock — at
+	// NANOSECOND resolution, so even two DBs first built within the same
+	// second receive distinct tokens — makes the token unique across
+	// DATABASE FILES too. A plain counter restarts at 1 in a wiped/
+	// recreated DB, so two DB lifetimes with equal rebuild counts would
+	// re-issue byte-identical ETags for different content and conditional
+	// requests would false-304 to a stale tree. previous+1 keeps it
+	// strictly advancing even under clock skew or rapid rebuilds.
+	now := time.Now().UnixNano()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO schema_meta(key, value) VALUES ('oid_tree_generation', ?)
 		ON CONFLICT(key) DO UPDATE SET value = MAX(CAST(value AS INTEGER) + 1, ?)`, now, now); err != nil {

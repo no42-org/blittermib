@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Ronny Trommer <ronny@no42.org>
+ * SPDX-License-Identifier: MIT
+ */
+
 package server
 
 import (
@@ -1679,9 +1684,14 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 	// validator read and the page read on this single-connection pool; a
 	// page from the new generation must not be stored under the old tag —
 	// serve it fresh and let the next request revalidate against the new
-	// generation).
+	// generation). A response WITHOUT a validator (zero generation, read
+	// error, or a mid-request rebuild) gets an explicit no-store: a bare
+	// 200 with no directives is heuristically cacheable (RFC 9111 §4.2.2),
+	// and these bodies must never be stored.
 	if etag != "" && etag == s.treeETag(r) {
 		treeValidatorHeaders(w, etag)
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"parent":     parent,
@@ -1692,8 +1702,8 @@ func (s *Server) handleAPITree(w http.ResponseWriter, r *http.Request) {
 }
 
 // treeETag computes the strong cache validator for the tree APIs: the trie
-// generation — advanced by every RebuildOIDTree and anchored to wall-clock
-// seconds, so it tracks the trie's CONTENT (including content-only rebuilds
+// generation — advanced by every RebuildOIDTree and wall-clock-anchored at
+// nanosecond resolution, so it tracks the trie's CONTENT (including rebuilds
 // after an import or hot reload, where the schema version constant does NOT
 // change) and differs across database files (a wiped/recreated DB cannot
 // re-issue a previous epoch's tags) — plus the build version, which covers
@@ -1829,9 +1839,13 @@ func (s *Server) handleAPITreeSpine(w http.ResponseWriter, r *http.Request) {
 	// generation didn't move mid-walk (SpinePages runs one query per level
 	// on a single-connection pool, so a rebuild can commit between levels;
 	// a spine mixing two generations must not be stored under either tag —
-	// serve it fresh and let the next request revalidate).
+	// serve it fresh and let the next request revalidate). A response
+	// WITHOUT a validator gets an explicit no-store — a bare 200 is
+	// heuristically cacheable (RFC 9111 §4.2.2) and must never be stored.
 	if etag != "" && etag == s.treeETag(r) {
 		treeValidatorHeaders(w, etag)
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"focus":  focus,

@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -739,14 +740,14 @@ func TestOIDTreeGeneration(t *testing.T) {
 	if g, err := s.OIDTreeGeneration(ctx); err != nil || g != 0 {
 		t.Fatalf("generation before build = (%d, %v), want (0, nil)", g, err)
 	}
-	start := time.Now().Unix()
+	start := time.Now().UnixNano()
 	seedAndBuild(t, s, "M", []model.Symbol{oidSym("M", "real", "1.3.6.1.4.1.99")})
 	g1, err := s.OIDTreeGeneration(ctx)
 	if err != nil {
 		t.Fatalf("OIDTreeGeneration: %v", err)
 	}
-	// Wall-clock anchoring: a fresh DB's first generation is the current
-	// epoch second, not a restarted small counter.
+	// Wall-clock anchoring at nanosecond resolution: a fresh DB's first
+	// generation is the current epoch instant, not a restarted counter.
 	if g1 < start {
 		t.Fatalf("generation after first build = %d, want >= %d (wall-clock anchored)", g1, start)
 	}
@@ -789,7 +790,7 @@ func TestMigrateStampOIDTreeGeneration(t *testing.T) {
 
 	// Reopen: the migration must stamp a wall-clock token and leave the
 	// trie alone (still current — no rebuild owed).
-	start := time.Now().Unix()
+	start := time.Now().UnixNano()
 	s2, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -819,6 +820,50 @@ func TestMigrateStampOIDTreeGenerationSkipsFreshDB(t *testing.T) {
 	s := newStore(t)
 	if g, err := s.OIDTreeGeneration(context.Background()); err != nil || g != 0 {
 		t.Fatalf("fresh DB generation = (%d, %v), want (0, nil) — nothing to stamp before the first build", g, err)
+	}
+}
+
+// TestOpenStampedDBIsWriteFree pins that the steady-state Open (version and
+// generation both present) executes NO write statement: a read-only DB file
+// must open fine. Regression guard for the stamp migration — even a
+// conflicting no-op INSERT acquires SQLite's write lock, which failed Open
+// on read-only media and blocked every Open behind a concurrent writer
+// (fatal for blittermib-mcp, which opens the live server DB per session).
+func TestOpenStampedDBIsWriteFree(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	seedAndBuild(t, s, "M", []model.Symbol{oidSym("M", "real", "1.3.6.1.4.1.99")})
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Make the DB (and any WAL sidecars) read-only; a write-free Open must
+	// still succeed and read the stamped generation.
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		if _, err := os.Stat(f); err == nil {
+			if err := os.Chmod(f, 0o444); err != nil {
+				t.Fatalf("chmod %s: %v", f, err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(f, 0o644) })
+		}
+	}
+
+	s2, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open on read-only stamped DB failed — steady-state Open must be write-free: %v", err)
+	}
+	defer func() { _ = s2.Close() }()
+	gen, err := s2.OIDTreeGeneration(ctx)
+	if err != nil {
+		t.Fatalf("OIDTreeGeneration: %v", err)
+	}
+	if gen <= 0 {
+		t.Errorf("generation on read-only stamped DB = %d, want > 0", gen)
 	}
 }
 

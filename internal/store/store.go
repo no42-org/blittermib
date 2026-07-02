@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Ronny Trommer <ronny@no42.org>
+ * SPDX-License-Identifier: MIT
+ */
+
 package store
 
 import (
@@ -274,14 +279,24 @@ func migrateAddOIDNodeFamilyFlags(ctx context.Context, db *sql.DB) error {
 // rebuild, is the correct upgrade. Without it every pre-upgrade DB would
 // serve the SHARED zero generation, and two such DBs would carry
 // byte-identical ETags for different content (a DB swap could false-304;
-// see OIDTreeGeneration). Wall-clock anchored like RebuildOIDTree's bump,
-// so the stamped token is also unique across database files. Runs
-// synchronously in Open, before any listener binds, so upgraded DBs never
-// serve a zero-generation window.
+// see OIDTreeGeneration). Wall-clock anchored like RebuildOIDTree's bump —
+// at NANOSECOND resolution, so even two DBs migrated within the same
+// second receive distinct tokens. Runs synchronously in Open, before any
+// listener binds, so upgraded DBs never serve a zero-generation window.
 //
 // A DB with no trie yet (no oid_tree_version marker) is left alone: its
 // first RebuildOIDTree stamps the token, and treeETag serves uncacheable
 // responses until then.
+//
+// Both keys are READ-probed before the INSERT so a fully-stamped DB's
+// Open never executes a write statement: even a conflicting no-op
+// INSERT acquires SQLite's write lock, which would block every Open
+// behind a concurrent writer (the server's ~14s RebuildOIDTree) and fail
+// outright on read-only media — fatal for blittermib-mcp, which opens
+// the live server DB per client session and never writes. ON CONFLICT
+// DO NOTHING stays on the INSERT only to keep the two-process upgrade
+// race benign (both probe the key as absent; one INSERT wins, the other
+// no-ops).
 func migrateStampOIDTreeGeneration(ctx context.Context, db *sql.DB) error {
 	var n int
 	if err := db.QueryRowContext(ctx,
@@ -291,15 +306,19 @@ func migrateStampOIDTreeGeneration(ctx context.Context, db *sql.DB) error {
 	if n == 0 {
 		return nil // no trie yet — the first RebuildOIDTree stamps it
 	}
-	res, err := db.ExecContext(ctx, `
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_meta WHERE key = 'oid_tree_generation'`).Scan(&n); err != nil {
+		return fmt.Errorf("probe oid_tree_generation: %w", err)
+	}
+	if n > 0 {
+		return nil // already stamped — keep Open write-free
+	}
+	if _, err := db.ExecContext(ctx, `
 		INSERT INTO schema_meta(key, value) VALUES ('oid_tree_generation', ?)
-		ON CONFLICT(key) DO NOTHING`, time.Now().Unix())
-	if err != nil {
+		ON CONFLICT(key) DO NOTHING`, time.Now().UnixNano()); err != nil {
 		return fmt.Errorf("stamp oid tree generation: %w", err)
 	}
-	if rows, err := res.RowsAffected(); err == nil && rows > 0 {
-		slog.Info("stamped oid_tree_generation for a pre-upgrade trie")
-	}
+	slog.Info("stamped oid_tree_generation for a pre-upgrade trie")
 	return nil
 }
 
