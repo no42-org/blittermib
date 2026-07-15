@@ -1003,6 +1003,19 @@ func (s *Server) handleSymbolDisambiguation(w http.ResponseWriter, r *http.Reque
 // the two surfaces can't drift on the shared pieces.
 func (s *Server) buildSymbolView(ctx context.Context, sym *model.Symbol) (*web.SymbolView, error) {
 	v := &web.SymbolView{Symbol: sym}
+	// Resolve a bare TC syntax (e.g. `InetAddressType`) to its defining
+	// TEXTUAL-CONVENTION so the syntax chip can link to it and, when the
+	// object declares no inline enumeration, its enumerated values surface
+	// under this object too.
+	if tc, err := s.store.ResolveSyntaxTC(ctx, sym); err != nil {
+		slog.WarnContext(ctx, "symbol view: syntax TC resolution failed", "module", sym.ModuleName, "name", sym.Name, "err", err)
+	} else if tc != nil {
+		v.SyntaxRef = tc
+		if len(sym.EnumValues) == 0 && len(tc.EnumValues) > 0 {
+			sym.EnumValues = tc.EnumValues
+			v.EnumInherited = true
+		}
+	}
 	if sym.Kind == model.KindNotificationType || sym.Kind == model.KindTrapType {
 		if rel, err := s.store.GetRelationship(ctx, sym.ModuleName, sym.Name); err == nil {
 			v.Relationship = rel
@@ -1151,6 +1164,21 @@ func (s *Server) buildNotifyVarbinds(ctx context.Context, refs []model.Reference
 			Syntax:         target.Syntax,
 			TrapTypeLetter: web.TrapTypeLetter(target.Syntax),
 			IsColumn:       target.Kind == model.KindColumn,
+		}
+		// A varbind whose SYNTAX is an imported INTEGER-enum TC (e.g.
+		// `InetAddressType`, `TruthValue`) carries no inline enumeration —
+		// borrow it from the TC so the simulator renders a value dropdown
+		// instead of a free-text box. BITS TCs are excluded: they store
+		// their named bits in the same EnumValues field, but a bit-string
+		// is neither a single-choice integer nor snmptrap type `i`, so
+		// inheriting them would render a misleading single-select and
+		// mistype the varbind (see the `i` forcing below).
+		if len(target.EnumValues) == 0 {
+			if tc, err := s.store.ResolveSyntaxTC(ctx, target); err != nil {
+				slog.WarnContext(ctx, "trap-simulator: syntax TC resolution failed", "module", target.ModuleName, "name", target.Name, "err", err)
+			} else if tc != nil && !isBitsSyntax(tc.Syntax) {
+				target.EnumValues = tc.EnumValues
+			}
 		}
 		if len(target.EnumValues) > 0 {
 			if buf, err := json.Marshal(target.EnumValues); err == nil {

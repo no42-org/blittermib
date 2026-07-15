@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/no42-org/blittermib/internal/correlate"
 	"github.com/no42-org/blittermib/internal/eventconf"
@@ -266,6 +267,60 @@ func (s *Store) GetSymbol(ctx context.Context, module, name string) (*model.Symb
 	row := s.db.QueryRowContext(ctx, symbolSelectColumns+`
 		FROM symbol WHERE module_name = ? AND name = ?`, module, name)
 	return scanSymbol(row.Scan)
+}
+
+// ResolveSyntaxTC resolves a symbol's SYNTAX to the TEXTUAL-CONVENTION
+// symbol it names, when the syntax is a bare reference to a TC defined
+// in this module or one it imports. Returns (nil, nil) — not an error —
+// when the syntax is a base type, carries a constraint or inline
+// enumeration (those already carry their own EnumValues), or names no
+// loaded TC.
+//
+// This is what lets an object whose SYNTAX is an imported enum TC
+// (e.g. `InetAddressType`, `TruthValue`) surface that TC's enumerated
+// values and link to its definition, even though smidump's per-module
+// XML never inlines a foreign TC's named numbers. Resolution is by name
+// via the module_import table (the importer records which module a name
+// comes from), so it needs no schema change and no re-ingest.
+func (s *Store) ResolveSyntaxTC(ctx context.Context, sym *model.Symbol) (*model.Symbol, error) {
+	name := strings.TrimSpace(sym.Syntax)
+	// Only a bare identifier can be a TC reference. A space, paren, or
+	// brace means a base type + constraint (`OCTET STRING (SIZE(0..255))`)
+	// or an inline enumeration (`Enumeration { … }`) — both already carry
+	// their own EnumValues, so there is nothing to resolve.
+	if name == "" || strings.ContainsAny(name, " \t(){},") {
+		return nil, nil
+	}
+	// Candidate defining modules: imports that name this type first (so a
+	// re-exported name resolves to its true origin), then the symbol's own
+	// module for a locally-declared TC.
+	imports, err := s.listImportsByModule(ctx, sym.ModuleName)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]string, 0, len(imports)+1)
+	for _, imp := range imports {
+		if imp.Symbol == name {
+			candidates = append(candidates, imp.FromModule)
+		}
+	}
+	candidates = append(candidates, sym.ModuleName)
+	for _, mod := range candidates {
+		if mod == sym.ModuleName && name == sym.Name {
+			continue // never resolve a symbol to itself
+		}
+		tc, err := s.GetSymbol(ctx, mod, name)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if tc.Kind == model.KindTextualConvention {
+			return tc, nil
+		}
+	}
+	return nil, nil
 }
 
 // GetSymbolByOID returns the (single) symbol attached to a given OID.

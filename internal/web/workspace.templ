@@ -940,7 +940,11 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 		<h2 class="detail-name"><code>{ s.Name }</code></h2>
 		<div class="detail-meta">
 			if s.Syntax != "" {
-				<span class={ "pill type " + fam }>{ s.Syntax }</span>
+				if sv.SyntaxRef != nil {
+					<a class={ "pill type " + fam } href={ symbolURL(sv.SyntaxRef.ModuleName, sv.SyntaxRef.Name) }>{ s.Syntax }</a>
+				} else {
+					<span class={ "pill type " + fam }>{ s.Syntax }</span>
+				}
 			}
 			if s.Access != "" {
 				<span class="pill">{ string(s.Access) }</span>
@@ -1024,7 +1028,14 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 			}
 			<span class="k">kind</span><span class="v">{ kindLabel(s.Kind) }</span>
 			if s.Syntax != "" {
-				<span class="k">syntax</span><span class="v">{ s.Syntax }</span>
+				<span class="k">syntax</span>
+				<span class="v">
+					if sv.SyntaxRef != nil {
+						<a href={ symbolURL(sv.SyntaxRef.ModuleName, sv.SyntaxRef.Name) }>{ s.Syntax }</a>
+					} else {
+						{ s.Syntax }
+					}
+				</span>
 			}
 			if s.Access != "" {
 				<span class="k">access</span><span class="v">{ string(s.Access) }</span>
@@ -1037,7 +1048,12 @@ templ workspaceDetailBody(view *WorkspaceView, sv *SymbolView) {
 			}
 		</div>
 		if len(s.EnumValues) > 0 {
-			<div class="section-title">Enumeration</div>
+			<div class="section-title">
+				Enumeration
+				if sv.EnumInherited && sv.SyntaxRef != nil {
+					<span class="section-note">from <code>{ sv.SyntaxRef.Name }</code></span>
+				}
+			</div>
 			<table class="enum-tbl">
 				<thead><tr><th scope="col">Value</th><th scope="col">Name</th></tr></thead>
 				<tbody>

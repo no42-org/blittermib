@@ -607,6 +607,19 @@ button { font-family: inherit; }
   margin: 0 0 16px;
 }
 
+/* Inline provenance note on a section heading — e.g. "Values from
+   InetAddressType" when an object's enumeration is inherited from the
+   TEXTUAL-CONVENTION its SYNTAX names. Muted and un-uppercased so it
+   reads as a subordinate clause to the label, not part of it. */
+.section-note {
+  margin-left: 0.6em;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg-2);
+}
+.section-note code { font-size: 0.95em; }
+
 .prose { font-size: 16px; line-height: 1.65; color: var(--fg); max-width: 65ch; }
 .prose p { margin: 0 0 16px; }
 .prose code {

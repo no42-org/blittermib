@@ -49,6 +49,17 @@ type SymbolView struct {
 	// only for a collided OID; drives the detail-pane warning on BOTH the
 	// workspace right pane and the canonical /s/ page (shared body).
 	CollisionSiblings []OIDCollision
+	// SyntaxRef is the TEXTUAL-CONVENTION that Symbol.Syntax names, when
+	// the syntax is a bare reference to a TC defined in this module or an
+	// imported one (e.g. `InetAddressType`, `DisplayString`). nil when the
+	// syntax is a base type or carries a constraint. Drives the syntax
+	// chip's link to the TC's definition page.
+	SyntaxRef *model.Symbol
+	// EnumInherited is true when Symbol.EnumValues was borrowed from
+	// SyntaxRef because the object declares no inline enumeration of its
+	// own — the Values/Enumeration section then notes its origin so the
+	// enumeration isn't mistaken for the object's own definition.
+	EnumInherited bool
 }
 
 // SymbolDetail renders the canonical reference page for a symbol
@@ -100,7 +111,11 @@ templ symbolDetailBody(view *SymbolView) {
 	</div>
 	<div class="type-line">
 		if view.Symbol.Syntax != "" {
-			<span class="syntax">{ view.Symbol.Syntax }</span>
+			if view.SyntaxRef != nil {
+				<a class="syntax" href={ symbolURL(view.SyntaxRef.ModuleName, view.SyntaxRef.Name) }>{ view.Symbol.Syntax }</a>
+			} else {
+				<span class="syntax">{ view.Symbol.Syntax }</span>
+			}
 		}
 		if view.Symbol.Access != "" {
 			<span class="sep">·</span>
@@ -134,7 +149,12 @@ templ symbolDetailBody(view *SymbolView) {
 	}
 	if len(view.Symbol.EnumValues) > 0 {
 		<section class="section">
-			<h2 class="section-label">Values</h2>
+			<h2 class="section-label">
+				Values
+				if view.EnumInherited && view.SyntaxRef != nil {
+					<span class="section-note">from <code>{ view.SyntaxRef.Name }</code></span>
+				}
+			</h2>
 			<ul class="enum-list">
 				for _, ev := range view.Symbol.EnumValues {
 					<li><code>{ ev.Name }({ fmtInt64(ev.Number) })</code></li>
