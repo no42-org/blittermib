@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1053,16 +1054,34 @@ func TestForeignKeysSurviveConnectionLoss(t *testing.T) {
 		t.Fatalf("ReplaceModule #1: %v", err)
 	}
 
+	// A TEMP table lives in the connection's own temp schema, so its
+	// survival is a direct probe of connection identity: if it is still
+	// there afterwards, the pool handed back the SAME connection and the
+	// test never exercised the regression.
+	if _, err := s.db.ExecContext(ctx, `CREATE TEMP TABLE conn_sentinel(x)`); err != nil {
+		t.Fatalf("create sentinel: %v", err)
+	}
+
 	// Kill the pooled connection the way a cancelled HTTP request does:
 	// start a query too long to finish, then cancel it out from under
-	// the driver.
-	cctx, cancel := context.WithTimeout(ctx, time.Millisecond)
-	defer cancel()
-	//nolint:rowserrcheck // the query is cancelled on purpose; the rows are never consumed.
-	_, _ = s.db.QueryContext(cctx, `WITH RECURSIVE c(x) AS (
-		SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 50000000)
-		SELECT count(*) FROM c`)
-	<-cctx.Done()
+	// the driver. Retry until the sentinel is gone so a deadline that
+	// expires before the query is dispatched cannot make this test pass
+	// vacuously.
+	replaced := false
+	for i := 0; i < 50 && !replaced; i++ {
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+		//nolint:rowserrcheck // the query is cancelled on purpose; the rows are never consumed.
+		_, _ = s.db.QueryContext(cctx, `WITH RECURSIVE c(x) AS (
+			SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 50000000)
+			SELECT count(*) FROM c`)
+		<-cctx.Done()
+		cancel()
+		err := s.db.QueryRowContext(ctx, `SELECT 1 FROM temp.conn_sentinel LIMIT 1`).Scan(new(int))
+		replaced = err != nil && !errors.Is(err, sql.ErrNoRows)
+	}
+	if !replaced {
+		t.Fatal("pooled connection was never replaced — test would pass vacuously")
+	}
 
 	var fk int
 	if err := s.db.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&fk); err != nil {
@@ -1125,7 +1144,31 @@ func TestSweepOrphanedModuleRows(t *testing.T) {
 	if orphans != 0 {
 		t.Errorf("orphaned symbol rows after sweep = %d, want 0", orphans)
 	}
+	// The OID trie is a projection of the rows just deleted, so the
+	// sweep must mark it stale — otherwise the swept symbols keep
+	// showing up in the browser until an unrelated import rebuilds it.
+	stale, err := s2.OIDTreeStale(ctx)
+	if err != nil {
+		t.Fatalf("OIDTreeStale: %v", err)
+	}
+	if !stale {
+		t.Error("OID trie not marked stale after a sweep removed symbol rows")
+	}
 	if err := s2.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
 		t.Errorf("re-import after sweep: %v", err)
+	}
+}
+
+// TestOpenRejectsPathWithQuestionMark pins the DSN-splitting hazard:
+// the driver cuts the DSN at the first '?', so such a path would open a
+// DIFFERENT database with every pragma dropped — cascades off, silently.
+func TestOpenRejectsPathWithQuestionMark(t *testing.T) {
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "q?mark.db"))
+	if err == nil {
+		_ = s.Close()
+		t.Fatal("Open accepted a path containing '?'; want an error")
+	}
+	if !strings.Contains(err.Error(), "?") {
+		t.Errorf("error should name the offending character, got: %v", err)
 	}
 }
