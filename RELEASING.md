@@ -75,14 +75,32 @@ A push of any tag matching `v*.*.*` triggers
 
 5. **docker** — multi-arch image for `linux/amd64` and `linux/arm64`,
    pushed to GHCR, signed by digest, with build provenance attested to
-   the registry. Tags:
-   - `ghcr.io/no42-org/blittermib:X.Y.Z` (no leading `v` — the
-     workflow strips it from the git tag for Docker tag conventions)
-   - `ghcr.io/no42-org/blittermib:X.Y` — floating minor
-   - `ghcr.io/no42-org/blittermib:latest`
+   the registry. It is tagged **`staging-X.Y.Z` only** — no
+   user-facing tag exists yet.
 
-   `X.Y` and `latest` always point at the newest **stable** release; a
-   prerelease tag publishes only its exact `X.Y.Z-rcN`.
+Publishing the release (step 6 below) triggers
+[`promote.yml`](.github/workflows/promote.yml), which attaches the real
+tags to that same digest:
+
+- `ghcr.io/no42-org/blittermib:X.Y.Z` (no leading `v` — the pipeline
+  strips it for Docker tag conventions)
+- `ghcr.io/no42-org/blittermib:X.Y` — floating minor
+- `ghcr.io/no42-org/blittermib:latest`
+
+`X.Y` and `latest` always point at the newest **stable** release; a
+prerelease publishes only its exact `X.Y.Z-rcN` and leaves the floating
+tags alone.
+
+Promotion **re-tags an existing digest, it does not rebuild** — the
+bytes users pull are the bytes that were signed and attested, and a
+digest signature covers every tag pointing at it, so nothing is
+re-signed. Publishing the release is therefore the human approval gate
+for the image as well as for the notes: until you publish, nobody can
+pull the new version by any normal tag.
+
+The `staging-X.Y.Z` tags are left in place as an audit trail of what
+each release was built from. GHCR has no delete-one-tag operation, and
+deleting the underlying version would take the promoted tags with it.
 
 Verification commands for all of the above: README *Verifying
 releases*, plus `gh attestation verify` for provenance (below).
@@ -153,11 +171,12 @@ The tag must match `v*.*.*` (with the leading `v`) — the workflow's
 gh run watch --repo no42-org/blittermib
 ```
 
-The jobs typically finish in 5–7 minutes plus the gates. The release
-lands as a **draft** — nothing is user-visible yet, so a failure here
-is recoverable without anyone having seen a broken release. `docker`
-runs independently of the draft, so it can succeed while `publish`
-fails, or vice versa; check both.
+The jobs typically finish in 5–7 minutes plus the gates. Nothing is
+user-visible yet: the release is a **draft** and the image is tagged
+only `staging-X.Y.Z`. A failure here is fully recoverable without
+anyone having seen a broken release. `docker` runs independently of the
+draft, so it can succeed while `publish` fails, or vice versa; check
+both.
 
 ### 5. Verify the draft
 
@@ -171,9 +190,9 @@ tar -xzf blittermib-vX.Y.Z-linux-amd64.tar.gz
 # the linux archive also bundles blittermib-mcp; macOS/Windows ship it
 # as a standalone blittermib-mcp-<os>-<arch> archive
 
-# Docker (note: image tag drops the leading `v`)
-docker pull ghcr.io/no42-org/blittermib:X.Y.Z
-docker run --rm ghcr.io/no42-org/blittermib:X.Y.Z -version
+# Docker — the STAGING tag; the release tags don't exist yet
+docker pull ghcr.io/no42-org/blittermib:staging-X.Y.Z
+docker run --rm ghcr.io/no42-org/blittermib:staging-X.Y.Z -version
 ```
 
 Both should print the tag. Then check the supply-chain material:
@@ -188,21 +207,23 @@ cosign verify-blob SHA256SUMS \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 
-# signature on the image (digest signature also covers `latest`/`X.Y`)
-cosign verify ghcr.io/no42-org/blittermib:X.Y.Z \
+# signature on the image — verify the staged tag now; the same digest
+# signature will cover X.Y.Z / X.Y / latest after promotion
+cosign verify ghcr.io/no42-org/blittermib:staging-X.Y.Z \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 
 # SLSA build provenance
 gh attestation verify blittermib-vX.Y.Z-linux-amd64.tar.gz \
   --repo no42-org/blittermib
-gh attestation verify oci://ghcr.io/no42-org/blittermib:X.Y.Z \
+gh attestation verify oci://ghcr.io/no42-org/blittermib:staging-X.Y.Z \
   --repo no42-org/blittermib
 ```
 
 Confirm the draft carries every archive, `SHA256SUMS`,
-`SHA256SUMS.sigstore.json`, and the `.spdx.json` SBOM, and that GHCR
-shows `X.Y.Z`, `X.Y`, and a moved `latest`.
+`SHA256SUMS.sigstore.json`, and the `.spdx.json` SBOM. GHCR should show
+**only** `staging-X.Y.Z` at this point — `X.Y.Z`, `X.Y`, and `latest`
+appear after you publish.
 
 ### 6. Write the notes and publish
 
@@ -226,12 +247,27 @@ gh release edit vX.Y.Z-rc1 --repo no42-org/blittermib \
     --notes-file notes.md --draft=false --prerelease
 ```
 
+Publishing fires [`promote.yml`](.github/workflows/promote.yml), which
+attaches `X.Y.Z` (plus `X.Y` and `latest` for a stable release) to the
+already-signed digest and re-verifies the signature on the promoted
+tag. Watch it, then confirm:
+
+```bash
+gh run watch --repo no42-org/blittermib
+docker pull ghcr.io/no42-org/blittermib:X.Y.Z
+docker run --rm ghcr.io/no42-org/blittermib:X.Y.Z -version
+```
+
+If promotion fails, the release is published but users on `latest` are
+still on the previous version — a safe state. Fix and re-run the
+workflow; nothing needs re-tagging.
+
 ## Recovering from a bad release
 
 If you spot the problem **before publishing the draft**, this is cheap:
-delete the draft and the tag, fix forward, re-tag. Nobody saw it. The
-image is the exception — `docker` publishes to GHCR without waiting for
-the draft to be published, so a pushed `X.Y.Z` is already public.
+delete the draft and the tag, fix forward, re-tag. Nobody saw it — the
+image only ever reached `staging-X.Y.Z`, which no user pulls, and the
+floating tags never moved.
 
 If the binary or image is broken and nobody has pulled it yet:
 

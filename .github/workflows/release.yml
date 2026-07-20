@@ -192,8 +192,14 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
 
+  # Builds, pushes, signs, and attests the image — but only under a
+  # `staging-X.Y.Z` tag. The user-facing tags (`X.Y.Z`, `X.Y`, `latest`)
+  # are attached by promote.yml when the release is PUBLISHED, so a tag
+  # push can no longer move `latest` for everyone before the release has
+  # been reviewed. Promotion re-tags the same digest, so the signature
+  # and provenance made here stay valid.
   docker:
-    name: Publish Docker image
+    name: Build and stage Docker image
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: [gates, meta]
@@ -222,50 +228,47 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
 
-      # The git tag is `vX.Y.Z` (semver convention); the Docker image
-      # tag is `X.Y.Z` (Docker tag convention). The binary build still
-      # gets the full `vX.Y.Z` via VERSION below so `./blittermib
-      # -version` matches the git tag.
-      #
-      # `X.Y` and `latest` are floating tags that only ever point at the
-      # newest STABLE release — `meta` blanks them for a prerelease.
-      - name: Compose image tags
+      # The staging tag is version-unique rather than a single mutable
+      # `staging`: tagging a second release before publishing the first
+      # would otherwise leave promotion resolving the wrong digest. The
+      # tags survive promotion as an audit trail of what each release
+      # was built from — GHCR has no delete-one-tag operation, and
+      # deleting the version would take the promoted tags with it.
+      - name: Compose staging tag
         id: tags
         env:
           OWNER: ${{ github.repository_owner }}
           VERSION: ${{ needs.meta.outputs.version }}
-          MINOR: ${{ needs.meta.outputs.minor }}
-          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
         run: |
           set -euo pipefail
           image="ghcr.io/${OWNER}/blittermib"
           {
-            echo "tags<<TAGS_EOF"
-            echo "${image}:${VERSION}"
-            if [ "$PRERELEASE" = "false" ]; then
-              echo "${image}:${MINOR}"
-              echo "${image}:latest"
-            fi
-            echo "TAGS_EOF"
             echo "image=${image}"
+            echo "staging=${image}:staging-${VERSION}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build & push multi-arch image
+      # The git tag is `vX.Y.Z` (semver convention); the Docker image
+      # tag is `X.Y.Z` (Docker tag convention). The binary build still
+      # gets the full `vX.Y.Z` via VERSION so `./blittermib -version`
+      # matches the git tag.
+      - name: Build & push multi-arch image (staging tag only)
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.tags.outputs.staging }}
           build-args: |
             VERSION=${{ github.ref_name }}
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
       - name: Sign image (keyless, by digest)
-        # Tags are mutable pointers — sign the digest, which covers
-        # every tag pointing at it (the version tag AND `latest`).
+        # Signing the DIGEST rather than a tag is what makes promotion
+        # safe: promote.yml only attaches more tags to this same digest,
+        # so this signature covers `X.Y.Z`, `X.Y`, and `latest` without
+        # anything being re-signed.
         env:
           IMAGE: ${{ steps.tags.outputs.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -277,3 +280,20 @@ jobs:
           subject-name: ${{ steps.tags.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      - name: Summarise
+        env:
+          STAGING: ${{ steps.tags.outputs.staging }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Image staged"
+            echo
+            echo "Built, signed, and attested — but **not** promoted."
+            echo "Publishing the draft release attaches the user-facing tags."
+            echo
+            echo '```'
+            echo "docker pull ${STAGING}"
+            echo "digest: ${DIGEST}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
