@@ -101,10 +101,14 @@ CREATE INDEX IF NOT EXISTS reference_target_idx ON reference(target_module, targ
 -- Inferred notification relationships (Notification Intelligence).
 -- DERIVED data, recomputed from `symbol`/`reference` on every
 -- ReplaceModule — like symbol_fts, never authored by hand. Both
--- tables carry an ON DELETE CASCADE FK to `module`, so the per-module
--- `DELETE FROM module` in ReplaceModule clears them before the
--- module's symbols are re-inserted and re-classified; no bespoke
--- migration is needed (the rows are a projection of compiled data).
+-- tables carry an ON DELETE CASCADE FK to `module`, but the cascade is
+-- declarative documentation only: ReplaceModule/DeleteModule clear
+-- them EXPLICITLY (store.go moduleChildTables — a cascade depends on
+-- the per-connection foreign_keys PRAGMA, which has been silently lost
+-- in production). A new table with this FK must be added to
+-- moduleChildTables; TestModuleChildTablesMatchSchema enforces it. No
+-- bespoke migration is needed (the rows are a projection of compiled
+-- data).
 --
 -- notification_relationship: one row per NOTIFICATION-TYPE/TRAP-TYPE
 -- with its inferred classification (raise/clear/orphan), confidence

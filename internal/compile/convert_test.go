@@ -312,6 +312,46 @@ func TestDedupeSymbols(t *testing.T) {
 	}
 }
 
+// TestDedupeSymbolsSourceOrderBeatsSliceOrder pins the cross-kind case
+// (the A10 ACOS pattern): ToModel appends scalars before table columns,
+// so a column that appears EARLIER in the source file sits LATER in the
+// slice. Source position must win, not append order.
+func TestDedupeSymbolsSourceOrderBeatsSliceOrder(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "M", Name: "foo", Kind: model.KindScalar, SourceLine: 50},
+		{ModuleName: "M", Name: "foo", Kind: model.KindColumn, SourceLine: 20},
+	}
+	kept, dropped := DedupeSymbols(syms)
+	if len(kept) != 1 || kept[0].SourceLine != 20 || kept[0].Kind != model.KindColumn {
+		t.Errorf("kept = %+v, want the line-20 column (earlier in source)", kept)
+	}
+	if len(dropped) != 1 || dropped[0].SourceLine != 50 {
+		t.Errorf("dropped = %+v, want the line-50 scalar", dropped)
+	}
+}
+
+// TestDedupeSymbolsMissingLineFallsBackToSliceOrder covers dumps where
+// smidump emits no line attribute (SourceLine 0, common in production):
+// with no source signal, the earlier slice entry wins; a positive line
+// always beats an unknown one.
+func TestDedupeSymbolsMissingLineFallsBackToSliceOrder(t *testing.T) {
+	kept, _ := DedupeSymbols([]model.Symbol{
+		{ModuleName: "M", Name: "a", Kind: model.KindObjectIdentity, OID: "1.2.1"},
+		{ModuleName: "M", Name: "a", Kind: model.KindScalar, OID: "1.2.2"},
+	})
+	if len(kept) != 1 || kept[0].OID != "1.2.1" {
+		t.Errorf("kept = %+v, want the first slice entry when no line info exists", kept)
+	}
+
+	kept, _ = DedupeSymbols([]model.Symbol{
+		{ModuleName: "M", Name: "b", Kind: model.KindObjectIdentity, SourceLine: 0},
+		{ModuleName: "M", Name: "b", Kind: model.KindScalar, SourceLine: 7},
+	})
+	if len(kept) != 1 || kept[0].SourceLine != 7 {
+		t.Errorf("kept = %+v, want the line-7 definition over the line-unknown one", kept)
+	}
+}
+
 func TestDedupeSymbolsLeavesCleanInputAlone(t *testing.T) {
 	syms := []model.Symbol{
 		{ModuleName: "M", Name: "a"},

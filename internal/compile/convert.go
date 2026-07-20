@@ -176,9 +176,9 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 	return mod, syms
 }
 
-// DedupeSymbols drops symbols whose name repeats one already seen in
-// the module, keeping the FIRST definition, and returns the survivors
-// plus the dropped duplicates.
+// DedupeSymbols drops symbols whose name repeats another in the same
+// module, keeping the definition that appears FIRST IN THE SOURCE FILE,
+// and returns the survivors plus the dropped duplicates.
 //
 // A descriptor must be unique within a MIB module, and `symbol` enforces
 // that with UNIQUE (module_name, name). Real vendor MIBs break the rule
@@ -186,18 +186,41 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 // `ifIndex` — and smidump passes both definitions through. Without this
 // pass the whole module fails to store on the duplicate insert, costing
 // every OTHER symbol in the file over one malformed definition. Keeping
-// the first and reporting the rest degrades a broken MIB to a
-// diagnostic instead of a total loss.
+// one and reporting the rest degrades a broken MIB to a diagnostic
+// instead of a total loss.
+//
+// "First" is decided by SourceLine, not slice position: ToModel appends
+// by kind group (nodes, scalars, table columns, notifications, …), so
+// slice order says nothing about where a definition sits in the file —
+// a duplicate spanning two kinds (the A10 ACOS pattern: same name as a
+// scalar and a column) would otherwise be resolved by ToModel's loop
+// order. When line information is missing from the dump (SourceLine 0),
+// slice position is the only signal left and the earlier entry wins.
 func DedupeSymbols(syms []model.Symbol) (kept, dropped []model.Symbol) {
-	seen := make(map[string]struct{}, len(syms))
-	kept = make([]model.Symbol, 0, len(syms))
-	for _, s := range syms {
-		if _, dup := seen[s.Name]; dup {
-			dropped = append(dropped, s)
+	// winner[name] = index of the definition to keep: lowest positive
+	// SourceLine, falling back to earliest slice position.
+	winner := make(map[string]int, len(syms))
+	for i := range syms {
+		j, seen := winner[syms[i].Name]
+		if !seen {
+			winner[syms[i].Name] = i
 			continue
 		}
-		seen[s.Name] = struct{}{}
-		kept = append(kept, s)
+		li, lj := syms[i].SourceLine, syms[j].SourceLine
+		if li > 0 && (lj <= 0 || li < lj) {
+			winner[syms[i].Name] = i
+		}
+	}
+	if len(winner) == len(syms) {
+		return syms, nil // no duplicates — the common case
+	}
+	kept = make([]model.Symbol, 0, len(winner))
+	for i := range syms {
+		if winner[syms[i].Name] == i {
+			kept = append(kept, syms[i])
+		} else {
+			dropped = append(dropped, syms[i])
+		}
 	}
 	return kept, dropped
 }

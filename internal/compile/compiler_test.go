@@ -306,7 +306,84 @@ func TestCompileReportsDuplicateDescriptor(t *testing.T) {
 	if found.Line != 30 {
 		t.Errorf("diagnostic line = %d, want 30 (the dropped definition)", found.Line)
 	}
+	// The message anchors on the dropped definition and must point at
+	// where the kept one lives.
+	if !strings.Contains(found.Message, "line 10") {
+		t.Errorf("diagnostic should name the kept definition's line, got %q", found.Message)
+	}
 	if r.Module.ParseStatus != model.ParseStatusWarnings {
 		t.Errorf("ParseStatus = %q, want %q", r.Module.ParseStatus, model.ParseStatusWarnings)
+	}
+}
+
+// TestCompileDuplicateAcrossKindsKeepsSourceOrder pins the cross-kind
+// duplicate (the A10 ACOS pattern): the same descriptor as a scalar and
+// a table column. ToModel appends scalars before columns, so slice
+// order would keep the scalar — but the column appears FIRST in the
+// source file and must win, with the diagnostic anchored on the dropped
+// scalar and naming the kept column's line.
+func TestCompileDuplicateAcrossKindsKeepsSourceOrder(t *testing.T) {
+	const dupXML = `<?xml version="1.0"?>
+<smi version="1.0">
+  <module name="DUP2-MIB" language="SMIv2">
+    <organization>test</organization>
+    <contact>test</contact>
+    <description>dup</description>
+  </module>
+  <imports/>
+  <typedefs/>
+  <nodes>
+    <table name="fooTable" oid="1.3.6.1.9.1" status="current" line="15">
+      <row name="fooEntry" oid="1.3.6.1.9.1.1" status="current" line="17">
+        <column name="foo" oid="1.3.6.1.9.1.1.1" status="current" line="20">
+          <description>the real foo, defined first in the file</description>
+        </column>
+      </row>
+    </table>
+    <scalar name="foo" oid="1.3.6.1.9.2" status="current" line="50">
+      <description>illegal redefinition, later in the file</description>
+    </scalar>
+  </nodes>
+</smi>`
+
+	c := &Compiler{Smidump: &fakeDumper{xml: dupXML}, Concurrency: 1}
+	results := c.Compile(context.Background(), []string{"DUP2-MIB"})
+	if len(results) != 1 || results[0].Err != nil {
+		t.Fatalf("compile: %+v", results)
+	}
+	r := results[0]
+
+	var foo *model.Symbol
+	for i := range r.Symbols {
+		if r.Symbols[i].Name == "foo" {
+			if foo != nil {
+				t.Fatal("`foo` survived twice")
+			}
+			foo = &r.Symbols[i]
+		}
+	}
+	if foo == nil {
+		t.Fatal("`foo` missing entirely")
+	}
+	if foo.Kind != model.KindColumn || foo.SourceLine != 20 {
+		t.Errorf("kept foo = kind %q line %d, want the line-20 column (first in source)",
+			foo.Kind, foo.SourceLine)
+	}
+
+	var diag *model.Diagnostic
+	for i := range r.Diagnostics {
+		if r.Diagnostics[i].Code == "duplicate-descriptor" {
+			diag = &r.Diagnostics[i]
+			break
+		}
+	}
+	if diag == nil {
+		t.Fatal("no duplicate-descriptor diagnostic")
+	}
+	if diag.Line != 50 {
+		t.Errorf("diagnostic line = %d, want 50 (the dropped scalar)", diag.Line)
+	}
+	if !strings.Contains(diag.Message, "line 20") {
+		t.Errorf("diagnostic should point at the kept line-20 column, got %q", diag.Message)
 	}
 }

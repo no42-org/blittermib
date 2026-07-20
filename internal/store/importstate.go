@@ -101,15 +101,16 @@ func (s *Store) DeleteModule(ctx context.Context, name string) error {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, q := range []string{
-		`DELETE FROM module WHERE name = ?`,
-		`DELETE FROM symbol WHERE module_name = ?`,
-		`DELETE FROM notification_relationship WHERE module_name = ?`,
-		`DELETE FROM notification_pair WHERE module_name = ?`,
+	queries := []string{`DELETE FROM module WHERE name = ?`}
+	for _, child := range moduleChildTables {
+		queries = append(queries, child.deleteByModule)
+	}
+	queries = append(queries,
 		`DELETE FROM module_import WHERE module_name = ?`,
 		`DELETE FROM reference WHERE source_module = ?`,
 		`DELETE FROM diagnostic WHERE module_name = ?`,
-	} {
+	)
+	for _, q := range queries {
 		if _, err := tx.ExecContext(ctx, q, name); err != nil {
 			return fmt.Errorf("delete module %s: %w", name, err)
 		}

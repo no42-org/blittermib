@@ -5,12 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/no42-org/blittermib/internal/model"
 )
+
+// createTableRe captures the table name of a CREATE TABLE statement in
+// schema.sql; used by TestModuleChildTablesMatchSchema.
+var createTableRe = regexp.MustCompile(`^CREATE TABLE (?:IF NOT EXISTS )?(\w+)`)
 
 // TestMigrateAddOIDNodeFamilyFlagsPartial pins the self-heal for a
 // partially-applied family-flag migration: the three columns are added by
@@ -1235,5 +1240,56 @@ func TestDeleteModuleIndependentOfCascade(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("orphaned symbol rows after DeleteModule = %d, want 0", n)
+	}
+}
+
+// TestModuleChildTablesMatchSchema pins the parity between schema.sql's
+// ON DELETE CASCADE declarations and moduleChildTables — the shared
+// list that ReplaceModule, DeleteModule, and sweepOrphanedModuleRows
+// all consume. A new cascade child added to the schema without a list
+// entry would orphan its rows on any FK-off connection; this test turns
+// that silent divergence into a red build.
+func TestModuleChildTablesMatchSchema(t *testing.T) {
+	// Collect the tables whose CREATE TABLE block declares the cascade
+	// FK to module. SQL comments ("-- ...") are skipped so prose about
+	// the cascade doesn't count as a declaration.
+	fromSchema := map[string]bool{}
+	table := ""
+	for _, line := range strings.Split(schemaSQL, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "--") {
+			continue
+		}
+		if m := createTableRe.FindStringSubmatch(trimmed); m != nil {
+			table = m[1]
+		}
+		if strings.Contains(trimmed, "REFERENCES module(name) ON DELETE CASCADE") && table != "" {
+			fromSchema[table] = true
+		}
+	}
+
+	fromList := map[string]bool{}
+	for _, c := range moduleChildTables {
+		fromList[c.table] = true
+		// Each statement must actually target its declared table.
+		for _, q := range []string{c.deleteByModule, c.countOrphans, c.deleteOrphans} {
+			if !strings.Contains(q, " "+c.table+" ") {
+				t.Errorf("moduleChildTables[%s]: statement does not target its table: %s", c.table, q)
+			}
+		}
+	}
+
+	for name := range fromSchema {
+		if !fromList[name] {
+			t.Errorf("schema.sql declares %s as an ON DELETE CASCADE child of module, but moduleChildTables does not cover it", name)
+		}
+	}
+	for name := range fromList {
+		if !fromSchema[name] {
+			t.Errorf("moduleChildTables lists %s, but schema.sql declares no cascade FK to module on it", name)
+		}
+	}
+	if len(fromSchema) == 0 {
+		t.Fatal("parsed no cascade children from schema.sql — the regex is broken, not the schema")
 	}
 }
