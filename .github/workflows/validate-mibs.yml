@@ -9,6 +9,10 @@ name: validate-mibs
 # back on a long-lived branch, and a shallow clone will reject the
 # `git worktree add` against an unfetched commit.
 
+concurrency:
+  group: validate-mibs-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     branches: [main]
@@ -27,7 +31,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Bound the job — Tier 3 lacks a per-MIB timeout and a
     # pathological smidump could hold a runner for the GHA 6 h
     # default otherwise. Tier 4 has a per-file 180 s Python timeout.
@@ -36,6 +40,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
         with:
@@ -80,9 +85,13 @@ jobs:
         # Use the PR base SHA (stable across rebases / multi-commit
         # PRs / merge strategies) rather than `HEAD~1` (which only
         # happens to work for single-commit PRs).
+        env:
+          # Route the event payload through env rather than
+          # interpolating it into the script body — a `run:` block is
+          # not a safe place for anything GitHub hands us.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
           PR_SHA="$(git rev-parse HEAD)"
           bash scripts/diff-parse.sh "$BASE_SHA" "$PR_SHA"
 

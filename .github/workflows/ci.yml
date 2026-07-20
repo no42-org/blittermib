@@ -6,79 +6,20 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel superseded runs on a branch — no point keeping stale checks
+# alive across a rebase or a fixup-push pile-up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install libsmi
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libsmi2-dev smitools
-
-      - name: Generate (templ)
-        run: make generate
-
-      - name: Check generated and prepared assets are up to date
-        run: |
-          make prepare-assets
-          if ! git diff --exit-code; then
-            echo "::error::Generated/prepared files are stale. Run 'make generate' and 'make prepare-assets' and commit the result. Note: the CSS source of truth is prototype/styles.css, not internal/server/assets/styles.css."
-            exit 1
-          fi
-
-      - name: Verify
-        run: make verify
-
-      - name: Build
-        run: make build
-
-  cross-build:
-    needs: verify
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-          - os: linux
-            arch: arm64
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Generate (templ)
-        run: make generate
-
-      - name: Build for ${{ matrix.os }}/${{ matrix.arch }}
-        run: make build
-        env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: "0"
-
-  docker:
-    needs: verify
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v4
-
-      - name: Build Docker image
-        run: make docker-build TAG=blittermib:ci
-
-      - name: Smoke-test image tool surface
-        run: make docker-smoke TAG=blittermib:ci
+  # The gates live in one reusable workflow shared with release.yml, so
+  # a release can never publish through a weaker bar than a PR clears.
+  gates:
+    name: gates
+    uses: ./.github/workflows/gates.yml
+    permissions:
+      contents: read

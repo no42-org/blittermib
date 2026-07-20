@@ -1,0 +1,22 @@
+# zizmor configuration — see https://docs.zizmor.sh/configuration/
+#
+# Every entry here is a deliberate exception with a stated reason. If a
+# finding can be fixed instead of ignored, fix it.
+
+rules:
+  artipacked:
+    ignore:
+      # refresh-pen.yml is the one workflow that genuinely pushes with
+      # the checkout token: it commits the refreshed IANA PEN snapshot
+      # to a branch and opens a PR. `persist-credentials: false` would
+      # break it. The job runs only on a schedule/dispatch, is fenced to
+      # this repository, and never checks out untrusted code.
+      - refresh-pen.yml
+
+  superfluous-actions:
+    ignore:
+      # softprops/action-gh-release is kept over a `gh release` script
+      # step for `generate_release_notes` plus `fail_on_unmatched_files`
+      # — reimplementing both in shell would be more code and more
+      # failure modes than the action it replaces.
+      - release.yml

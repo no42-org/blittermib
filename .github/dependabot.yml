@@ -5,6 +5,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "ci"
     labels:
@@ -15,8 +17,24 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "build"
     labels:
       - dependencies
       - go
+
+  # Base images in the Dockerfile — the one dependency surface that was
+  # otherwise updated only by hand.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "build"
+    labels:
+      - dependencies
+      - docker

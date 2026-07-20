@@ -4,26 +4,81 @@ on:
   push:
     tags: ['v*.*.*']
 
+# A cancelled release publishes half of itself — never cancel in
+# progress. The group is per-tag so two tags can release concurrently.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write
-  packages: write
-  # Keyless cosign signing: lets the jobs obtain a short-lived
-  # Fulcio certificate bound to this workflow's OIDC identity.
-  id-token: write
+  contents: read
 
 jobs:
+  # Same gates every PR clears, from the same definition. Nothing below
+  # runs if this is red.
+  gates:
+    name: gates
+    uses: ./.github/workflows/gates.yml
+    permissions:
+      contents: read
+
+  # `v1.2.3` is a stable release; `v1.2.3-rc1` is a prerelease. The tag
+  # glob matches both, and the difference decides whether `latest` and
+  # the floating `X.Y` tag move — so resolve it once, here, rather than
+  # repeating the string surgery in three jobs.
+  meta:
+    name: Resolve release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      minor: ${{ steps.v.outputs.minor }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"                      # v1.2.3 -> 1.2.3
+          minor="${version%.*}"                   # 1.2.3  -> 1.2
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+            minor=""                              # never float X.Y on an rc
+          else
+            prerelease=false
+          fi
+          {
+            echo "version=$version"
+            echo "minor=$minor"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG version=$version minor=${minor:-<none>} prerelease=$prerelease"
+
   artifacts:
     name: Build release artifacts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: gates
+    permissions:
+      contents: read
+      # Provenance attestation for the release archives.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0  # tags + history for `git describe`
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
         with:
           go-version-file: go.mod
-          cache: true
+          # No cache on the release path. A restored build cache is
+          # attacker-influencable state from a less-trusted context, and
+          # it must not be able to reach bytes we sign and attest. The
+          # gates job still caches; only the shipped build does not.
+          cache: false
 
       - name: Generate (templ)
         run: make generate
@@ -33,62 +88,126 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
 
-      - name: Upload artifacts to release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+      # Generated after `make dist` (which writes SHA256SUMS over the
+      # archives), so the SBOM is deliberately NOT in SHA256SUMS. It is
+      # covered by its own provenance attestation below instead.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
         with:
-          files: |
+          path: .
+          format: spdx-json
+          artifact-name: blittermib-${{ github.ref_name }}.spdx.json
+          output-file: dist/blittermib-${{ github.ref_name }}.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        with:
+          subject-path: |
             dist/*.tar.gz
             dist/*.zip
-            dist/SHA256SUMS
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+            dist/*.spdx.json
 
-  # Blob-sign the published checksums in a SEPARATE job: a
-  # Fulcio/Rekor outage then fails (and re-runs) only this job —
-  # re-running `artifacts` would re-generate the release notes and
-  # clobber any hand-curated body. Downloading SHA256SUMS from the
-  # release also means the signature covers exactly the bytes
-  # consumers fetch. One blob signature covers every tarball via its
+      # Hand the artifacts to the signing and publishing jobs through a
+      # workflow artifact rather than through a partially-created
+      # release: nothing is visible to users until `publish` runs, and
+      # `gh release download` never has to resolve a draft.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Blob-sign the checksums in a SEPARATE job so a Fulcio/Rekor outage
+  # fails (and can be re-run) on its own, without redoing the 30-minute
+  # cross-build. One blob signature covers every archive via its
   # checksum (README "Verifying releases").
   sign-checksums:
     name: Sign release checksums
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     needs: artifacts
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: release-dist
+          path: dist
 
-      - name: Download published SHA256SUMS
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
       - name: Sign SHA256SUMS (keyless)
         # cosign v4 sigstore bundle: ONE file carrying signature,
-        # certificate, and transparency-log entry. The v0.8.0
-        # acceptance run proved the old --output-signature/
-        # --output-certificate flags are ignored under v4's
-        # new-bundle-format default (the run failed on an empty
-        # bundle path).
+        # certificate, and transparency-log entry. The v0.8.0 acceptance
+        # run proved the old --output-signature/--output-certificate
+        # flags are ignored under v4's new-bundle-format default (the
+        # run failed on an empty bundle path).
+        working-directory: dist
         run: |
           cosign sign-blob --yes SHA256SUMS \
             --bundle SHA256SUMS.sigstore.json
 
-      - name: Attach signature bundle to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "$GITHUB_REF_NAME" \
-            SHA256SUMS.sigstore.json \
-            --repo "$GITHUB_REPOSITORY" --clobber
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: release-signature
+          path: dist/SHA256SUMS.sigstore.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # Create the release as a DRAFT, complete with every artifact and its
+  # signature. Publishing is a deliberate manual step once the curated
+  # notes are attached (RELEASING.md) — users never see a half-built
+  # release, and a prerelease tag stays flagged so it can't become
+  # "Latest".
+  publish:
+    name: Create draft release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: [meta, artifacts, sign-checksums]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: release-dist
+          path: dist
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: release-signature
+          path: dist
+
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+        with:
+          draft: true
+          prerelease: ${{ needs.meta.outputs.prerelease }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/SHA256SUMS.sigstore.json
+            dist/*.spdx.json
+          generate_release_notes: true
+          fail_on_unmatched_files: true
 
   docker:
     name: Publish Docker image
-    runs-on: ubuntu-latest
-    needs: artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: [gates, meta]
+    permissions:
+      contents: read
+      packages: write
+      # Keyless cosign signing + provenance attestation: a short-lived
+      # Fulcio certificate bound to this workflow's OIDC identity.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0  # v4.4.0
@@ -103,13 +222,33 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
 
-      - name: Compute Docker tag (strip leading `v`)
-        id: docker_tag
-        # The git tag is `vX.Y.Z` (semver convention); the Docker
-        # image tag is `X.Y.Z` (Docker tag convention). The binary
-        # build still gets the full `vX.Y.Z` via VERSION below so
-        # `./blittermib -version` matches the git tag.
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      # The git tag is `vX.Y.Z` (semver convention); the Docker image
+      # tag is `X.Y.Z` (Docker tag convention). The binary build still
+      # gets the full `vX.Y.Z` via VERSION below so `./blittermib
+      # -version` matches the git tag.
+      #
+      # `X.Y` and `latest` are floating tags that only ever point at the
+      # newest STABLE release — `meta` blanks them for a prerelease.
+      - name: Compose image tags
+        id: tags
+        env:
+          OWNER: ${{ github.repository_owner }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          MINOR: ${{ needs.meta.outputs.minor }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${OWNER}/blittermib"
+          {
+            echo "tags<<TAGS_EOF"
+            echo "${image}:${VERSION}"
+            if [ "$PRERELEASE" = "false" ]; then
+              echo "${image}:${MINOR}"
+              echo "${image}:latest"
+            fi
+            echo "TAGS_EOF"
+            echo "image=${image}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build & push multi-arch image
         id: build
@@ -118,9 +257,7 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/blittermib:${{ steps.docker_tag.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/blittermib:latest
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             VERSION=${{ github.ref_name }}
 
@@ -129,6 +266,14 @@ jobs:
       - name: Sign image (keyless, by digest)
         # Tags are mutable pointers — sign the digest, which covers
         # every tag pointing at it (the version tag AND `latest`).
-        run: |
-          cosign sign --yes \
-            "ghcr.io/${{ github.repository_owner }}/blittermib@${{ steps.build.outputs.digest }}"
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        with:
+          subject-name: ${{ steps.tags.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

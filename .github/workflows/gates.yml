@@ -1,0 +1,217 @@
+name: Gates
+
+# The single definition of "is this tree good enough to ship".
+#
+# Called by ci.yml (every PR and push to main) and by release.yml
+# (before anything is published). Defining the gates once means a
+# release cannot publish through a weaker bar than a PR has to clear —
+# previously `make verify` was copy-pasted into two workflows and the
+# release workflow was gated on neither.
+#
+# Callers only need to grant `contents: read`.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: make verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install libsmi
+        # The test suite drives the real import engine, which
+        # subprocesses smidump/smilint.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsmi2-dev smitools
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: Check generated and prepared assets are up to date
+        run: |
+          make prepare-assets
+          if ! git diff --exit-code; then
+            echo "::error::Generated/prepared files are stale. Run 'make generate' and 'make prepare-assets' and commit the result. Note: the CSS source of truth is prototype/styles.css, not internal/server/assets/styles.css."
+            exit 1
+          fi
+
+      - name: Verify (fmt-check + vet + race tests)
+        run: make verify
+
+      - name: Build
+        run: make build
+
+  cross-build:
+    name: cross-build ${{ matrix.os }}/${{ matrix.arch }}
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: Build for ${{ matrix.os }}/${{ matrix.arch }}
+        run: make build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+
+  lint:
+    name: make lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Install golangci-lint via `go install` so the version pin lives
+      # alongside the other CI tool pins. `make lint` checks the binary
+      # is on PATH and then runs it — keeping the CI entrypoint as a
+      # Makefile target per project convention.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: Lint
+        run: make lint
+
+  govulncheck:
+    name: make govulncheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: govulncheck
+        run: make govulncheck
+
+  gosec:
+    name: make gosec
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate (templ)
+        run: make generate
+
+      - name: gosec
+        run: make gosec
+
+  docker:
+    name: docker build + smoke
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build Docker image
+        run: make docker-build TAG=blittermib:ci
+
+      - name: Smoke-test image tool surface
+        run: make docker-smoke TAG=blittermib:ci
+
+  # actionlint and zizmor are the two jobs that run their linter via an
+  # upstream action rather than a Makefile target: neither tool is a Go
+  # package and there is no local-dev `make` equivalent, so the
+  # project-convention exception is explicit.
+  #
+  # actionlint uses the `local` reporter: findings print to the job log
+  # and the job fails on errors via `fail_level`. The `github-check`
+  # reporter posts inline annotations through the Checks API, but that
+  # path was 401-ing ("Requires authentication").
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d  # v1.72.0
+        with:
+          reporter: local
+          fail_level: error
+          filter_mode: nofilter
+
+  # zizmor audits the workflows themselves for the failure modes this
+  # repo's maintainer standards care about — unpinned actions, missing
+  # least-privilege blocks, template-injection into `run:`, credential
+  # persistence. Enforced mechanically here rather than by review memory.
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@6599ee8b7a49aef6a770f63d261d214911a7ce02  # v0.6.0
+        with:
+          # SARIF upload needs `security-events: write`, which would
+          # force every caller of this reusable workflow to grant it.
+          # Inline annotations carry the same findings without it.
+          advanced-security: false
+          annotations: true
