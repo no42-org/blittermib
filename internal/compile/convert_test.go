@@ -284,3 +284,41 @@ func TestNormalizeAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestDedupeSymbols(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "M", Name: "system", Kind: model.KindObjectIdentity, SourceLine: 10},
+		{ModuleName: "M", Name: "other", Kind: model.KindScalar, SourceLine: 20},
+		{ModuleName: "M", Name: "system", Kind: model.KindScalar, SourceLine: 30},
+		{ModuleName: "M", Name: "system", Kind: model.KindColumn, SourceLine: 40},
+	}
+	kept, dropped := DedupeSymbols(syms)
+
+	if len(kept) != 2 || kept[0].Name != "system" || kept[1].Name != "other" {
+		t.Fatalf("kept = %+v, want the first `system` and `other` in source order", kept)
+	}
+	// FIRST definition wins — the later ones are the ones dropped.
+	if kept[0].SourceLine != 10 || kept[0].Kind != model.KindObjectIdentity {
+		t.Errorf("kept `system` = line %d kind %q, want the line-10 object-identity",
+			kept[0].SourceLine, kept[0].Kind)
+	}
+	if len(dropped) != 2 {
+		t.Fatalf("dropped = %+v, want both later `system` definitions", dropped)
+	}
+	for _, d := range dropped {
+		if d.Name != "system" {
+			t.Errorf("dropped %q, want only `system`", d.Name)
+		}
+	}
+}
+
+func TestDedupeSymbolsLeavesCleanInputAlone(t *testing.T) {
+	syms := []model.Symbol{
+		{ModuleName: "M", Name: "a"},
+		{ModuleName: "M", Name: "b"},
+	}
+	kept, dropped := DedupeSymbols(syms)
+	if len(kept) != 2 || len(dropped) != 0 {
+		t.Errorf("kept=%d dropped=%d, want 2/0 on input with no duplicates", len(kept), len(dropped))
+	}
+}

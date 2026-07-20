@@ -2,6 +2,7 @@ package compile
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -100,6 +101,24 @@ func (c *Compiler) compileOne(ctx context.Context, target string) Result {
 	}
 
 	mod, syms := ToModel(smi)
+
+	// A duplicate descriptor is a fault in the MIB, not in the module's
+	// other 800 symbols — report it and keep going. This runs BEFORE
+	// parseStatusFor so the added warnings are reflected in the stored
+	// parse status.
+	syms, dropped := DedupeSymbols(syms)
+	for _, d := range dropped {
+		r.Diagnostics = append(r.Diagnostics, model.Diagnostic{
+			File:     target,
+			Line:     d.SourceLine,
+			Severity: model.SeverityWarning,
+			Code:     "duplicate-descriptor",
+			Message: fmt.Sprintf(
+				"%s is defined more than once in this module; a descriptor must be unique, so only the first definition is stored",
+				d.Name),
+		})
+	}
+
 	mod.ParseStatus = parseStatusFor(r.Diagnostics)
 
 	// smidump 0.5.0 does not emit a `path=` attribute on the

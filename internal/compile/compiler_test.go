@@ -238,3 +238,75 @@ func TestParseStatusFor(t *testing.T) {
 		})
 	}
 }
+
+// TestCompileReportsDuplicateDescriptor pins the graceful degradation
+// for a MIB that defines the same descriptor twice: the module still
+// compiles, the duplicate is dropped rather than failing the whole
+// file on the store's UNIQUE (module_name, name), and the operator
+// gets a diagnostic saying so.
+func TestCompileReportsDuplicateDescriptor(t *testing.T) {
+	// Two <node> entries sharing a name — what smidump emits for a MIB
+	// that assigns the same descriptor twice.
+	const dupXML = `<?xml version="1.0"?>
+<smi version="1.0">
+  <module name="DUP-MIB" language="SMIv2">
+    <organization>test</organization>
+    <contact>test</contact>
+    <description>dup</description>
+  </module>
+  <imports/>
+  <typedefs/>
+  <nodes>
+    <node name="system" oid="1.3.6.1.2.1.1" status="current" line="10">
+      <description>first</description>
+    </node>
+    <node name="unique" oid="1.3.6.1.2.1.2" status="current" line="20">
+      <description>only</description>
+    </node>
+    <node name="system" oid="1.3.6.1.2.1.3" status="current" line="30">
+      <description>second</description>
+    </node>
+  </nodes>
+</smi>`
+
+	c := &Compiler{Smidump: &fakeDumper{xml: dupXML}, Concurrency: 1}
+	results := c.Compile(context.Background(), []string{"DUP-MIB"})
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	r := results[0]
+	if r.Err != nil {
+		t.Fatalf("compile failed on a duplicate descriptor: %v", r.Err)
+	}
+
+	if len(r.Symbols) != 2 {
+		t.Errorf("symbols = %d, want 2 (the duplicate dropped)", len(r.Symbols))
+	}
+	seen := map[string]int{}
+	for _, s := range r.Symbols {
+		seen[s.Name]++
+	}
+	if seen["system"] != 1 {
+		t.Errorf("`system` appears %d times, want exactly 1", seen["system"])
+	}
+
+	var found *model.Diagnostic
+	for i := range r.Diagnostics {
+		if r.Diagnostics[i].Code == "duplicate-descriptor" {
+			found = &r.Diagnostics[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("no duplicate-descriptor diagnostic in %+v", r.Diagnostics)
+	}
+	if !strings.Contains(found.Message, "system") {
+		t.Errorf("diagnostic should name the descriptor, got %q", found.Message)
+	}
+	if found.Line != 30 {
+		t.Errorf("diagnostic line = %d, want 30 (the dropped definition)", found.Line)
+	}
+	if r.Module.ParseStatus != model.ParseStatusWarnings {
+		t.Errorf("ParseStatus = %q, want %q", r.Module.ParseStatus, model.ParseStatusWarnings)
+	}
+}

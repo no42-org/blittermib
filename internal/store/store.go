@@ -433,9 +433,18 @@ func OpenInMemory(ctx context.Context) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 // ReplaceModule atomically replaces a module's data in a single
-// transaction: the old module rows are removed (cascading to symbols
-// via FK), the new rows are written, and the module's outgoing
-// cross-references and diagnostics are rewritten.
+// transaction: the old module rows are removed, the new rows are
+// written, and the module's outgoing cross-references and diagnostics
+// are rewritten.
+//
+// Every child table is deleted EXPLICITLY rather than left to the
+// ON DELETE CASCADE. The cascade is still declared and still correct,
+// but making this operation depend on connection state that lives
+// outside the transaction has already cost one round of silent data
+// corruption: a connection that lost `foreign_keys` turned the delete
+// into a partial one, orphaning the module's symbols and breaking every
+// later re-import on UNIQUE (module_name, name). Deleting by name is
+// two extra statements and is correct regardless of PRAGMA state.
 //
 // References INTO this module from OTHER modules are unaffected because
 // they're keyed by qualified name, not by the symbol IDs that change
@@ -461,6 +470,22 @@ func (s *Store) ReplaceModule(
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM module WHERE name = ?`, mod.Name); err != nil {
 		return fmt.Errorf("delete old module: %w", err)
+	}
+	// The CASCADE children, deleted by name — see the doc comment.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM symbol WHERE module_name = ?`, mod.Name,
+	); err != nil {
+		return fmt.Errorf("delete old symbols: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM notification_relationship WHERE module_name = ?`, mod.Name,
+	); err != nil {
+		return fmt.Errorf("delete old relationships: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM notification_pair WHERE module_name = ?`, mod.Name,
+	); err != nil {
+		return fmt.Errorf("delete old notification pairs: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM module_import WHERE module_name = ?`, mod.Name,

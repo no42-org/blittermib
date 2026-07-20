@@ -1172,3 +1172,68 @@ func TestOpenRejectsPathWithQuestionMark(t *testing.T) {
 		t.Errorf("error should name the offending character, got: %v", err)
 	}
 }
+
+// TestReplaceModuleIndependentOfCascade pins that ReplaceModule clears
+// its own child rows rather than relying on ON DELETE CASCADE. The
+// cascade depends on a per-connection PRAGMA that lives OUTSIDE the
+// transaction; when it was silently lost, the partial delete orphaned
+// every module's symbols and broke re-import on UNIQUE (module_name,
+// name). Deleting by name is correct whatever the PRAGMA says.
+func TestReplaceModuleIndependentOfCascade(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	if err := s.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
+		t.Fatalf("ReplaceModule #1: %v", err)
+	}
+
+	// Take the safety net away.
+	if _, err := s.db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatalf("disable foreign_keys: %v", err)
+	}
+	var fk int
+	if err := s.db.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&fk); err != nil {
+		t.Fatal(err)
+	}
+	if fk != 0 {
+		t.Fatalf("setup failed: foreign_keys = %d, want 0", fk)
+	}
+
+	// The re-import must still succeed, and must not double the rows.
+	if err := s.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
+		t.Fatalf("ReplaceModule #2 with cascades disabled: %v", err)
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM symbol WHERE module_name = 'IF-MIB'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if want := len(sampleSymbols()); n != want {
+		t.Errorf("symbol rows = %d, want %d — stale rows survived the replace", n, want)
+	}
+}
+
+// TestDeleteModuleIndependentOfCascade is the same guarantee for the
+// vanished-source path, which pruneGhosts drives at boot.
+func TestDeleteModuleIndependentOfCascade(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	if err := s.ReplaceModule(ctx, sampleModule(), sampleSymbols(), nil, nil); err != nil {
+		t.Fatalf("ReplaceModule: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatalf("disable foreign_keys: %v", err)
+	}
+	if err := s.DeleteModule(ctx, "IF-MIB"); err != nil {
+		t.Fatalf("DeleteModule: %v", err)
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM symbol WHERE module_name = 'IF-MIB'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("orphaned symbol rows after DeleteModule = %d, want 0", n)
+	}
+}

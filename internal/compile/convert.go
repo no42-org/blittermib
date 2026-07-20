@@ -176,6 +176,32 @@ func ToModel(smi *SMI) (*model.Module, []model.Symbol) {
 	return mod, syms
 }
 
+// DedupeSymbols drops symbols whose name repeats one already seen in
+// the module, keeping the FIRST definition, and returns the survivors
+// plus the dropped duplicates.
+//
+// A descriptor must be unique within a MIB module, and `symbol` enforces
+// that with UNIQUE (module_name, name). Real vendor MIBs break the rule
+// anyway — usually by redefining a common descriptor like `system` or
+// `ifIndex` — and smidump passes both definitions through. Without this
+// pass the whole module fails to store on the duplicate insert, costing
+// every OTHER symbol in the file over one malformed definition. Keeping
+// the first and reporting the rest degrades a broken MIB to a
+// diagnostic instead of a total loss.
+func DedupeSymbols(syms []model.Symbol) (kept, dropped []model.Symbol) {
+	seen := make(map[string]struct{}, len(syms))
+	kept = make([]model.Symbol, 0, len(syms))
+	for _, s := range syms {
+		if _, dup := seen[s.Name]; dup {
+			dropped = append(dropped, s)
+			continue
+		}
+		seen[s.Name] = struct{}{}
+		kept = append(kept, s)
+	}
+	return kept, dropped
+}
+
 func nodeToSymbol(moduleName string, n XMLNode, kind model.SymbolKind) model.Symbol {
 	sym := model.Symbol{
 		ModuleName:   moduleName,
