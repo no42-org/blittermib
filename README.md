@@ -414,7 +414,9 @@ make check-tools    verify libsmi (smidump/smilint) is installed
 
 ## Contributing
 
-Code contributions follow the conventions above. A typical loop:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide — start from
+an issue, sign off your commits (`git commit -s`, DCO), disclose AI
+assistance with an `Assisted-by` trailer. The typical loop:
 
 ```bash
 make hooks      # install the pre-commit git hooks (once)
@@ -424,6 +426,9 @@ make generate   # if you edited .templ files
 
 Adding or correcting a MIB in the bundled corpus has its own workflow —
 see [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md).
+
+Security problems go through [SECURITY.md](SECURITY.md), never a public
+issue. Questions: [SUPPORT.md](SUPPORT.md).
 
 ## License
 

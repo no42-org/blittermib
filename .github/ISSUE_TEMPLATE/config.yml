@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/no42-org/blittermib/security/advisories/new
+    about: Do not open a public issue — report privately through a draft advisory.
+  - name: Add or correct a MIB in the corpus
+    url: https://github.com/no42-org/blittermib/blob/main/mibs/CONTRIBUTING.md
+    about: Corpus contributions have their own workflow and PR template.
+  - name: Question or usage help
+    url: https://github.com/no42-org/blittermib/blob/main/SUPPORT.md
+    about: Where to ask, and what makes a question answerable.

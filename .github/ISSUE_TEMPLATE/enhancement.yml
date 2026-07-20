@@ -1,0 +1,59 @@
+name: Feature request
+description: Suggest a new capability or an improvement
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are welcome. The most useful ones describe the
+        *problem* first — that leaves room for a better solution than
+        the one you had in mind.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that blittermib makes hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like to see
+      description: Your proposed solution, if you have one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried, or other tools that solve this well.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area?
+      options:
+        - Web UI / navigation
+        - Search
+        - MIB parsing / corpus
+        - Notifications & OpenNMS eventconf export
+        - Walk decoder
+        - MCP server
+        - HTTP API
+        - Packaging / deployment
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues (including closed ones) for this idea.
+          required: true
