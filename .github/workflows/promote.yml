@@ -4,7 +4,7 @@ name: Promote release image
 # container image.
 #
 # release.yml builds, signs, and attests the image at tag time but only
-# tags it `staging-X.Y.Z`. This workflow attaches the user-facing tags
+# tags it `staging`. This workflow attaches the user-facing tags
 # once the release is actually published — so a tag push can no longer
 # move `latest` for every user before anyone has looked at the release.
 #
@@ -55,7 +55,7 @@ jobs:
 
           image="ghcr.io/${OWNER}/blittermib"
           version="${TAG#v}"
-          staging="${image}:staging-${version}"
+          staging="${image}:staging"
 
           # A release published for a tag that never ran release.yml
           # (hand-created, or a failed build) has nothing to promote —
@@ -66,6 +66,23 @@ jobs:
             exit 1
           fi
           echo "staged digest: ${digest}"
+
+          # `staging` is mutable, so it is not proof of anything on its
+          # own: tagging a second release before publishing the first
+          # leaves it pointing at the newer build. The image carries the
+          # git tag it was built for as an OCI label — check it, and
+          # refuse rather than promote the wrong bytes to `latest`.
+          # Multi-arch, so the label is read per-platform; all platforms
+          # come from one build and must agree.
+          staged_version="$(docker buildx imagetools inspect "${image}@${digest}" \
+            --format '{{json .Image}}' \
+            | jq -r '[.[].config.Labels["org.opencontainers.image.version"]] | unique | if length == 1 then .[0] else "MISMATCHED-ACROSS-PLATFORMS" end')"
+
+          if [ "$staged_version" != "$TAG" ]; then
+            echo "::error::Staged image is for '${staged_version}', but '${TAG}' is being published. The staging tag was overwritten by a later release — re-run release.yml for ${TAG} before publishing it."
+            exit 1
+          fi
+          echo "staged image confirmed as ${TAG}"
 
           tags=(--tag "${image}:${version}")
           if [ "$PRERELEASE" = "false" ]; then

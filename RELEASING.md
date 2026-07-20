@@ -75,8 +75,8 @@ A push of any tag matching `v*.*.*` triggers
 
 5. **docker** — multi-arch image for `linux/amd64` and `linux/arm64`,
    pushed to GHCR, signed by digest, with build provenance attested to
-   the registry. It is tagged **`staging-X.Y.Z` only** — no
-   user-facing tag exists yet.
+   the registry. It is tagged **`staging` only** — no user-facing tag
+   exists yet.
 
 Publishing the release (step 6 below) triggers
 [`promote.yml`](.github/workflows/promote.yml), which attaches the real
@@ -98,9 +98,21 @@ re-signed. Publishing the release is therefore the human approval gate
 for the image as well as for the notes: until you publish, nobody can
 pull the new version by any normal tag.
 
-The `staging-X.Y.Z` tags are left in place as an audit trail of what
-each release was built from. GHCR has no delete-one-tag operation, and
-deleting the underlying version would take the promoted tags with it.
+`staging` is a single mutable tag, overwritten by each release — the
+same convention as `rc`. That means it is not proof of anything on its
+own: tag `vX.Y.Z`, then tag `vX.Y.Z+1` before publishing the first, and
+`staging` now points at the newer build.
+
+The image therefore carries the git tag it was built for as an
+`org.opencontainers.image.version` label, and promotion **refuses** when
+that label doesn't match the release being published:
+
+> Staged image is for 'v0.19.0', but 'v0.18.0' is being published.
+
+The fix in that situation is to re-run release.yml for the older tag
+before publishing it. In short: publish a release before tagging the
+next one, and if you forget, promotion stops rather than shipping the
+wrong bytes to `latest`.
 
 Verification commands for all of the above: README *Verifying
 releases*, plus `gh attestation verify` for provenance (below).
@@ -173,7 +185,7 @@ gh run watch --repo no42-org/blittermib
 
 The jobs typically finish in 5–7 minutes plus the gates. Nothing is
 user-visible yet: the release is a **draft** and the image is tagged
-only `staging-X.Y.Z`. A failure here is fully recoverable without
+only `staging`. A failure here is fully recoverable without
 anyone having seen a broken release. `docker` runs independently of the
 draft, so it can succeed while `publish` fails, or vice versa; check
 both.
@@ -191,8 +203,8 @@ tar -xzf blittermib-vX.Y.Z-linux-amd64.tar.gz
 # as a standalone blittermib-mcp-<os>-<arch> archive
 
 # Docker — the STAGING tag; the release tags don't exist yet
-docker pull ghcr.io/no42-org/blittermib:staging-X.Y.Z
-docker run --rm ghcr.io/no42-org/blittermib:staging-X.Y.Z -version
+docker pull ghcr.io/no42-org/blittermib:staging
+docker run --rm ghcr.io/no42-org/blittermib:staging -version
 ```
 
 Both should print the tag. Then check the supply-chain material:
@@ -209,20 +221,20 @@ cosign verify-blob SHA256SUMS \
 
 # signature on the image — verify the staged tag now; the same digest
 # signature will cover X.Y.Z / X.Y / latest after promotion
-cosign verify ghcr.io/no42-org/blittermib:staging-X.Y.Z \
+cosign verify ghcr.io/no42-org/blittermib:staging \
   --certificate-identity-regexp="$IDENTITY" \
   --certificate-oidc-issuer="$ISSUER"
 
 # SLSA build provenance
 gh attestation verify blittermib-vX.Y.Z-linux-amd64.tar.gz \
   --repo no42-org/blittermib
-gh attestation verify oci://ghcr.io/no42-org/blittermib:staging-X.Y.Z \
+gh attestation verify oci://ghcr.io/no42-org/blittermib:staging \
   --repo no42-org/blittermib
 ```
 
 Confirm the draft carries every archive, `SHA256SUMS`,
 `SHA256SUMS.sigstore.json`, and the `.spdx.json` SBOM. GHCR should show
-**only** `staging-X.Y.Z` at this point — `X.Y.Z`, `X.Y`, and `latest`
+**only** `staging` moved at this point — `X.Y.Z`, `X.Y`, and `latest`
 appear after you publish.
 
 ### 6. Write the notes and publish
@@ -266,8 +278,8 @@ workflow; nothing needs re-tagging.
 
 If you spot the problem **before publishing the draft**, this is cheap:
 delete the draft and the tag, fix forward, re-tag. Nobody saw it — the
-image only ever reached `staging-X.Y.Z`, which no user pulls, and the
-floating tags never moved.
+image only ever reached `staging`, which no user pulls, and the floating
+tags never moved.
 
 If the binary or image is broken and nobody has pulled it yet:
 
