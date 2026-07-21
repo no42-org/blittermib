@@ -23,7 +23,10 @@ ARG ALPINE_VERSION=3.21
 # (we got bitten by `1.26.2-alpine3.21` not existing on Docker Hub).
 # The runtime stage still pins ALPINE_VERSION because `alpine:3.21`
 # is a real tag that always exists.
-FROM golang:${GO_VERSION}-alpine AS build
+# Pinned by digest so a rebuild is byte-reproducible and a moved tag
+# can't silently change the base. The human-readable tag stays for
+# clarity; Dependabot (docker ecosystem) bumps digest + tag together.
+FROM golang:${GO_VERSION}-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS build
 
 WORKDIR /src
 
@@ -57,7 +60,7 @@ RUN make generate \
 
 # --- runtime stage --------------------------------------------------
 
-FROM alpine:${ALPINE_VERSION} AS runtime
+FROM alpine:${ALPINE_VERSION}@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS runtime
 
 # libsmi provides smidump and smilint at runtime (subprocessed by
 # the compile pipeline). ca-certificates and tzdata are standard

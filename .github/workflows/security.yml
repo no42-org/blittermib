@@ -46,6 +46,7 @@ jobs:
         with:
           languages: go
           queries: security-and-quality
+          config-file: ./.github/codeql-config.yml
 
       # templ output is generated, not committed in a compilable state
       # for a fresh clone — CodeQL's autobuild would fail without it.
