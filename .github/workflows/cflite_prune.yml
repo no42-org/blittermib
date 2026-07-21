@@ -1,0 +1,45 @@
+name: ClusterFuzzLite prune
+
+# Weekly corpus minimisation. Batch fuzzing keeps adding inputs; prune
+# mode replaces the persisted corpus with a minimal set that preserves
+# the same coverage, so the artifact the PR/batch jobs download stays
+# small and fast to seed. Corpus-persistence hygiene — without it the
+# corpus grows unbounded.
+
+on:
+  schedule:
+    # Sundays 03:47 UTC — after a week of daily batch runs.
+    - cron: '47 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cflite-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    if: github.repository == 'no42-org/blittermib' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build fuzzers
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
+        with:
+          language: go
+
+      - name: Prune corpus
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
+        with:
+          language: go
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          mode: prune
