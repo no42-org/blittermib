@@ -1,0 +1,51 @@
+name: ClusterFuzzLite PR
+
+# Fuzzes the code a PR changes, using OSS-Fuzz's libFuzzer engine
+# self-hosted via ClusterFuzzLite. Complements the native `go test
+# -fuzz` targets: same fuzzers, built as libFuzzer binaries, so a PR
+# touching internal/walk is fuzzed before it merges rather than only on
+# the scheduled sweep. A crash fails the job and uploads the reproducing
+# testcase as an artifact.
+#
+# Not a required check yet — the base-builder-go image pull + build is
+# heavy and infra-dependent, so it runs visibly on PRs but does not gate
+# merges until it has proven stable. `code-change` mode fuzzes only the
+# targets the diff touches, so a PR that changes no fuzzed package
+# finishes fast.
+#
+# The google/clusterfuzzlite actions live in subdirectories of that
+# repo; the pin is the `v1` tag commit (upstream publishes no semver —
+# `v1` is a rolling tag).
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cflite-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build fuzzers
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
+        with:
+          language: go
+
+      - name: Run fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
+        with:
+          language: go
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 300
+          mode: code-change
