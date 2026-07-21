@@ -7,7 +7,7 @@ name: ClusterFuzzLite coverage
 #
 # Publishes the HTML report to the `gh-pages` branch (same-repo storage),
 # served at
-# https://no42-org.github.io/blittermib/coverage/latest/report/linux/report.html
+# https://no42-org.github.io/blittermib/coverage/latest/report/linux/
 
 on:
   schedule:
