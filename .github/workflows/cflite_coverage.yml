@@ -1,0 +1,53 @@
+name: ClusterFuzzLite coverage
+
+# Weekly coverage report over the persisted corpus: replays
+# cifuzz-corpus-fuzz_parse through a coverage-instrumented build and
+# reports which lines of internal/walk the accumulated inputs exercise.
+# Runs after the Sunday prune, so it measures the minimised corpus.
+#
+# No storage repo configured, so the HTML report is uploaded as a
+# downloadable artifact rather than published to a gh-pages site. Making
+# it web-viewable is an opt-in upgrade (it would publish a public
+# coverage site) — see .github/workflows note and issue #108.
+
+on:
+  schedule:
+    # Sundays 04:37 UTC — after cflite_prune (03:47) has minimised the corpus.
+    - cron: '37 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cflite-coverage
+  cancel-in-progress: false
+
+jobs:
+  coverage:
+    if: github.repository == 'no42-org/blittermib' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Download the persisted corpus artifact to measure coverage over.
+      actions: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build fuzzers (coverage)
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
+        with:
+          language: go
+          sanitizer: coverage
+
+      - name: Generate coverage report
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
+        with:
+          language: go
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 300
+          mode: coverage
+          sanitizer: coverage
