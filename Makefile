@@ -1,4 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report correlate-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke
+.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec fuzz fuzz-smoke clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report correlate-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
 TEMPL_VERSION := v0.3.1001
@@ -197,6 +197,26 @@ test: prepare-assets
 
 verify: fmt-check vet test
 
+# Fuzzing — the parsers that turn UNTRUSTED input into structured data:
+# internal/walk.Parse (the /walk capture paste, reachable unauthenticated
+# over HTTP) and cmd/mib-ingest.normalizeLastUpdated (a date lifted from
+# an uploaded MIB). `-run=^$$` skips the packages' unit tests so only the
+# fuzz engine runs. The seed corpora also execute deterministically under
+# a plain `make test`, so committed regressions are caught without
+# fuzzing.
+#
+# FUZZTIME is per target; override it: `make fuzz FUZZTIME=10m`.
+FUZZTIME ?= 60s
+
+fuzz:
+	$(GO) test ./internal/walk    -run='^$$' -fuzz=FuzzParse                -fuzztime=$(FUZZTIME)
+	$(GO) test ./cmd/mib-ingest   -run='^$$' -fuzz=FuzzNormalizeLastUpdated -fuzztime=$(FUZZTIME)
+
+# Bounded smoke for CI: seed replay + a short mutation burst per target.
+fuzz-smoke:
+	$(GO) test ./internal/walk    -run='^$$' -fuzz=FuzzParse                -fuzztime=20s
+	$(GO) test ./cmd/mib-ingest   -run='^$$' -fuzz=FuzzNormalizeLastUpdated -fuzztime=20s
+
 run: build
 	./$(BIN) -mibs ./mibs -data ./data
 
@@ -280,6 +300,8 @@ help:
 	@echo "make lint        golangci-lint"
 	@echo "make govulncheck scan dep graph for known CVEs (golang.org/x/vuln)"
 	@echo "make gosec       static security checks (gosec, excluding generated files)"
+	@echo "make fuzz        fuzz the untrusted-input parsers (FUZZTIME=60s per target)"
+	@echo "make fuzz-smoke  bounded fuzz smoke (20s per target; used by CI)"
 	@echo "make clean       remove build artifacts"
 	@echo "make check-tools verify libsmi (smidump/smilint) is installed"
 	@echo "make hooks       install pre-commit git hooks"

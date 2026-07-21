@@ -1,0 +1,62 @@
+name: Fuzz
+
+# Continuous fuzzing of the untrusted-input parsers (internal/walk.Parse,
+# cmd/mib-ingest.normalizeLastUpdated). Mutation fuzzing is
+# non-deterministic, so it runs on a schedule rather than as a PR gate —
+# a crash it finds should not block an unrelated PR. Regression coverage
+# on PRs is handled separately: the seed corpora execute deterministically
+# under `make test`, which the gates already run.
+#
+# A discovered crash fails the job and uploads the minimised input Go
+# wrote under testdata/fuzz/, so it can be added as a permanent seed.
+
+on:
+  schedule:
+    # Tue + Fri 04:23 UTC. Offset off the hour to dodge the scheduler peak.
+    - cron: '23 4 * * 2,5'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: Duration per fuzz target (Go duration, e.g. 10m)
+        required: false
+        default: 5m
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    # Don't run the scheduled sweep in forks — it just burns their minutes.
+    if: github.repository == 'no42-org/blittermib' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fuzz
+        # 5 min per target by default; the manual trigger can dial it up.
+        # The dispatch input is routed through env, never interpolated
+        # into the run block — it is caller-controlled text.
+        env:
+          FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
+        run: make fuzz FUZZTIME="$FUZZTIME"
+
+      - name: Upload crash corpus
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: fuzz-crash-corpus
+          path: '**/testdata/fuzz/**'
+          if-no-files-found: ignore
+          retention-days: 30
