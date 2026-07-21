@@ -41,6 +41,12 @@ jobs:
         uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
         with:
           language: go
+          # Read the accumulated corpus (batch-built) from the same-repo
+          # storage branch to seed this PR's run. Read-only here — the PR
+          # never pushes corpus back.
+          storage-repo: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/no42-org/blittermib.git
+          storage-repo-branch: clusterfuzzlite
+          storage-repo-branch-coverage: gh-pages
 
       - name: Run fuzzers
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1  # v1
@@ -49,3 +55,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fuzz-seconds: 300
           mode: code-change
+          storage-repo: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/no42-org/blittermib.git
+          storage-repo-branch: clusterfuzzlite
+          storage-repo-branch-coverage: gh-pages

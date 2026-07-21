@@ -5,10 +5,9 @@ name: ClusterFuzzLite coverage
 # reports which lines of internal/walk the accumulated inputs exercise.
 # Runs after the Sunday prune, so it measures the minimised corpus.
 #
-# No storage repo configured, so the HTML report is uploaded as a
-# downloadable artifact rather than published to a gh-pages site. Making
-# it web-viewable is an opt-in upgrade (it would publish a public
-# coverage site) — see .github/workflows note and issue #108.
+# Publishes the HTML report to the `gh-pages` branch (same-repo storage),
+# served at
+# https://no42-org.github.io/blittermib/coverage/latest/report/linux/report.html
 
 on:
   schedule:
@@ -29,9 +28,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      contents: read
-      # Download the persisted corpus artifact to measure coverage over.
-      actions: read
+      # Read the corpus from `clusterfuzzlite` and publish the HTML
+      # report to the `gh-pages` branch.
+      contents: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -51,3 +50,6 @@ jobs:
           fuzz-seconds: 300
           mode: coverage
           sanitizer: coverage
+          storage-repo: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/no42-org/blittermib.git
+          storage-repo-branch: clusterfuzzlite
+          storage-repo-branch-coverage: gh-pages
