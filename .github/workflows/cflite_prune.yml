@@ -1,10 +1,10 @@
 name: ClusterFuzzLite prune
 
 # Weekly corpus minimisation. Batch fuzzing keeps adding inputs; prune
-# mode replaces the corpus on the `clusterfuzzlite` branch with a minimal
-# set that preserves the same coverage, so what the PR/batch jobs read
-# stays small and fast to seed. Corpus-persistence hygiene — without it
-# the corpus grows unbounded.
+# mode replaces the persisted corpus with a minimal set that preserves
+# the same coverage, so the artifact the PR/batch jobs download stays
+# small and fast to seed. Corpus-persistence hygiene — without it the
+# corpus grows unbounded.
 
 on:
   schedule:
@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      # Push the minimised corpus back to the `clusterfuzzlite` branch.
-      contents: write
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -43,6 +43,3 @@ jobs:
           language: go
           github-token: ${{ secrets.GITHUB_TOKEN }}
           mode: prune
-          storage-repo: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/no42-org/blittermib.git
-          storage-repo-branch: clusterfuzzlite
-          storage-repo-branch-coverage: gh-pages

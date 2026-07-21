@@ -2,16 +2,15 @@ name: ClusterFuzzLite batch
 
 # Scheduled batch fuzzing of HEAD. Unlike the PR job (which fuzzes only
 # what a diff touches, from a cold start), this fuzzes every target for
-# longer and PERSISTS the accumulated corpus to the same-repo
-# `clusterfuzzlite` storage branch. The PR job and the next batch run
-# read that corpus, so coverage compounds over time instead of
+# longer and PERSISTS the accumulated corpus as a GitHub Actions
+# artifact (cifuzz-corpus-<target>). The PR job and the next batch run
+# download that artifact, so coverage compounds over time instead of
 # restarting each run — the whole reason to add ClusterFuzzLite on top
 # of native `go test -fuzz`.
 #
-# Storage model: same repo, orphan branches (`clusterfuzzlite` corpus,
-# `gh-pages` coverage), pushed with GITHUB_TOKEN — no PAT, no separate
-# repo. Non-blocking by nature (scheduled); a crash fails the run and
-# uploads the reproducer.
+# No storage repo needed: with none configured, ClusterFuzzLite stores
+# the corpus in GitHub Actions artifacts. Non-blocking by nature
+# (scheduled); a crash fails the run and uploads the reproducer.
 
 on:
   schedule:
@@ -38,9 +37,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      # Push the accumulated corpus to the same-repo `clusterfuzzlite`
-      # storage branch.
-      contents: write
+      contents: read
+      # Download the corpus artifact produced by earlier batch runs.
+      actions: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -58,6 +57,3 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fuzz-seconds: ${{ github.event.inputs.fuzz-seconds || '1800' }}
           mode: batch
-          storage-repo: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/no42-org/blittermib.git
-          storage-repo-branch: clusterfuzzlite
-          storage-repo-branch-coverage: gh-pages
