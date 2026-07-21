@@ -45,8 +45,16 @@ jobs:
         uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a  # v4.37.1
         with:
           languages: go
-          queries: security-and-quality
-          config-file: ./.github/codeql-config.yml
+          # security-extended, NOT security-and-quality: the `-quality`
+          # suite adds maintainability queries whose only findings here
+          # were 64 go/useless-assignment-to-local on generated templ
+          # scaffolding. Quality is already covered by golangci-lint +
+          # gosec + govulncheck; CodeQL's job is the security dataflow
+          # queries (injection, SSRF, …), all of which security-extended
+          # keeps. (paths-ignore can't drop them either — it is ignored
+          # for compiled languages, so every file in the Go build is
+          # analysed regardless of path.)
+          queries: security-extended
 
       # templ output is generated, not committed in a compilable state
       # for a fresh clone — CodeQL's autobuild would fail without it.
