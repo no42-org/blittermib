@@ -430,6 +430,18 @@ see [mibs/CONTRIBUTING.md](mibs/CONTRIBUTING.md).
 Security problems go through [SECURITY.md](SECURITY.md), never a public
 issue. Questions: [SUPPORT.md](SUPPORT.md).
 
+## Support
+
+blittermib is free and open source under the **MIT** license — a self-hostable SNMP
+MIB browser that sends nothing to a third party. If it made your MIBs make sense, a
+one-time donation helps keep it maintained: releases, the MCP server, and MIB/format
+upkeep.
+
+- **GitHub Sponsors:** https://github.com/sponsors/indigo423
+
+No paid tiers or perks — it stays free and self-hostable. Stars, issues, and PRs help
+too, and there's a spot on [SPONSORS.md](SPONSORS.md) if you'd like one. 🙏
+
 ## License
 
 [MIT](LICENSE)
