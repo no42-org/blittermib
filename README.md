@@ -438,6 +438,7 @@ one-time donation helps keep it maintained: releases, the MCP server, and MIB/fo
 upkeep.
 
 - **GitHub Sponsors:** https://github.com/sponsors/indigo423
+- **Ko-fi:** https://ko-fi.com/indigo423
 
 No paid tiers or perks — it stays free and self-hostable. Stars, issues, and PRs help
 too, and there's a spot on [SPONSORS.md](SPONSORS.md) if you'd like one. 🙏
