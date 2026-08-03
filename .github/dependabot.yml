@@ -38,3 +38,18 @@ updates:
     labels:
       - dependencies
       - docker
+
+  # The ClusterFuzzLite build image is pinned by digest, so it needs its
+  # own entry — without one the pin would freeze at whatever base-builder-go
+  # shipped the day it was written.
+  - package-ecosystem: docker
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "build"
+    labels:
+      - dependencies
+      - docker
