@@ -180,8 +180,9 @@ func TestMCPMethodGuard(t *testing.T) {
 // TestMCPBodyLimitCaps exercises the body guard directly: a read past the
 // ceiling must error, regardless of the MCP SDK's own content-type/parse
 // checks. Testing the middleware in isolation is what actually proves the
-// guard fires — at the /mcp level an oversized body and a parse failure both
-// surface as 400, so a status-only assertion can't distinguish them.
+// guard fires — at the /mcp level the SDK maps both an oversized body and a
+// parse failure to its own 4xx, so a status-only assertion can't distinguish
+// which layer refused.
 func TestMCPBodyLimitCaps(t *testing.T) {
 	var readErr error
 	inner := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -207,8 +208,8 @@ func TestMCPOversizedBodyRejected(t *testing.T) {
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if got := rec.Result().StatusCode; got != http.StatusBadRequest {
-		t.Errorf("over-ceiling body status = %d, want 400 (rejected before dispatch)", got)
+	if got := rec.Result().StatusCode; got < 400 || got > 499 {
+		t.Errorf("over-ceiling body status = %d, want 4xx (rejected before dispatch)", got)
 	}
 }
 
