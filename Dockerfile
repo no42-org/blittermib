@@ -11,7 +11,7 @@
 # irrelevant to the Go side, but libsmi must be present in the
 # runtime layer.
 
-ARG GO_VERSION=1.26.5
+ARG GO_VERSION=1.26.7
 ARG ALPINE_VERSION=3.21
 
 # --- build stage ----------------------------------------------------
@@ -26,7 +26,7 @@ ARG ALPINE_VERSION=3.21
 # Pinned by digest so a rebuild is byte-reproducible and a moved tag
 # can't silently change the base. The human-readable tag stays for
 # clarity; Dependabot (docker ecosystem) bumps digest + tag together.
-FROM golang:${GO_VERSION}-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS build
+FROM golang:${GO_VERSION}-alpine@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468 AS build
 
 WORKDIR /src
 
