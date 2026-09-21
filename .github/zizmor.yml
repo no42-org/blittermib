@@ -20,3 +20,15 @@ rules:
       # — reimplementing both in shell would be more code and more
       # failure modes than the action it replaces.
       - release.yml
+
+  self-repository:
+    ignore:
+      # zizmor 1.30 wants GitHub's July-2026 `uses: $/...` self-repository
+      # syntax, but no actionlint release supports it yet: the newest,
+      # v1.7.12 (Mar 2026), rejects `$/` under its workflow-call rule.
+      # Migrating would trade a red zizmor gate for a red actionlint
+      # gate. Keep `./` until actionlint adds `$/` support, then drop
+      # this block and migrate all three.
+      - ci.yml
+      - preview.yml
+      - release.yml
