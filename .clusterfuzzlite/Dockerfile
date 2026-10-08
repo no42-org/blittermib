@@ -9,7 +9,7 @@
 # silently change the fuzzing toolchain (Scorecard Pinned-Dependencies).
 # Dependabot's docker ecosystem watches this directory and opens the
 # digest bumps.
-FROM gcr.io/oss-fuzz-base/base-builder-go@sha256:95203d2b95d85f24f5e22ac3e144dc81aff49249f253dbe8eed40df70dbb1bbc
+FROM gcr.io/oss-fuzz-base/base-builder-go@sha256:56e501922c95c648f144a451add2ddde979f8068fed695443a8dd0b8f5084bd2
 
 COPY . $SRC/blittermib
 WORKDIR $SRC/blittermib
