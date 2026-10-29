@@ -57,10 +57,11 @@ A push of any tag matching `v*.*.*` triggers
    desktop clients (macOS/Windows) where Claude Desktop/Code runs.
    `SHA256SUMS` is generated alongside.
 
-   The job also generates an **SBOM** (syft, SPDX JSON) and attests
-   **SLSA build provenance** for the archives and the SBOM. Nothing is
-   published from this job — the artifacts are handed onward as
-   workflow artifacts.
+   The job also generates an **SBOM** (syft, CycloneDX JSON, `blittermib-vX.Y.Z.cdx.json`).
+   blitsbom renders it into a self-contained HTML report, `blittermib-vX.Y.Z-sbom.html`.
+   An unparseable SBOM fails the job.
+   The job attests **SLSA build provenance** for the archives, the SBOM and the report.
+   Nothing is published from this job — the artifacts are handed onward as workflow artifacts.
 
 3. **sign-checksums** — cosign-signs `SHA256SUMS` keyless, producing
    `SHA256SUMS.sigstore.json`. A separate job so a Fulcio/Rekor outage
@@ -68,7 +69,7 @@ A push of any tag matching `v*.*.*` triggers
    signature covers every archive via its checksum.
 
 4. **publish** — creates the GitHub Release as a **draft**, with every
-   archive, `SHA256SUMS`, the signature bundle, and the SBOM attached,
+   archive, `SHA256SUMS`, the signature bundle, the SBOM and its report attached,
    and auto-generated notes as a starting point. Prerelease tags are
    marked `prerelease`. Publishing is a deliberate manual step (below)
    — users never see a half-built release.
@@ -233,7 +234,7 @@ gh attestation verify oci://ghcr.io/no42-org/blittermib:staging \
 ```
 
 Confirm the draft carries every archive, `SHA256SUMS`,
-`SHA256SUMS.sigstore.json`, and the `.spdx.json` SBOM. GHCR should show
+`SHA256SUMS.sigstore.json`, the `.cdx.json` SBOM and the `-sbom.html` report. GHCR should show
 **only** `staging` moved at this point — `X.Y.Z`, `X.Y`, and `latest`
 appear after you publish.
 
