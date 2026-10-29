@@ -374,13 +374,17 @@ func (s *Server) handleModuleEvents(w http.ResponseWriter, r *http.Request, name
 		s.notFound(w, r)
 		return
 	}
-	if _, err := s.store.GetModule(r.Context(), name); errors.Is(err, store.ErrNotFound) {
+	mod, err := s.store.GetModule(r.Context(), name)
+	if errors.Is(err, store.ErrNotFound) {
 		s.notFound(w, r)
 		return
 	} else if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
+	// Use the stored name from here on, not the URL segment, so the
+	// generated XML carries only corpus data (CodeQL go/reflected-xss).
+	name = mod.Name
 
 	ueibase := "uei.opennms.org/traps/" + name
 	if q := r.URL.Query().Get("uei"); q != "" {
