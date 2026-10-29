@@ -90,14 +90,22 @@ jobs:
 
       # Generated after `make dist` (which writes SHA256SUMS over the
       # archives), so the SBOM is deliberately NOT in SHA256SUMS. It is
-      # covered by its own provenance attestation below instead.
+      # covered by its own provenance attestation below instead. Same for
+      # the HTML report rendered from it.
       - name: Generate SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
           path: .
-          format: spdx-json
-          artifact-name: blittermib-${{ github.ref_name }}.spdx.json
-          output-file: dist/blittermib-${{ github.ref_name }}.spdx.json
+          format: cyclonedx-json
+          artifact-name: blittermib-${{ github.ref_name }}.cdx.json
+          output-file: dist/blittermib-${{ github.ref_name }}.cdx.json
+
+      # Fails on an unparseable SBOM, so a broken SBOM stops the release.
+      - name: Render SBOM report
+        uses: no42-org/blitsbom@192b3010b1f8570b0aa7652522bca16cf76b5408  # v0.9.2
+        with:
+          sbom: dist/blittermib-${{ github.ref_name }}.cdx.json
+          output: dist/blittermib-${{ github.ref_name }}-sbom.html
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
@@ -105,7 +113,8 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/*.zip
-            dist/*.spdx.json
+            dist/*.cdx.json
+            dist/*-sbom.html
 
       # Hand the artifacts to the signing and publishing jobs through a
       # workflow artifact rather than through a partially-created
@@ -188,7 +197,8 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
             dist/SHA256SUMS.sigstore.json
-            dist/*.spdx.json
+            dist/*.cdx.json
+            dist/*-sbom.html
           generate_release_notes: true
           fail_on_unmatched_files: true
 
