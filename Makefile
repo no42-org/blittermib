@@ -1,7 +1,4 @@
-.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec fuzz fuzz-smoke clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report correlate-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke
-
-# Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
-TEMPL_VERSION := v0.3.1100
+.PHONY: all build test verify run tidy fmt vet lint govulncheck gosec fuzz fuzz-smoke clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report correlate-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist sbom-input docker-build docker-smoke
 
 # Pinned htmx version — fetched into internal/server/assets/htmx.min.js
 # by `make fetch-htmx`. The vendored copy is committed so self-hosted
@@ -34,7 +31,7 @@ prepare-assets:
 	@cp -f prototype/styles.css internal/server/assets/styles.css
 
 generate:
-	$(GO) run github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION) generate
+	$(GO) tool templ generate
 
 fetch-htmx:
 	@mkdir -p internal/server/assets
@@ -260,6 +257,14 @@ clean:
 # dist/ plus a SHA256SUMS file. Invoked by the release CI job.
 dist: prepare-assets generate
 	./scripts/dist.sh
+
+# Unpack the release archives from `make dist` into sbom-input/. The
+# release SBOM is built from these binaries, which carry their linked
+# module list, so build-only tools in go.mod (templ) stay out of it.
+sbom-input:
+	rm -rf sbom-input && mkdir -p sbom-input
+	for a in dist/*.tar.gz; do tar -xzf "$$a" -C sbom-input; done
+	for a in dist/*.zip; do unzip -q "$$a" -d sbom-input; done
 
 # Build the production Docker image locally. Same Dockerfile the
 # release pipeline uses; tag is overridable via TAG=...

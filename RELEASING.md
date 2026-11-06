@@ -58,6 +58,7 @@ A push of any tag matching `v*.*.*` triggers
    `SHA256SUMS` is generated alongside.
 
    The job also generates an **SBOM** (syft, CycloneDX JSON, `blittermib-vX.Y.Z.cdx.json`).
+   syft scans the shipped binaries, not the source tree, so the SBOM lists only modules linked into them.
    blitsbom renders it into a self-contained HTML report, `blittermib-vX.Y.Z-sbom.html`.
    An unparseable SBOM fails the job.
    The job attests **SLSA build provenance** for the archives, the SBOM and the report.
