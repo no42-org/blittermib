@@ -1,7 +1,7 @@
 .PHONY: all build test verify run tidy fmt vet lint govulncheck gosec fuzz fuzz-smoke clean help check-tools hooks prepare-assets generate fetch-standard-mibs fetch-fonts fetch-alpine fetch-htmx refresh-pen index ingest ingest-report correlate-report verify-mibs verify-mibs-lexical verify-mibs-naming verify-mibs-parse dist docker-build docker-smoke
 
 # Pinned templ version — keep in sync with go.mod's github.com/a-h/templ entry.
-TEMPL_VERSION := v0.3.1001
+TEMPL_VERSION := v0.3.1100
 
 # Pinned htmx version — fetched into internal/server/assets/htmx.min.js
 # by `make fetch-htmx`. The vendored copy is committed so self-hosted
