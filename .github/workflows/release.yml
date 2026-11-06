@@ -92,10 +92,20 @@ jobs:
       # archives), so the SBOM is deliberately NOT in SHA256SUMS. It is
       # covered by its own provenance attestation below instead. Same for
       # the HTML report rendered from it.
+      #
+      # The SBOM is built from the shipped binaries, not the source tree.
+      # Go embeds each binary's linked modules, so CI actions, test-only
+      # deps and build tools declared in go.mod (templ) stay out of it.
+      # Licences come from the module cache that `make dist` filled.
+      - name: Unpack binaries for SBOM
+        run: make sbom-input
+
       - name: Generate SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
+        env:
+          SYFT_GOLANG_SEARCH_LOCAL_MOD_CACHE_LICENSES: "true"
         with:
-          path: .
+          path: sbom-input
           format: cyclonedx-json
           artifact-name: blittermib-${{ github.ref_name }}.cdx.json
           output-file: dist/blittermib-${{ github.ref_name }}.cdx.json

@@ -25,6 +25,7 @@ openspec/
 /mib-ingest
 /mib-migrate
 /dist/
+/sbom-input/
 *.exe
 *.test
 *.out
