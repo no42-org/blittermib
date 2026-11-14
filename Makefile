@@ -22,7 +22,7 @@ LIBSMI_MIN := 0.5.0
 # Dependabot or by hand alongside the matching GitHub Actions
 # workflow SHA in .github/workflows/code-quality.yml.
 GOVULNCHECK_VERSION := v1.1.4
-GOSEC_VERSION       := v2.26.1
+GOSEC_VERSION       := v2.30.0
 
 all: build
 
