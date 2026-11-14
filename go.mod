@@ -1,6 +1,6 @@
 module github.com/no42-org/blittermib
 
-go 1.26.10
+go 1.27.4
 
 require (
 	github.com/a-h/templ v0.3.1100
